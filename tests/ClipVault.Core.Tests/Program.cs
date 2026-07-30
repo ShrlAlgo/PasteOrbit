@@ -33,6 +33,29 @@ var protectedText = UserDataProtector.ProtectText("仅当前用户可读取");
 Assert(protectedText.AsSpan().IndexOf("仅当前用户可读取"u8) < 0, "密文不应包含明文");
 Assert(UserDataProtector.UnprotectText(protectedText) == "仅当前用户可读取", "DPAPI 应能往返解密");
 
+var testDirectory = Path.Combine(Path.GetTempPath(), "ClipVault.Tests", Guid.NewGuid().ToString("N"));
+var databasePath = Path.Combine(testDirectory, "history.db");
+try
+{
+    var repository = new ClipboardRepository(databasePath);
+    repository.Initialize();
+    repository.Upsert(second);
+
+    var loaded = repository.Load();
+    Assert(loaded.Count == 1, "SQLite 应加载已保存记录");
+    Assert(loaded[0].Id == second.Id, "SQLite 应保留记录标识");
+    Assert(loaded[0].SearchText == second.SearchText, "SQLite 应解密检索文本");
+    Assert(loaded[0].Content.AsSpan().SequenceEqual(second.Content), "SQLite 应解密内容");
+    Assert(File.ReadAllBytes(databasePath).AsSpan().IndexOf("second"u8) < 0, "数据库不应出现检索明文");
+}
+finally
+{
+    if (Directory.Exists(testDirectory))
+    {
+        Directory.Delete(testDirectory, true);
+    }
+}
+
 Console.WriteLine("ClipVault.Core checks passed.");
 
 static void Assert(bool condition, string message)
