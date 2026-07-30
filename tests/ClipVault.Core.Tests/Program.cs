@@ -28,6 +28,14 @@ Assert(first.Id == second.Id, "重复内容应更新原记录");
 Assert(second.SearchText == "second", "重复记录应更新检索文本");
 Assert(second.SourceApplication == "browser", "重复记录应更新来源应用");
 Assert(second.UpdatedAt > first.UpdatedAt, "重复记录应更新时间");
+Assert(history.Search("SECOND").Single().Id == second.Id, "搜索应忽略文本大小写");
+Assert(history.Search("browser").Single().Id == second.Id, "搜索应匹配来源应用");
+Assert(history.Search(null, ClipboardContentKind.Image).Count == 0, "类型筛选应排除其他内容");
+
+var pinnedResult = history.SetPinned(second.Id, true);
+Assert(pinnedResult?.IsPinned == true, "记录应可置顶");
+Assert(history.Remove(second.Id), "记录应可删除");
+Assert(history.GetSnapshot().Count == 0, "删除后记录不应保留");
 
 var protectedText = UserDataProtector.ProtectText("仅当前用户可读取");
 Assert(protectedText.AsSpan().IndexOf("仅当前用户可读取"u8) < 0, "密文不应包含明文");

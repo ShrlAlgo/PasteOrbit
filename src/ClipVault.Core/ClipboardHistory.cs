@@ -27,7 +27,24 @@ public sealed class ClipboardHistory
     {
         lock (_syncRoot)
         {
-            return _items.ToArray();
+            return OrderItems(_items).ToArray();
+        }
+    }
+
+    public IReadOnlyList<ClipboardItem> Search(string? query, ClipboardContentKind? kind = null)
+    {
+        var term = query?.Trim();
+        lock (_syncRoot)
+        {
+            var matches = _items.Where(item => kind is null || item.Kind == kind);
+            if (!string.IsNullOrEmpty(term))
+            {
+                matches = matches.Where(item =>
+                    item.SearchText.Contains(term, StringComparison.CurrentCultureIgnoreCase)
+                    || item.SourceApplication?.Contains(term, StringComparison.CurrentCultureIgnoreCase) == true);
+            }
+
+            return OrderItems(matches).ToArray();
         }
     }
 
@@ -107,11 +124,55 @@ public sealed class ClipboardHistory
         return removedIds;
     }
 
+    public ClipboardItem? SetPinned(Guid id, bool isPinned)
+    {
+        ClipboardItem? updated = null;
+        lock (_syncRoot)
+        {
+            var index = _items.FindIndex(item => item.Id == id);
+            if (index >= 0)
+            {
+                updated = _items[index] with { IsPinned = isPinned };
+                _items[index] = updated;
+            }
+        }
+
+        if (updated is not null)
+        {
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+
+        return updated;
+    }
+
+    public bool Remove(Guid id)
+    {
+        bool removed;
+        lock (_syncRoot)
+        {
+            removed = _items.RemoveAll(item => item.Id == id) > 0;
+        }
+
+        if (removed)
+        {
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+
+        return removed;
+    }
+
     private static string ComputeHash(ClipboardContentKind kind, byte[] content)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         hash.AppendData([(byte)kind]);
         hash.AppendData(content);
         return Convert.ToHexString(hash.GetHashAndReset());
+    }
+
+    private static IOrderedEnumerable<ClipboardItem> OrderItems(IEnumerable<ClipboardItem> items)
+    {
+        return items
+            .OrderByDescending(item => item.IsPinned)
+            .ThenByDescending(item => item.UpdatedAt);
     }
 }
