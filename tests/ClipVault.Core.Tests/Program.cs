@@ -29,6 +29,10 @@ Assert(second.SearchText == "second", "重复记录应更新检索文本");
 Assert(second.SourceApplication == "browser", "重复记录应更新来源应用");
 Assert(second.UpdatedAt > first.UpdatedAt, "重复记录应更新时间");
 
+var protectedText = UserDataProtector.ProtectText("仅当前用户可读取");
+Assert(protectedText.AsSpan().IndexOf("仅当前用户可读取"u8) < 0, "密文不应包含明文");
+Assert(UserDataProtector.UnprotectText(protectedText) == "仅当前用户可读取", "DPAPI 应能往返解密");
+
 Console.WriteLine("ClipVault.Core checks passed.");
 
 static void Assert(bool condition, string message)
