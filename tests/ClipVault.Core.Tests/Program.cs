@@ -47,6 +47,25 @@ try
     Assert(loaded[0].SearchText == second.SearchText, "SQLite 应解密检索文本");
     Assert(loaded[0].Content.AsSpan().SequenceEqual(second.Content), "SQLite 应解密内容");
     Assert(File.ReadAllBytes(databasePath).AsSpan().IndexOf("second"u8) < 0, "数据库不应出现检索明文");
+
+    var pinned = second with { Id = Guid.NewGuid(), ContentHash = "pinned", IsPinned = true, UpdatedAt = now };
+    var expired = second with { Id = Guid.NewGuid(), ContentHash = "expired", UpdatedAt = now.AddDays(-31) };
+    var recent = second with { Id = Guid.NewGuid(), ContentHash = "recent", UpdatedAt = now.AddMinutes(1) };
+    var cleanupHistory = new ClipboardHistory([pinned, expired, recent]);
+    var removed = cleanupHistory.Cleanup(now.AddDays(-30), 1);
+    Assert(removed.Contains(expired.Id), "过期普通记录应被清理");
+    Assert(cleanupHistory.GetSnapshot().Any(candidate => candidate.Id == pinned.Id), "置顶记录不应被清理");
+    Assert(cleanupHistory.GetSnapshot().Any(candidate => candidate.Id == recent.Id), "限制内的新记录应被保留");
+
+    repository.Upsert(expired);
+    repository.Delete([expired.Id]);
+    Assert(repository.Load().Count == 1, "SQLite 应删除清理出的记录");
+
+    var corruptPath = Path.Combine(testDirectory, "corrupt.db");
+    File.WriteAllText(corruptPath, "not a sqlite database");
+    var recoveredRepository = new ClipboardRepository(corruptPath);
+    Assert(recoveredRepository.InitializeAndLoad().Count == 0, "损坏数据库应恢复为空库");
+    Assert(File.Exists(recoveredRepository.LastRecoveryPath), "损坏数据库原文件应被保留");
 }
 finally
 {

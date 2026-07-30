@@ -13,6 +13,14 @@ public sealed class ClipboardHistory
     private readonly List<ClipboardItem> _items = [];
     private readonly object _syncRoot = new();
 
+    public ClipboardHistory(IEnumerable<ClipboardItem>? items = null)
+    {
+        if (items is not null)
+        {
+            _items.AddRange(items.OrderByDescending(item => item.UpdatedAt));
+        }
+    }
+
     public event EventHandler? Changed;
 
     public IReadOnlyList<ClipboardItem> GetSnapshot()
@@ -67,6 +75,36 @@ public sealed class ClipboardHistory
 
         Changed?.Invoke(this, EventArgs.Empty);
         return item;
+    }
+
+    public IReadOnlyList<Guid> Cleanup(DateTimeOffset cutoff, int maxEntries)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxEntries);
+        List<Guid> removedIds;
+
+        lock (_syncRoot)
+        {
+            var expired = _items
+                .Where(item => !item.IsPinned && item.UpdatedAt < cutoff)
+                .Select(item => item.Id)
+                .ToHashSet();
+            var retained = _items
+                .Where(item => !item.IsPinned && !expired.Contains(item.Id))
+                .OrderByDescending(item => item.UpdatedAt)
+                .Skip(maxEntries)
+                .Select(item => item.Id);
+
+            expired.UnionWith(retained);
+            removedIds = expired.ToList();
+            _items.RemoveAll(item => expired.Contains(item.Id));
+        }
+
+        if (removedIds.Count > 0)
+        {
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+
+        return removedIds;
     }
 
     private static string ComputeHash(ClipboardContentKind kind, byte[] content)

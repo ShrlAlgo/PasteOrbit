@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using Microsoft.Data.Sqlite;
 
 namespace ClipVault.Core;
@@ -20,6 +21,29 @@ public sealed class ClipboardRepository
     }
 
     public string DatabasePath { get; }
+
+    public string? LastRecoveryPath { get; private set; }
+
+    public IReadOnlyList<ClipboardItem> InitializeAndLoad()
+    {
+        try
+        {
+            Initialize();
+            return Load();
+        }
+        catch (Exception exception) when (exception is SqliteException or CryptographicException or FormatException)
+        {
+            // 保留损坏数据库供人工恢复，不在原文件上继续写入。
+            if (File.Exists(DatabasePath))
+            {
+                LastRecoveryPath = $"{DatabasePath}.corrupt-{DateTime.UtcNow:yyyyMMddHHmmss}";
+                File.Move(DatabasePath, LastRecoveryPath);
+            }
+
+            Initialize();
+            return [];
+        }
+    }
 
     public void Initialize()
     {
@@ -108,6 +132,26 @@ public sealed class ClipboardRepository
         command.Parameters.AddWithValue("$updated_at", item.UpdatedAt.ToString("O", CultureInfo.InvariantCulture));
         command.Parameters.AddWithValue("$is_pinned", item.IsPinned);
         command.ExecuteNonQuery();
+    }
+
+    public void Delete(IEnumerable<Guid> ids)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+
+        using var connection = OpenConnection();
+        using var transaction = connection.BeginTransaction();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "DELETE FROM clipboard_items WHERE id = $id;";
+        var idParameter = command.Parameters.Add("$id", SqliteType.Text);
+
+        foreach (var id in ids)
+        {
+            idParameter.Value = id.ToString("D");
+            command.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
     }
 
     private SqliteConnection OpenConnection()
