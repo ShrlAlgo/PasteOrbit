@@ -8,6 +8,7 @@ public partial class MainWindow : Window
     private const int MaxHistoryEntries = 5000;
     private static readonly TimeSpan RetentionPeriod = TimeSpan.FromDays(30);
     private readonly ClipboardHistory _history;
+    private readonly GlobalHotKey _hotKey = new();
     private readonly ClipboardMonitor _monitor = new();
     private readonly ClipboardRepository _repository;
     private bool _storageAvailable = true;
@@ -37,6 +38,7 @@ public partial class MainWindow : Window
 
         _monitor.Captured += Monitor_Captured;
         _monitor.CaptureFailed += Monitor_CaptureFailed;
+        _hotKey.Pressed += HotKey_Pressed;
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -50,6 +52,7 @@ public partial class MainWindow : Window
         }
 
         _monitor.Start(this);
+        _hotKey.Start(this);
         StatusText.Text = _repository.LastRecoveryPath is null
             ? $"正在监听剪切板 · {_history.GetSnapshot().Count} 条记录"
             : "检测到损坏数据库，原文件已保留并创建新库";
@@ -58,7 +61,19 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _monitor.Dispose();
+        _hotKey.Dispose();
         base.OnClosed(e);
+    }
+
+    private void HotKey_Pressed(IntPtr foregroundWindow)
+    {
+        if (!IsVisible)
+        {
+            Show();
+        }
+
+        Activate();
+        StatusText.Focus();
     }
 
     private void Monitor_Captured(ClipboardCapture capture)
