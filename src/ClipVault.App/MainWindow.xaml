@@ -5,8 +5,12 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:ClipVault.App"
         mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="800">
+        Title="ClipVault" Height="240" Width="420">
     <Grid>
-
+        <TextBlock x:Name="StatusText"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   FontSize="16"
+                   Text="正在启动剪切板监听…" />
     </Grid>
 </Window>
