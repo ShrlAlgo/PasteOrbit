@@ -1,10 +1,12 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\ClipVault.Core\ClipVault.Core.csproj" />
+    <ProjectReference Include="..\..\src\PasteOrbit.Core\PasteOrbit.Core.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
+    <AssemblyName>PasteOrbit.Core.Tests</AssemblyName>
+    <RootNamespace>PasteOrbit.Core.Tests</RootNamespace>
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>

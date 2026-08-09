@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 
-namespace ClipVault.Core;
+namespace PasteOrbit.Core;
 
 public static class UserDataProtector
 {

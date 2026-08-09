@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using Microsoft.Data.Sqlite;
 
-namespace ClipVault.Core;
+namespace PasteOrbit.Core;
 
 public sealed class ClipboardRepository
 {
@@ -24,12 +24,17 @@ public sealed class ClipboardRepository
 
     public string? LastRecoveryPath { get; private set; }
 
-    public IReadOnlyList<ClipboardItem> InitializeAndLoad()
+    public IReadOnlyList<ClipboardHistoryEntry> InitializeAndLoadEntries()
+    {
+        return InitializeAndLoad(LoadEntries, static () => Array.Empty<ClipboardHistoryEntry>());
+    }
+
+    private T InitializeAndLoad<T>(Func<T> load, Func<T> createEmpty)
     {
         try
         {
             Initialize();
-            return Load();
+            return load();
         }
         catch (Exception exception) when (exception is SqliteException or CryptographicException or FormatException)
         {
@@ -41,7 +46,7 @@ public sealed class ClipboardRepository
             }
 
             Initialize();
-            return [];
+            return createEmpty();
         }
     }
 
@@ -69,39 +74,76 @@ public sealed class ClipboardRepository
         command.ExecuteNonQuery();
     }
 
-    public IReadOnlyList<ClipboardItem> Load()
+    public IReadOnlyList<ClipboardHistoryEntry> LoadEntries()
     {
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT id, kind, content_hash, search_text, content, source_application,
+            SELECT id, kind, content_hash, search_text, source_application,
                    created_at, updated_at, is_pinned
             FROM clipboard_items
             ORDER BY is_pinned DESC, updated_at DESC;
             """;
 
         using var reader = command.ExecuteReader();
-        var items = new List<ClipboardItem>();
+        var entries = new List<ClipboardHistoryEntry>();
         while (reader.Read())
         {
-            items.Add(new ClipboardItem(
+            entries.Add(new ClipboardHistoryEntry(
                 Guid.Parse(reader.GetString(0)),
                 (ClipboardContentKind)reader.GetInt32(1),
                 reader.GetString(2),
                 UserDataProtector.UnprotectText((byte[])reader[3]),
-                UserDataProtector.Unprotect((byte[])reader[4]),
-                reader.IsDBNull(5) ? null : UserDataProtector.UnprotectText((byte[])reader[5]),
+                reader.IsDBNull(4) ? null : UserDataProtector.UnprotectText((byte[])reader[4]),
+                DateTimeOffset.Parse(reader.GetString(5), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
                 DateTimeOffset.Parse(reader.GetString(6), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
-                DateTimeOffset.Parse(reader.GetString(7), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
-                reader.GetBoolean(8)));
+                reader.GetBoolean(7)));
         }
 
-        return items;
+        return entries;
     }
 
-    public void Upsert(ClipboardItem item)
+    public byte[] LoadContent(Guid id)
     {
-        ArgumentNullException.ThrowIfNull(item);
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT content FROM clipboard_items WHERE id = $id;";
+        command.Parameters.AddWithValue("$id", id.ToString("D"));
+        var protectedContent = command.ExecuteScalar() as byte[];
+        return protectedContent is null
+            ? throw new KeyNotFoundException($"找不到剪切板记录：{id:D}")
+            : UserDataProtector.Unprotect(protectedContent);
+    }
+
+    public void Upsert(ClipboardHistoryEntry entry, byte[] content)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        ArgumentNullException.ThrowIfNull(content);
+        ArgumentOutOfRangeException.ThrowIfZero(content.Length);
+
+        UpsertCore(
+            entry.Id,
+            entry.Kind,
+            entry.ContentHash,
+            entry.SearchText,
+            content,
+            entry.SourceApplication,
+            entry.CreatedAt,
+            entry.UpdatedAt,
+            entry.IsPinned);
+    }
+
+    private void UpsertCore(
+        Guid id,
+        ClipboardContentKind kind,
+        string contentHash,
+        string searchText,
+        byte[] content,
+        string? sourceApplication,
+        DateTimeOffset createdAt,
+        DateTimeOffset updatedAt,
+        bool isPinned)
+    {
 
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
@@ -120,23 +162,38 @@ public sealed class ClipboardRepository
                 is_pinned = excluded.is_pinned;
             """;
 
-        command.Parameters.AddWithValue("$id", item.Id.ToString("D"));
-        command.Parameters.AddWithValue("$kind", (int)item.Kind);
-        command.Parameters.AddWithValue("$content_hash", item.ContentHash);
-        command.Parameters.Add("$search_text", SqliteType.Blob).Value = UserDataProtector.ProtectText(item.SearchText);
-        command.Parameters.Add("$content", SqliteType.Blob).Value = UserDataProtector.Protect(item.Content);
-        command.Parameters.Add("$source_application", SqliteType.Blob).Value = item.SourceApplication is null
+        command.Parameters.AddWithValue("$id", id.ToString("D"));
+        command.Parameters.AddWithValue("$kind", (int)kind);
+        command.Parameters.AddWithValue("$content_hash", contentHash);
+        command.Parameters.Add("$search_text", SqliteType.Blob).Value = UserDataProtector.ProtectText(searchText);
+        command.Parameters.Add("$content", SqliteType.Blob).Value = UserDataProtector.Protect(content);
+        command.Parameters.Add("$source_application", SqliteType.Blob).Value = sourceApplication is null
             ? DBNull.Value
-            : UserDataProtector.ProtectText(item.SourceApplication);
-        command.Parameters.AddWithValue("$created_at", item.CreatedAt.ToString("O", CultureInfo.InvariantCulture));
-        command.Parameters.AddWithValue("$updated_at", item.UpdatedAt.ToString("O", CultureInfo.InvariantCulture));
-        command.Parameters.AddWithValue("$is_pinned", item.IsPinned);
+            : UserDataProtector.ProtectText(sourceApplication);
+        command.Parameters.AddWithValue("$created_at", createdAt.ToString("O", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$updated_at", updatedAt.ToString("O", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$is_pinned", isPinned);
         command.ExecuteNonQuery();
+    }
+
+    public bool SetPinned(Guid id, bool isPinned)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE clipboard_items SET is_pinned = $is_pinned WHERE id = $id;";
+        command.Parameters.AddWithValue("$id", id.ToString("D"));
+        command.Parameters.AddWithValue("$is_pinned", isPinned);
+        return command.ExecuteNonQuery() > 0;
     }
 
     public void Delete(IEnumerable<Guid> ids)
     {
         ArgumentNullException.ThrowIfNull(ids);
+        using var enumerator = ids.GetEnumerator();
+        if (!enumerator.MoveNext())
+        {
+            return;
+        }
 
         using var connection = OpenConnection();
         using var transaction = connection.BeginTransaction();
@@ -145,11 +202,12 @@ public sealed class ClipboardRepository
         command.CommandText = "DELETE FROM clipboard_items WHERE id = $id;";
         var idParameter = command.Parameters.Add("$id", SqliteType.Text);
 
-        foreach (var id in ids)
+        do
         {
-            idParameter.Value = id.ToString("D");
+            idParameter.Value = enumerator.Current.ToString("D");
             command.ExecuteNonQuery();
         }
+        while (enumerator.MoveNext());
 
         transaction.Commit();
     }

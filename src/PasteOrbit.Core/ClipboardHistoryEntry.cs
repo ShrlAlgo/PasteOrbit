@@ -1,18 +1,10 @@
-namespace ClipVault.Core;
+namespace PasteOrbit.Core;
 
-public enum ClipboardContentKind
-{
-    Text,
-    Image,
-    Files
-}
-
-public sealed record ClipboardItem(
+public sealed record ClipboardHistoryEntry(
     Guid Id,
     ClipboardContentKind Kind,
     string ContentHash,
     string SearchText,
-    byte[] Content,
     string? SourceApplication,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,

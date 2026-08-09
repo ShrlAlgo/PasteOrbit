@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 
-namespace ClipVault.Core;
+namespace PasteOrbit.Core;
 
 public sealed record ClipboardCapture(
     ClipboardContentKind Kind,
@@ -10,10 +10,10 @@ public sealed record ClipboardCapture(
 
 public sealed class ClipboardHistory
 {
-    private readonly List<ClipboardItem> _items = [];
+    private readonly List<ClipboardHistoryEntry> _items = [];
     private readonly object _syncRoot = new();
 
-    public ClipboardHistory(IEnumerable<ClipboardItem>? items = null)
+    public ClipboardHistory(IEnumerable<ClipboardHistoryEntry>? items = null)
     {
         if (items is not null)
         {
@@ -21,17 +21,26 @@ public sealed class ClipboardHistory
         }
     }
 
-    public event EventHandler? Changed;
-
-    public IReadOnlyList<ClipboardItem> GetSnapshot()
+    public int Count
     {
-        lock (_syncRoot)
+        get
         {
-            return OrderItems(_items).ToArray();
+            lock (_syncRoot)
+            {
+                return _items.Count;
+            }
         }
     }
 
-    public IReadOnlyList<ClipboardItem> Search(string? query, ClipboardContentKind? kind = null)
+    public IReadOnlyList<ClipboardHistoryEntry> GetSnapshot()
+    {
+        lock (_syncRoot)
+        {
+            return OrderItems(_items);
+        }
+    }
+
+    public IReadOnlyList<ClipboardHistoryEntry> Search(string? query, ClipboardContentKind? kind = null)
     {
         var term = query?.Trim();
         lock (_syncRoot)
@@ -44,18 +53,18 @@ public sealed class ClipboardHistory
                     || item.SourceApplication?.Contains(term, StringComparison.CurrentCultureIgnoreCase) == true);
             }
 
-            return OrderItems(matches).ToArray();
+            return OrderItems(matches);
         }
     }
 
-    public ClipboardItem AddOrUpdate(ClipboardCapture capture, DateTimeOffset? capturedAt = null)
+    public ClipboardHistoryEntry AddOrUpdate(ClipboardCapture capture, DateTimeOffset? capturedAt = null)
     {
         ArgumentNullException.ThrowIfNull(capture);
         ArgumentOutOfRangeException.ThrowIfZero(capture.Content.Length);
 
         var now = capturedAt ?? DateTimeOffset.UtcNow;
         var contentHash = ComputeHash(capture.Kind, capture.Content);
-        ClipboardItem item;
+        ClipboardHistoryEntry item;
 
         lock (_syncRoot)
         {
@@ -68,7 +77,6 @@ public sealed class ClipboardHistory
                 item = existing with
                 {
                     SearchText = capture.SearchText,
-                    Content = capture.Content,
                     SourceApplication = capture.SourceApplication,
                     UpdatedAt = now
                 };
@@ -76,12 +84,11 @@ public sealed class ClipboardHistory
             }
             else
             {
-                item = new ClipboardItem(
+                item = new ClipboardHistoryEntry(
                     Guid.NewGuid(),
                     capture.Kind,
                     contentHash,
                     capture.SearchText,
-                    capture.Content,
                     capture.SourceApplication,
                     now,
                     now);
@@ -90,43 +97,42 @@ public sealed class ClipboardHistory
             _items.Insert(0, item);
         }
 
-        Changed?.Invoke(this, EventArgs.Empty);
         return item;
     }
 
     public IReadOnlyList<Guid> Cleanup(DateTimeOffset cutoff, int maxEntries)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maxEntries);
-        List<Guid> removedIds;
+        var removedIds = new List<Guid>();
 
         lock (_syncRoot)
         {
-            var expired = _items
-                .Where(item => !item.IsPinned && item.UpdatedAt < cutoff)
-                .Select(item => item.Id)
-                .ToHashSet();
-            var retained = _items
-                .Where(item => !item.IsPinned && !expired.Contains(item.Id))
-                .OrderByDescending(item => item.UpdatedAt)
-                .Skip(maxEntries)
-                .Select(item => item.Id);
+            var retainedCount = 0;
+            _items.RemoveAll(item =>
+            {
+                if (item.IsPinned)
+                {
+                    return false;
+                }
 
-            expired.UnionWith(retained);
-            removedIds = expired.ToList();
-            _items.RemoveAll(item => expired.Contains(item.Id));
-        }
+                var shouldRemove = item.UpdatedAt < cutoff || retainedCount >= maxEntries;
+                if (shouldRemove)
+                {
+                    removedIds.Add(item.Id);
+                    return true;
+                }
 
-        if (removedIds.Count > 0)
-        {
-            Changed?.Invoke(this, EventArgs.Empty);
+                retainedCount++;
+                return false;
+            });
         }
 
         return removedIds;
     }
 
-    public ClipboardItem? SetPinned(Guid id, bool isPinned)
+    public ClipboardHistoryEntry? SetPinned(Guid id, bool isPinned)
     {
-        ClipboardItem? updated = null;
+        ClipboardHistoryEntry? updated = null;
         lock (_syncRoot)
         {
             var index = _items.FindIndex(item => item.Id == id);
@@ -135,11 +141,6 @@ public sealed class ClipboardHistory
                 updated = _items[index] with { IsPinned = isPinned };
                 _items[index] = updated;
             }
-        }
-
-        if (updated is not null)
-        {
-            Changed?.Invoke(this, EventArgs.Empty);
         }
 
         return updated;
@@ -153,11 +154,6 @@ public sealed class ClipboardHistory
             removed = _items.RemoveAll(item => item.Id == id) > 0;
         }
 
-        if (removed)
-        {
-            Changed?.Invoke(this, EventArgs.Empty);
-        }
-
         return removed;
     }
 
@@ -169,10 +165,15 @@ public sealed class ClipboardHistory
         return Convert.ToHexString(hash.GetHashAndReset());
     }
 
-    private static IOrderedEnumerable<ClipboardItem> OrderItems(IEnumerable<ClipboardItem> items)
+    private static ClipboardHistoryEntry[] OrderItems(IEnumerable<ClipboardHistoryEntry> items)
     {
-        return items
-            .OrderByDescending(item => item.IsPinned)
-            .ThenByDescending(item => item.UpdatedAt);
+        var pinnedItems = new List<ClipboardHistoryEntry>();
+        var regularItems = new List<ClipboardHistoryEntry>();
+        foreach (var item in items)
+        {
+            (item.IsPinned ? pinnedItems : regularItems).Add(item);
+        }
+
+        return [.. pinnedItems, .. regularItems];
     }
 }

@@ -1,0 +1,272 @@
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.Json;
+using PasteOrbit.Core;
+using Windows.ApplicationModel.DataTransfer;
+using Windows.Storage;
+using Windows.Storage.Streams;
+
+namespace PasteOrbit.App;
+
+public static class ClipboardPlayback
+{
+    private const int RetryCount = 3;
+    private const int ShowRestore = 9;
+    private const uint InputKeyboard = 1;
+    private const uint KeyUp = 0x0002;
+    private const ushort KeyControl = 0x11;
+    private const ushort KeyV = 0x56;
+    private static IRandomAccessStream? _clipboardStream;
+
+    public static async Task<bool> PlayAsync(
+        ClipboardHistoryEntry item,
+        byte[] content,
+        IntPtr targetWindow,
+        IntPtr focusWindow = default,
+        Action? restoreInputFocus = null)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        ArgumentNullException.ThrowIfNull(content);
+
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                await WriteClipboardAsync(item, content);
+                break;
+            }
+            catch (COMException) when (attempt < RetryCount - 1)
+            {
+                await Task.Delay(40 * (attempt + 1));
+            }
+        }
+
+        if (targetWindow == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        if (!ActivateTargetWindow(targetWindow, focusWindow))
+        {
+            return false;
+        }
+
+        restoreInputFocus?.Invoke();
+        await Task.Delay(100);
+        var inputs = new[]
+        {
+            CreateKeyInput(KeyControl, false),
+            CreateKeyInput(KeyV, false),
+            CreateKeyInput(KeyV, true),
+            CreateKeyInput(KeyControl, true)
+        };
+        return SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<Input>()) == inputs.Length;
+    }
+
+    public static async Task<bool> SaveAsFileAsync(
+        ClipboardHistoryEntry item,
+        byte[] content,
+        IntPtr targetWindow)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        ArgumentNullException.ThrowIfNull(content);
+
+        if (targetWindow == IntPtr.Zero || !ActivateTargetWindow(targetWindow))
+        {
+            return false;
+        }
+
+        await Task.Delay(40);
+        return await ExplorerFilePaste.TrySaveAsync(item, content, targetWindow);
+    }
+
+    private static async Task WriteClipboardAsync(ClipboardHistoryEntry item, byte[] content)
+    {
+        if (item.Kind != ClipboardContentKind.Image)
+        {
+            _clipboardStream?.Dispose();
+            _clipboardStream = null;
+        }
+
+        var package = new DataPackage { RequestedOperation = DataPackageOperation.Copy };
+        switch (item.Kind)
+        {
+            case ClipboardContentKind.Text:
+                package.SetText(Encoding.UTF8.GetString(content));
+                break;
+            case ClipboardContentKind.Image:
+                _clipboardStream?.Dispose();
+                _clipboardStream = new InMemoryRandomAccessStream();
+                using (var output = _clipboardStream.GetOutputStreamAt(0))
+                using (var writer = new DataWriter(output))
+                {
+                    writer.WriteBytes(content);
+                    await writer.StoreAsync();
+                    await writer.FlushAsync();
+                }
+
+                _clipboardStream.Seek(0);
+                package.SetBitmap(RandomAccessStreamReference.CreateFromStream(_clipboardStream));
+                break;
+            case ClipboardContentKind.Files:
+                var paths = JsonSerializer.Deserialize<string[]>(content)
+                    ?? throw new InvalidDataException("文件剪切板内容无效。");
+                var storageItems = new List<IStorageItem>();
+                foreach (var path in paths)
+                {
+                    if (File.Exists(path))
+                    {
+                        storageItems.Add(await StorageFile.GetFileFromPathAsync(path));
+                    }
+                    else if (Directory.Exists(path))
+                    {
+                        storageItems.Add(await StorageFolder.GetFolderFromPathAsync(path));
+                    }
+                }
+
+                if (storageItems.Count == 0)
+                {
+                    throw new FileNotFoundException("文件剪切板内容已失效。");
+                }
+
+                package.SetStorageItems(storageItems);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(item), item.Kind, "不支持的剪切板内容类型。");
+        }
+
+        Clipboard.SetContent(package);
+        Clipboard.Flush();
+    }
+
+    private static bool ActivateTargetWindow(IntPtr targetWindow, IntPtr focusWindow = default)
+    {
+        if (targetWindow == IntPtr.Zero || !IsWindow(targetWindow))
+        {
+            return false;
+        }
+
+        if (IsIconic(targetWindow))
+        {
+            ShowWindowAsync(targetWindow, ShowRestore);
+        }
+
+        var currentThreadId = GetCurrentThreadId();
+        var targetThreadId = GetWindowThreadProcessId(targetWindow, IntPtr.Zero);
+        var attached = targetThreadId != 0
+            && targetThreadId != currentThreadId
+            && AttachThreadInput(currentThreadId, targetThreadId, true);
+        try
+        {
+            BringWindowToTop(targetWindow);
+            if (!SetForegroundWindow(targetWindow))
+            {
+                return false;
+            }
+
+            if (focusWindow != IntPtr.Zero && IsWindow(focusWindow))
+            {
+                SetFocus(focusWindow);
+            }
+
+            return true;
+        }
+        finally
+        {
+            if (attached)
+            {
+                AttachThreadInput(currentThreadId, targetThreadId, false);
+            }
+        }
+    }
+
+    private static Input CreateKeyInput(ushort key, bool keyUp)
+    {
+        return new Input
+        {
+            Type = InputKeyboard,
+            Union = new InputUnion
+            {
+                Keyboard = new KeyboardInput
+                {
+                    VirtualKey = key,
+                    Flags = keyUp ? KeyUp : 0
+                }
+            }
+        };
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Input
+    {
+        public uint Type;
+        public InputUnion Union;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    private struct InputUnion
+    {
+        [FieldOffset(0)]
+        public MouseInput Mouse;
+
+        [FieldOffset(0)]
+        public KeyboardInput Keyboard;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MouseInput
+    {
+        public int DeltaX;
+        public int DeltaY;
+        public uint MouseData;
+        public uint Flags;
+        public uint Time;
+        public UIntPtr ExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KeyboardInput
+    {
+        public ushort VirtualKey;
+        public ushort ScanCode;
+        public uint Flags;
+        public uint Time;
+        public UIntPtr ExtraInfo;
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsIconic(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ShowWindowAsync(IntPtr hwnd, int command);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool BringWindowToTop(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hwnd, IntPtr processId);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool AttachThreadInput(uint attachThreadId, uint attachToThreadId, bool attach);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetFocus(IntPtr hwnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint SendInput(uint inputCount, Input[] inputs, int inputSize);
+}
