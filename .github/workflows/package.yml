@@ -1,0 +1,61 @@
+name: Package PasteOrbit
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Optional package version, for example 1.2.0
+        required: false
+        type: string
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish
+        id: publish
+        shell: pwsh
+        run: |
+          $version = '${{ github.event.inputs.version }}'
+          if ([string]::IsNullOrWhiteSpace($version) -and $env:GITHUB_REF_TYPE -eq 'tag') {
+            $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          }
+
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            .\Scripts\Publish.ps1
+          }
+          else {
+            .\Scripts\Publish.ps1 -Version $version
+          }
+
+          $archive = Get-ChildItem -LiteralPath .\artifacts -Filter 'PasteOrbit-*.zip' -File |
+            Select-Object -First 1
+          if ($null -eq $archive) {
+            throw '未找到发布压缩包。'
+          }
+
+          "archive=$($archive.FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: PasteOrbit-win-x64
+          path: ${{ steps.publish.outputs.archive }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
