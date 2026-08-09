@@ -11,10 +11,6 @@
 
     <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" Version="2.3.1" />
 
-    <PackageReference Include="CommunityToolkit.WinUI.Controls.SettingsControls" Version="8.2.250402" />
-
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.250108002" ExcludeAssets="build;buildTransitive" />
-
   </ItemGroup>
 
   <PropertyGroup>

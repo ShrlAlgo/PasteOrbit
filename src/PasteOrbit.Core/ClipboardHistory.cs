@@ -157,6 +157,16 @@ public sealed class ClipboardHistory
         return removed;
     }
 
+    public void ReplaceAll(IEnumerable<ClipboardHistoryEntry> items)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+        lock (_syncRoot)
+        {
+            _items.Clear();
+            _items.AddRange(items.OrderByDescending(item => item.UpdatedAt));
+        }
+    }
+
     private static string ComputeHash(ClipboardContentKind kind, byte[] content)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);

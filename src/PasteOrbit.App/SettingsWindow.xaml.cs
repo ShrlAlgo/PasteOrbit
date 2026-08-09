@@ -1,15 +1,18 @@
-using System.Collections.Generic;
-using System.IO;
 using System.Runtime.InteropServices;
 using System.Security;
-using Microsoft.Win32;
+using System.Security.Cryptography;
+
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
-using WinRT.Interop;
+using Microsoft.Win32;
+
 using Windows.Graphics;
+using Windows.Storage.Pickers;
+
+using WinRT.Interop;
 
 namespace PasteOrbit.App;
 
@@ -23,6 +26,8 @@ public sealed partial class SettingsWindow : Window
     private const string StartupRunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string StartupValueName = "PasteOrbit";
     private readonly AppSettingsStore _store;
+    private readonly Func<string, Task> _exportBackup;
+    private readonly Func<string, Task> _restoreBackup;
     private bool _isInitialized;
     private bool _isLoadingSettings;
     private bool _configured;
@@ -32,10 +37,16 @@ public sealed partial class SettingsWindow : Window
     private string? _currentPageTag;
     private bool _isNavigatingBack;
 
-    public SettingsWindow(AppSettings settings, AppSettingsStore store)
+    public SettingsWindow(
+        AppSettings settings,
+        AppSettingsStore store,
+        Func<string, Task> exportBackup,
+        Func<string, Task> restoreBackup)
     {
         InitializeComponent();
         _store = store;
+        _exportBackup = exportBackup;
+        _restoreBackup = restoreBackup;
         _currentPageTag = "General";
         _isInitialized = true;
         ApplyThemeSettings(settings.ThemeMode);
@@ -100,6 +111,7 @@ public sealed partial class SettingsWindow : Window
         MonitorTextToggleSwitch.IsOn = settings.MonitorText;
         MonitorImagesToggleSwitch.IsOn = settings.MonitorImages;
         MonitorFilesToggleSwitch.IsOn = settings.MonitorFiles;
+        ExcludedApplicationsTextBox.Text = settings.ExcludedApplications;
         HotKeyTextBox.Text = GlobalHotKey.TryNormalizeShortcut(settings.GlobalHotKey, out var normalizedShortcut)
             ? normalizedShortcut
             : new AppSettings().GlobalHotKey;
@@ -175,6 +187,7 @@ public sealed partial class SettingsWindow : Window
         DensityComboBox.SelectionChanged += SettingComboBox_Changed;
         RetentionDaysComboBox.SelectionChanged += SettingComboBox_Changed;
         MaxEntriesComboBox.SelectionChanged += SettingComboBox_Changed;
+        ExcludedApplicationsTextBox.LostFocus += SettingTextBox_LostFocus;
     }
 
     private void SettingToggleSwitch_Changed(object sender, RoutedEventArgs e)
@@ -183,6 +196,11 @@ public sealed partial class SettingsWindow : Window
     }
 
     private void SettingComboBox_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        ApplyCurrentSettings();
+    }
+
+    private void SettingTextBox_LostFocus(object sender, RoutedEventArgs e)
     {
         ApplyCurrentSettings();
     }
@@ -244,6 +262,7 @@ public sealed partial class SettingsWindow : Window
             MonitorText = MonitorTextToggleSwitch.IsOn,
             MonitorImages = MonitorImagesToggleSwitch.IsOn,
             MonitorFiles = MonitorFilesToggleSwitch.IsOn,
+            ExcludedApplications = ExcludedApplicationsTextBox.Text.Trim(),
             GlobalHotKey = GetCurrentHotKey(),
             PasteShortcut = PasteShortcutTextBox.Text,
             PlainTextPasteShortcut = PlainTextPasteShortcutTextBox.Text,
@@ -324,6 +343,92 @@ public sealed partial class SettingsWindow : Window
         LoadSettings(new AppSettings(), includeSystemStartup: false);
         _isLoadingSettings = false;
         ApplyCurrentSettings();
+    }
+
+    private async void ExportBackupButton_Click(object sender, RoutedEventArgs e)
+    {
+        var picker = new FileSavePicker
+        {
+            SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+            SuggestedFileName = $"PasteOrbit-{DateTime.Now:yyyyMMdd-HHmmss}"
+        };
+        picker.FileTypeChoices.Add("PasteOrbit 加密备份", [".pobackup"]);
+        InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+        var file = await picker.PickSaveFileAsync();
+        if (file is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _exportBackup(file.Path);
+            await ShowMessageAsync("备份已导出", "历史记录和设置已写入加密备份文件。");
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or CryptographicException)
+        {
+            await ShowMessageAsync("导出失败", exception.Message);
+        }
+    }
+
+    private async void RestoreBackupButton_Click(object sender, RoutedEventArgs e)
+    {
+        var picker = new FileOpenPicker
+        {
+            SuggestedStartLocation = PickerLocationId.DocumentsLibrary
+        };
+        picker.FileTypeFilter.Add(".pobackup");
+        InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+        var file = await picker.PickSingleFileAsync();
+        if (file is null)
+        {
+            return;
+        }
+
+        var confirmation = new ContentDialog
+        {
+            Title = "恢复本地备份？",
+            Content = "当前历史记录和设置将被备份内容替换，恢复前会自动保留一份本机副本。",
+            PrimaryButtonText = "恢复",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = SettingsRoot.XamlRoot
+        };
+        if (await confirmation.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        try
+        {
+            await _restoreBackup(file.Path);
+            var restoredSettings = _store.Load();
+            ApplyStartWithWindows(restoredSettings.StartWithWindows);
+            _isLoadingSettings = true;
+            LoadSettings(restoredSettings, includeSystemStartup: false);
+            _isLoadingSettings = false;
+            ApplyThemeSettings(restoredSettings.ThemeMode);
+            await ShowMessageAsync("恢复完成", "历史记录和设置已恢复。");
+        }
+        catch (Exception exception) when (exception is IOException
+                                           or UnauthorizedAccessException
+                                           or CryptographicException
+                                           or InvalidDataException)
+        {
+            await ShowMessageAsync("恢复失败", exception.Message);
+        }
+    }
+
+    private async Task ShowMessageAsync(string title, string message)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = title,
+            Content = message,
+            CloseButtonText = "确定",
+            XamlRoot = SettingsRoot.XamlRoot
+        };
+        await dialog.ShowAsync();
     }
 
     private async Task ShowSaveErrorAsync()

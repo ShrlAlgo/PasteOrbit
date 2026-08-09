@@ -19,6 +19,7 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
     private BitmapImage? _thumbnail;
     private string? _richTextContent;
     private string _formatLabel = string.Empty;
+    private string _quickPasteLabel = string.Empty;
     private string _metadata;
     private bool _previewRequested;
     private bool _textMetadataLoaded;
@@ -102,12 +103,31 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
         ? Visibility.Collapsed
         : Visibility.Visible;
 
+    public string QuickPasteLabel => _quickPasteLabel;
+
+    public Visibility QuickPasteVisibility => string.IsNullOrEmpty(_quickPasteLabel)
+        ? Visibility.Collapsed
+        : Visibility.Visible;
+
     internal string? RichTextContent => _richTextContent;
 
     public static HistoryListItem From(ClipboardHistoryEntry item)
     {
         ArgumentNullException.ThrowIfNull(item);
         return new HistoryListItem(item);
+    }
+
+    public void SetQuickPasteIndex(int? index)
+    {
+        var label = index is null ? string.Empty : (index.Value + 1).ToString();
+        if (_quickPasteLabel == label)
+        {
+            return;
+        }
+
+        _quickPasteLabel = label;
+        OnPropertyChanged(nameof(QuickPasteLabel));
+        OnPropertyChanged(nameof(QuickPasteVisibility));
     }
 
     public Task EnsurePreviewLoadedAsync(Func<Guid, byte[]> loadContent)
@@ -221,16 +241,42 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
     private void ApplyTextContent(ClipboardTextContent content)
     {
         _richTextContent = content.Rtf;
-        _formatLabel = (content.Html, content.Rtf) switch
+        var hasHtmlFormatting = HasMeaningfulHtmlFormatting(content.Html);
+        _formatLabel = (hasHtmlFormatting, content.Rtf is not null) switch
         {
-            (not null, not null) => "HTML · RTF",
-            (not null, null) => "HTML",
-            (null, not null) => "RTF",
+            (true, true) => "HTML · RTF",
+            (true, false) => "HTML",
+            (false, true) => "RTF",
             _ => string.Empty
         };
         _textMetadataLoaded = true;
         OnPropertyChanged(nameof(FormatLabel));
         OnPropertyChanged(nameof(FormatBadgeVisibility));
+    }
+
+    // CF_HTML 常会附带在普通文本后，只在存在实际富格式标记时展示 HTML 标签。
+    private static bool HasMeaningfulHtmlFormatting(string? html)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+        {
+            return false;
+        }
+
+        ReadOnlySpan<string> richMarkers =
+        [
+            "<a ", "<b>", "<b ", "<strong", "<i>", "<i ", "<em", "<u>", "<u ",
+            "<s>", "<s ", "<table", "<img", "<ul", "<ol", "<li", "<h1", "<h2", "<h3",
+            " style=", " class="
+        ];
+        foreach (var marker in richMarkers)
+        {
+            if (html.Contains(marker, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private async Task LoadImagePreviewAsync(byte[] content)

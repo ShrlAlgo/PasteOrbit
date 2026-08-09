@@ -28,13 +28,31 @@ public sealed class ClipboardMonitor : IDisposable
 
     public void SuspendCapture()
     {
-        Volatile.Write(ref _captureSuspended, 1);
+        Interlocked.Increment(ref _captureSuspended);
     }
 
     public void ResumeCapture()
     {
-        Volatile.Write(ref _captureSuspended, 0);
-        Volatile.Write(ref _clipboardSequence, GetClipboardSequenceNumber());
+        while (true)
+        {
+            var suspensionCount = Volatile.Read(ref _captureSuspended);
+            if (suspensionCount <= 0)
+            {
+                return;
+            }
+
+            if (Interlocked.CompareExchange(ref _captureSuspended, suspensionCount - 1, suspensionCount) != suspensionCount)
+            {
+                continue;
+            }
+
+            if (suspensionCount == 1)
+            {
+                Volatile.Write(ref _clipboardSequence, GetClipboardSequenceNumber());
+            }
+
+            return;
+        }
     }
 
     public void Start(Win32MessageBridge bridge, DispatcherQueue dispatcherQueue)
@@ -181,7 +199,7 @@ public sealed class ClipboardMonitor : IDisposable
 
     private static async Task<ClipboardCapture?> ReadClipboardAsync()
     {
-        var sourceApplication = GetForegroundProcessName();
+        var sourceApplication = GetSourceProcessName();
         try
         {
             var data = Clipboard.GetContent();
@@ -295,9 +313,13 @@ public sealed class ClipboardMonitor : IDisposable
         return content;
     }
 
-    private static string? GetForegroundProcessName()
+    private static string? GetSourceProcessName()
     {
-        var window = GetForegroundWindow();
+        return GetProcessName(GetClipboardOwner()) ?? GetProcessName(GetForegroundWindow());
+    }
+
+    private static string? GetProcessName(IntPtr window)
+    {
         if (window == IntPtr.Zero)
         {
             return null;
@@ -325,6 +347,9 @@ public sealed class ClipboardMonitor : IDisposable
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetClipboardOwner();
 
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);

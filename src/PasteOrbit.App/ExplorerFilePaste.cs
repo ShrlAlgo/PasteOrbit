@@ -4,8 +4,11 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Security;
 using System.Text;
+
 using Microsoft.CSharp.RuntimeBinder;
+
 using PasteOrbit.Core;
+
 using Windows.Graphics.Imaging;
 using Windows.Storage.Streams;
 

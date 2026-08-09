@@ -385,30 +385,11 @@
                                                 Source="{Binding Thumbnail}"
                                                 Stretch="Uniform" />
                                             <TextBlock
-                                                MaxHeight="42"
+                                                MaxLines="3"
                                                 Text="{Binding Preview}"
                                                 TextTrimming="CharacterEllipsis"
+                                                TextWrapping="Wrap"
                                                 Visibility="{Binding TextContentVisibility}" />
-                                            <StackPanel Margin="0,4,0,0" Orientation="Horizontal">
-                                                <TextBlock
-                                                    FontSize="12"
-                                                    Foreground="{ThemeResource TextSecondaryBrush}"
-                                                    Text="{Binding Metadata}"
-                                                    TextTrimming="CharacterEllipsis" />
-                                                <Border
-                                                    Margin="6,0,0,0"
-                                                    Padding="4,1"
-                                                    Background="{ThemeResource SurfaceAltBrush}"
-                                                    BorderBrush="{ThemeResource BorderBrush}"
-                                                    BorderThickness="1"
-                                                    CornerRadius="3"
-                                                    Visibility="{Binding FormatBadgeVisibility}">
-                                                    <TextBlock
-                                                        FontSize="10"
-                                                        Foreground="{ThemeResource TextSecondaryBrush}"
-                                                        Text="{Binding FormatLabel}" />
-                                                </Border>
-                                            </StackPanel>
                                         </StackPanel>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                             <TextBlock
@@ -422,13 +403,26 @@
                                                 FontSize="12"
                                                 Foreground="{ThemeResource TextSecondaryBrush}"
                                                 Text="{Binding TimeLabel}" />
+                                            <TextBlock
+                                                Margin="0,4,0,0"
+                                                HorizontalAlignment="Right"
+                                                FontSize="12"
+                                                Foreground="{ThemeResource TextSecondaryBrush}"
+                                                Text="{Binding Metadata}"
+                                                TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
-                                        <StackPanel
+                                        <Grid
                                             Grid.Column="2"
-                                            Margin="8,0,0,0"
-                                            VerticalAlignment="Center"
-                                            Orientation="Horizontal">
-                                            <Button
+                                            Margin="8,0,0,0">
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="*" />
+                                                <RowDefinition Height="Auto" />
+                                            </Grid.RowDefinitions>
+                                            <StackPanel
+                                                Grid.Row="0"
+                                                VerticalAlignment="Top"
+                                                Orientation="Horizontal">
+                                                <Button
                                                 x:Name="RecordPreviewButton"
                                                 AutomationProperties.Name="预览内容"
                                                 Click="RecordPreviewButton_Click"
@@ -440,8 +434,8 @@
                                                     Stretch="Uniform">
                                                     <FontIcon x:Name="RecordPreviewIcon" Glyph="&#xE890;" />
                                                 </Viewbox>
-                                            </Button>
-                                            <Button
+                                                </Button>
+                                                <Button
                                                 AutomationProperties.Name="{Binding PinToolTip}"
                                                 Click="RecordPinButton_Click"
                                                 Style="{StaticResource RowActionButtonStyle}"
@@ -452,8 +446,8 @@
                                                     Stretch="Uniform">
                                                     <FontIcon Glyph="{Binding PinGlyph}" />
                                                 </Viewbox>
-                                            </Button>
-                                            <Button
+                                                </Button>
+                                                <Button
                                                 AutomationProperties.Name="更多操作"
                                                 Style="{StaticResource RowActionButtonStyle}"
                                                 ToolTipService.ToolTip="更多操作">
@@ -490,8 +484,45 @@
                                                         </MenuFlyoutItem>
                                                     </MenuFlyout>
                                                 </Button.Flyout>
-                                            </Button>
-                                        </StackPanel>
+                                                </Button>
+                                            </StackPanel>
+                                            <Grid
+                                                Grid.Row="1"
+                                                Margin="0,4,1,0"
+                                                ColumnSpacing="4">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <Border
+                                                    Padding="5,1"
+                                                    Background="{ThemeResource SurfaceAltBrush}"
+                                                    BorderBrush="{ThemeResource BorderBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="3"
+                                                    Visibility="{Binding QuickPasteVisibility}">
+                                                    <TextBlock
+                                                        FontSize="10"
+                                                        Foreground="{ThemeResource TextSecondaryBrush}"
+                                                        Text="{Binding QuickPasteLabel}" />
+                                                </Border>
+                                                <Border
+                                                    Grid.Column="2"
+                                                    Padding="4,1"
+                                                    HorizontalAlignment="Right"
+                                                    Background="{ThemeResource SurfaceAltBrush}"
+                                                    BorderBrush="{ThemeResource BorderBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="3"
+                                                    Visibility="{Binding FormatBadgeVisibility}">
+                                                    <TextBlock
+                                                        FontSize="10"
+                                                        Foreground="{ThemeResource TextSecondaryBrush}"
+                                                        Text="{Binding FormatLabel}" />
+                                                </Border>
+                                            </Grid>
+                                        </Grid>
                                     </Grid>
                                     <Border
                                         x:Name="CardPreviewContent"

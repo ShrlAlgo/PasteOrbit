@@ -1,4 +1,3 @@
-using System.IO;
 using System.Text.Json;
 
 namespace PasteOrbit.App;
@@ -30,6 +29,8 @@ public sealed class AppSettings
     public bool MonitorImages { get; set; } = true;
 
     public bool MonitorFiles { get; set; } = true;
+
+    public string ExcludedApplications { get; set; } = "1Password; Bitwarden; KeePass; KeePassXC; mstsc; msrdc; Windows365";
 
     public string ThemeMode { get; set; } = "跟随系统";
 

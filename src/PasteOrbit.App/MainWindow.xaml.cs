@@ -55,11 +55,14 @@ public sealed partial class MainWindow : Window
     private static readonly Guid UiAutomationTextPattern2Iid = new("506a921a-fcc9-409f-b23b-37eb74106872");
 
     private readonly ObservableCollection<HistoryListItem> _displayItems = [];
+    private readonly HistoryListItem?[] _quickPasteItems = new HistoryListItem?[9];
     private readonly AppSettingsStore _settingsStore;
     private readonly ClipboardHistory _history;
     private readonly GlobalHotKey _hotKey = new();
     private readonly ClipboardMonitor _monitor = new();
     private readonly ClipboardRepository _repository;
+    private readonly LocalBackupService _backupService;
+    private readonly HashSet<string> _excludedApplications = new(StringComparer.OrdinalIgnoreCase);
     private AppSettings _settings;
     private ClipboardContentKind? _selectedKind;
     private HistoryListItem? _hoveredHistoryItem;
@@ -74,6 +77,8 @@ public sealed partial class MainWindow : Window
     private AppWindow? _appWindow;
     private DispatcherQueue? _dispatcherQueue;
     private DispatcherQueueTimer? _panelMonitorTimer;
+    private DispatcherQueueTimer? _listeningPauseTimer;
+    private SettingsWindow? _settingsWindow;
     private bool _settingsWindowOpen;
     private bool _storageAvailable = true;
     private bool _nativeInitialized;
@@ -81,6 +86,7 @@ public sealed partial class MainWindow : Window
     private bool _panelShownWithoutActivation;
     private bool _isTopmost;
     private bool _isExiting;
+    private bool _isListeningPaused;
     private IntPtr _panelTargetWindow;
     private string? _startupError;
 
@@ -90,7 +96,7 @@ public sealed partial class MainWindow : Window
         HistoryList.ItemsSource = _displayItems;
         SearchBox.KeyDown += Input_KeyDown;
         SearchBox.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(SearchBox_PointerPressed), true);
-        HistoryList.KeyDown += Input_KeyDown;
+        HistoryList.PreviewKeyDown += Input_KeyDown;
         Activated += MainWindow_Activated;
         Closed += MainWindow_Closed;
 
@@ -109,10 +115,12 @@ public sealed partial class MainWindow : Window
         }
 
         NormalizePanelShortcuts(_settings);
+        UpdateExcludedApplications();
 
         ApplyThemeSettings();
         ApplyViewSettings();
         _repository = new ClipboardRepository(Path.Combine(dataDirectory, "history.db"));
+        _backupService = new LocalBackupService(_repository.DatabasePath, _settingsStore.Path);
 
         try
         {
@@ -144,6 +152,10 @@ public sealed partial class MainWindow : Window
         _panelMonitorTimer = _dispatcherQueue.CreateTimer();
         _panelMonitorTimer.Interval = TimeSpan.FromMilliseconds(100);
         _panelMonitorTimer.Tick += PanelMonitorTimer_Tick;
+        _listeningPauseTimer = _dispatcherQueue.CreateTimer();
+        _listeningPauseTimer.IsRepeating = false;
+        _listeningPauseTimer.Interval = TimeSpan.FromMinutes(10);
+        _listeningPauseTimer.Tick += ListeningPauseTimer_Tick;
         _handle = WindowNative.GetWindowHandle(this);
         _messageBridge = new Win32MessageBridge(_handle);
         _messageBridge.Message += MessageBridge_Message;
@@ -157,6 +169,7 @@ public sealed partial class MainWindow : Window
         {
             _trayIcon = new NativeTrayIcon(_messageBridge, iconPath);
             _trayIcon.OpenRequested += ShowFromTray;
+            _trayIcon.PauseRequested += TrayPauseRequested;
             _trayIcon.SettingsRequested += TraySettingsRequested;
             _trayIcon.ExitRequested += TrayExitRequested;
             _trayIcon.ContextMenuRequested += TrayContextMenuRequested;
@@ -282,7 +295,6 @@ public sealed partial class MainWindow : Window
         {
             PositionWindow();
             ShowPanel(activatePanel: true);
-            SearchBox.Focus(FocusState.Programmatic);
         });
     }
 
@@ -294,13 +306,68 @@ public sealed partial class MainWindow : Window
         {
             PositionWindow();
             ShowPanel(activatePanel: true);
-            SearchBox.Focus(FocusState.Programmatic);
         });
     }
 
     private void TraySettingsRequested()
     {
         EnqueueOnUi(OpenSettings);
+    }
+
+    private void TrayPauseRequested()
+    {
+        EnqueueOnUi(() =>
+        {
+            if (_isListeningPaused)
+            {
+                ResumeClipboardListening();
+            }
+            else
+            {
+                PauseClipboardListening();
+            }
+        });
+    }
+
+    private void PauseClipboardListening()
+    {
+        if (_isListeningPaused || !_storageAvailable)
+        {
+            return;
+        }
+
+        _isListeningPaused = true;
+        _monitor.SuspendCapture();
+        if (_trayIcon is not null)
+        {
+            _trayIcon.IsListeningPaused = true;
+        }
+
+        _listeningPauseTimer?.Start();
+        StatusText.Text = "监听已暂停 10 分钟";
+    }
+
+    private void ResumeClipboardListening()
+    {
+        if (!_isListeningPaused)
+        {
+            return;
+        }
+
+        _listeningPauseTimer?.Stop();
+        _isListeningPaused = false;
+        _monitor.ResumeCapture();
+        if (_trayIcon is not null)
+        {
+            _trayIcon.IsListeningPaused = false;
+        }
+
+        StatusText.Text = $"正在监听 · {_history.Count} 条";
+    }
+
+    private void ListeningPauseTimer_Tick(DispatcherQueueTimer sender, object args)
+    {
+        ResumeClipboardListening();
     }
 
     private void TrayExitRequested()
@@ -1004,7 +1071,9 @@ public sealed partial class MainWindow : Window
     {
         EnqueueOnUi(() =>
         {
-            if (!_storageAvailable || !IsCaptureEnabled(capture.Kind))
+            if (!_storageAvailable
+                || !IsCaptureEnabled(capture.Kind)
+                || IsApplicationExcluded(capture.SourceApplication))
             {
                 return;
             }
@@ -1043,6 +1112,28 @@ public sealed partial class MainWindow : Window
         };
     }
 
+    private bool IsApplicationExcluded(string? application)
+    {
+        return !string.IsNullOrWhiteSpace(application) && _excludedApplications.Contains(application);
+    }
+
+    private void UpdateExcludedApplications()
+    {
+        _excludedApplications.Clear();
+        foreach (var value in _settings.ExcludedApplications.Split(
+                     [';', ',', '\r', '\n'],
+                     StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var processName = value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                ? value[..^4]
+                : value;
+            if (!string.IsNullOrWhiteSpace(processName))
+            {
+                _excludedApplications.Add(processName);
+            }
+        }
+    }
+
     private void CleanupHistory()
     {
         var cutoff = DateTimeOffset.UtcNow - TimeSpan.FromDays(_settings.RetentionDays);
@@ -1054,6 +1145,7 @@ public sealed partial class MainWindow : Window
     {
         CloseContentPreview();
         _hoveredHistoryItem = null;
+        var selectedId = (HistoryList.SelectedItem as HistoryListItem)?.Item.Id;
         var reusableItems = _displayItems.ToDictionary(displayItem => displayItem.Item.Id);
         _displayItems.Clear();
         foreach (var item in _history.Search(SearchBox?.Text, _selectedKind))
@@ -1077,9 +1169,33 @@ public sealed partial class MainWindow : Window
             displayItem.Dispose();
         }
 
+        // 数字键只映射当前列表中的未置顶记录，搜索期间不显示快捷编号。
+        Array.Clear(_quickPasteItems);
+        var quickPasteIndex = 0;
+        var showQuickPasteLabels = string.IsNullOrEmpty(SearchBox?.Text);
+        foreach (var displayItem in _displayItems)
+        {
+            if (showQuickPasteLabels
+                && !displayItem.Item.IsPinned
+                && quickPasteIndex < _quickPasteItems.Length)
+            {
+                _quickPasteItems[quickPasteIndex] = displayItem;
+                displayItem.SetQuickPasteIndex(quickPasteIndex);
+                quickPasteIndex++;
+            }
+            else
+            {
+                displayItem.SetQuickPasteIndex(null);
+            }
+        }
+
         EmptyText.Visibility = _displayItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         ClearHistoryButton.IsEnabled = _displayItems.Any(item => !item.Item.IsPinned);
         CountText.Text = $"{_displayItems.Count} 条";
+        if (selectedId is { } id)
+        {
+            HistoryList.SelectedItem = _displayItems.FirstOrDefault(item => item.Item.Id == id);
+        }
     }
 
     private void DisposeDisplayItems()
@@ -1354,6 +1470,16 @@ public sealed partial class MainWindow : Window
             HidePanel();
             e.Handled = true;
         }
+        else if (ReferenceEquals(sender, HistoryList)
+                 && string.IsNullOrEmpty(SearchBox.Text)
+                 && !PanelShortcut.HasAnyModifierDown()
+                 && TryGetQuickPasteIndex(e.Key, out var quickPasteIndex)
+                 && _quickPasteItems[quickPasteIndex] is { } quickPasteItem)
+        {
+            HistoryList.SelectedItem = quickPasteItem;
+            e.Handled = true;
+            await PlayAsync(quickPasteItem);
+        }
         else if (PanelShortcut.Matches(e, _settings.FocusSearchShortcut))
         {
             SearchBox.Focus(FocusState.Programmatic);
@@ -1371,6 +1497,7 @@ public sealed partial class MainWindow : Window
             if (PanelShortcut.Matches(e, _settings.PlainTextPasteShortcut))
             {
                 e.Handled = true;
+                await WaitForModifierKeysReleasedAsync();
                 await PlayAsync(selected, plainTextOnly: true);
             }
             else if (PanelShortcut.Matches(e, _settings.PasteShortcut))
@@ -1399,6 +1526,15 @@ public sealed partial class MainWindow : Window
                 e.Handled = true;
                 await PasteAsFileAsync(selected);
             }
+        }
+    }
+
+    // 等待快捷键修饰键松开，避免模拟 Ctrl+V 时叠加成全局热键。
+    private static async Task WaitForModifierKeysReleasedAsync()
+    {
+        while (PanelShortcut.HasAnyModifierDown())
+        {
+            await Task.Delay(10);
         }
     }
 
@@ -1604,6 +1740,25 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private static bool TryGetQuickPasteIndex(VirtualKey key, out int index)
+    {
+        var keyCode = (int)key;
+        if (keyCode is >= 0x31 and <= 0x39)
+        {
+            index = keyCode - 0x31;
+            return true;
+        }
+
+        if (keyCode is >= 0x61 and <= 0x69)
+        {
+            index = keyCode - 0x61;
+            return true;
+        }
+
+        index = -1;
+        return false;
+    }
+
     private bool TryGetCardPreviewElements(
         HistoryListItem item,
         out FrameworkElement card,
@@ -1754,21 +1909,78 @@ public sealed partial class MainWindow : Window
 
     private void OpenSettings()
     {
-        if (_settingsWindowOpen)
+        if (_settingsWindow is not null)
         {
+            ActivateSettingsWindow();
             return;
         }
 
         _settingsWindowOpen = true;
-        var settingsWindow = new SettingsWindow(_settings, _settingsStore);
+        var settingsWindow = new SettingsWindow(
+            _settings,
+            _settingsStore,
+            ExportBackupAsync,
+            RestoreBackupAsync);
+        _settingsWindow = settingsWindow;
         settingsWindow.SettingsChanged += SettingsWindow_SettingsChanged;
         settingsWindow.Closed += (_, _) =>
         {
+            _settingsWindow = null;
             _settingsWindowOpen = false;
             Activate();
         };
         settingsWindow.InitializeNative();
+        ActivateSettingsWindow();
+    }
+
+    // 重复点击设置按钮时，将已有设置窗口提升到主面板之上。
+    private void ActivateSettingsWindow()
+    {
+        if (_settingsWindow is not { } settingsWindow)
+        {
+            return;
+        }
+
         settingsWindow.Activate();
+        var settingsHandle = WindowNative.GetWindowHandle(settingsWindow);
+        SetWindowPos(
+            settingsHandle,
+            _isTopmost ? HwndTopmost : HwndNotopmost,
+            0,
+            0,
+            0,
+            0,
+            SwpNoMove | SwpNoSize);
+        SetForegroundWindow(settingsHandle);
+    }
+
+    private async Task ExportBackupAsync(string destinationPath)
+    {
+        _monitor.SuspendCapture();
+        try
+        {
+            await _backupService.ExportAsync(destinationPath);
+        }
+        finally
+        {
+            _monitor.ResumeCapture();
+        }
+    }
+
+    private async Task RestoreBackupAsync(string sourcePath)
+    {
+        _monitor.SuspendCapture();
+        try
+        {
+            await _backupService.RestoreAsync(sourcePath);
+            _history.ReplaceAll(_repository.InitializeAndLoadEntries());
+            SettingsWindow_SettingsChanged(_settingsStore.Load());
+            RefreshHistory();
+        }
+        finally
+        {
+            _monitor.ResumeCapture();
+        }
     }
 
     private void SettingsWindow_SettingsChanged(AppSettings settings)
@@ -1795,6 +2007,7 @@ public sealed partial class MainWindow : Window
         }
 
         _settings = settings;
+        UpdateExcludedApplications();
         ApplyThemeSettings();
         ApplyViewSettings();
         CleanupHistory();
@@ -1875,6 +2088,7 @@ public sealed partial class MainWindow : Window
             ShowWindow(_handle, SwShow);
             Activate();
             SetForegroundWindow(_handle);
+            HistoryList.Focus(FocusState.Programmatic);
             return;
         }
 
@@ -1891,6 +2105,11 @@ public sealed partial class MainWindow : Window
     private void HidePanel()
     {
         CloseContentPreview();
+        if (!string.IsNullOrEmpty(SearchBox.Text))
+        {
+            SearchBox.Text = string.Empty;
+        }
+
         _panelMonitorTimer?.Stop();
         _panelShownWithoutActivation = false;
         _panelTargetWindow = IntPtr.Zero;

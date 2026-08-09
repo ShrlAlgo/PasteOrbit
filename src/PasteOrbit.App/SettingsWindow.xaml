@@ -1,13 +1,51 @@
 <Window x:Class="PasteOrbit.App.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:toolkit="using:CommunityToolkit.WinUI.Controls"
+        xmlns:toolkit="using:PasteOrbit.App"
         Title="PasteOrbit 设置">
     <Grid x:Name="SettingsRoot" Background="{ThemeResource PageBackgroundBrush}">
         <Grid.Resources>
-            <x:Double x:Key="SettingsCardWrapThreshold">420</x:Double>
             <Style TargetType="FontIcon">
                 <Setter Property="FontFamily" Value="{StaticResource SymbolThemeFontFamily}" />
+            </Style>
+            <Style TargetType="toolkit:SettingsCard">
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="toolkit:SettingsCard">
+                            <Border
+                                MinHeight="64"
+                                Padding="16,12"
+                                Background="{ThemeResource SurfaceBrush}"
+                                BorderBrush="{ThemeResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="8">
+                                <Grid ColumnSpacing="16">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock
+                                            FontWeight="SemiBold"
+                                            Text="{TemplateBinding Header}"
+                                            TextWrapping="Wrap" />
+                                        <TextBlock
+                                            Foreground="{ThemeResource TextSecondaryBrush}"
+                                            Text="{TemplateBinding Description}"
+                                            TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <ContentPresenter
+                                        Grid.Column="1"
+                                        HorizontalAlignment="{TemplateBinding ContentAlignment}"
+                                        VerticalAlignment="Center"
+                                        Content="{TemplateBinding Content}"
+                                        ContentTemplate="{TemplateBinding ContentTemplate}" />
+                                </Grid>
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
             </Style>
             <Style x:Key="SettingsIconButtonStyle" TargetType="Button">
                 <Setter Property="Width" Value="36" />
@@ -219,6 +257,23 @@
                     <StackPanel x:Name="PrivacyPanel" Visibility="Collapsed">
                         <TextBlock Text="隐私与安全" FontSize="18" FontWeight="SemiBold" />
                         <Border Height="1" Background="{ThemeResource BorderBrush}" Margin="0,8,0,4" />
+                        <toolkit:SettingsCard Header="不记录指定应用"
+                                              Description="填写进程名并用分号分隔，例如 Bitwarden; mstsc"
+                                              Margin="0,0,0,8"
+                                              ContentAlignment="Right">
+                            <TextBox x:Name="ExcludedApplicationsTextBox"
+                                     Width="300"
+                                     PlaceholderText="进程名，用分号分隔" />
+                        </toolkit:SettingsCard>
+                        <toolkit:SettingsCard Header="本地加密备份"
+                                              Description="导出或恢复由当前 Windows 用户凭据保护的备份文件"
+                                              Margin="0,0,0,8"
+                                              ContentAlignment="Right">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button Content="导出备份" Click="ExportBackupButton_Click" />
+                                <Button Content="恢复备份" Click="RestoreBackupButton_Click" />
+                            </StackPanel>
+                        </toolkit:SettingsCard>
                         <TextBlock Text="本地数据保护已启用" FontSize="16" FontWeight="SemiBold" Margin="0,22,0,8" />
                         <TextBlock Text="剪切板正文使用当前 Windows 用户凭据加密，其他用户无法直接读取。" Foreground="{ThemeResource TextSecondaryBrush}" TextWrapping="Wrap" />
                     </StackPanel>

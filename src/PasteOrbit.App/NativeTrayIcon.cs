@@ -29,6 +29,7 @@ public sealed class NativeTrayIcon : IDisposable
     private const uint MenuOpen = 1001;
     private const uint MenuSettings = 1002;
     private const uint MenuExit = 1003;
+    private const uint MenuPause = 1004;
 
     private readonly Win32MessageBridge _bridge;
     private readonly string _iconPath;
@@ -70,9 +71,13 @@ public sealed class NativeTrayIcon : IDisposable
 
     public event Action? SettingsRequested;
 
+    public event Action? PauseRequested;
+
     public event Action? ExitRequested;
 
     public event Action<int, int>? ContextMenuRequested;
+
+    public bool IsListeningPaused { get; set; }
 
     /// <summary>
     /// 显示由 Windows Shell 绘制的原生托盘菜单，避免额外窗口导致托盘溢出面板失去激活。
@@ -96,6 +101,7 @@ public sealed class NativeTrayIcon : IDisposable
         try
         {
             AppendMenu(menu, MfString, MenuOpen, "打开历史");
+            AppendMenu(menu, MfString, MenuPause, IsListeningPaused ? "恢复监听" : "暂停 10 分钟");
             AppendMenu(menu, MfString, MenuSettings, "设置");
             AppendMenu(menu, MfSeparator, 0, null);
             AppendMenu(menu, MfString, MenuExit, "退出");
@@ -118,6 +124,9 @@ public sealed class NativeTrayIcon : IDisposable
                     break;
                 case MenuSettings:
                     SettingsRequested?.Invoke();
+                    break;
+                case MenuPause:
+                    PauseRequested?.Invoke();
                     break;
                 case MenuExit:
                     ExitRequested?.Invoke();

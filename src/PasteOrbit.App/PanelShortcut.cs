@@ -1,13 +1,20 @@
-using Microsoft.UI.Input;
+using System.Runtime.InteropServices;
+
 using Microsoft.UI.Xaml.Input;
 
 using Windows.System;
-using Windows.UI.Core;
 
 namespace PasteOrbit.App;
 
 internal readonly record struct PanelShortcut(VirtualKey Key, bool Control, bool Alt, bool Shift)
 {
+    private const int VirtualKeyLeftShift = 0xA0;
+    private const int VirtualKeyRightShift = 0xA1;
+    private const int VirtualKeyLeftControl = 0xA2;
+    private const int VirtualKeyRightControl = 0xA3;
+    private const int VirtualKeyLeftAlt = 0xA4;
+    private const int VirtualKeyRightAlt = 0xA5;
+
     public static bool Matches(KeyRoutedEventArgs eventArgs, string shortcut)
     {
         return TryParse(shortcut, out var definition)
@@ -57,6 +64,15 @@ internal readonly record struct PanelShortcut(VirtualKey Key, bool Control, bool
         return TryParse(shortcut, out var definition)
             ? definition.ToString()
             : defaultShortcut;
+    }
+
+    public static bool HasAnyModifierDown()
+    {
+        return IsKeyDown(VirtualKey.Control)
+            || IsKeyDown(VirtualKey.Menu)
+            || IsKeyDown(VirtualKey.Shift)
+            || IsKeyDown(VirtualKey.LeftWindows)
+            || IsKeyDown(VirtualKey.RightWindows);
     }
 
     public override string ToString()
@@ -121,6 +137,22 @@ internal readonly record struct PanelShortcut(VirtualKey Key, bool Control, bool
 
     private static bool IsKeyDown(VirtualKey key)
     {
-        return InputKeyboardSource.GetKeyStateForCurrentThread(key).HasFlag(CoreVirtualKeyStates.Down);
+        if (IsNativeKeyDown((int)key))
+        {
+            return true;
+        }
+
+        return key switch
+        {
+            VirtualKey.Shift => IsNativeKeyDown(VirtualKeyLeftShift) || IsNativeKeyDown(VirtualKeyRightShift),
+            VirtualKey.Control => IsNativeKeyDown(VirtualKeyLeftControl) || IsNativeKeyDown(VirtualKeyRightControl),
+            VirtualKey.Menu => IsNativeKeyDown(VirtualKeyLeftAlt) || IsNativeKeyDown(VirtualKeyRightAlt),
+            _ => false
+        };
     }
+
+    private static bool IsNativeKeyDown(int virtualKey) => (GetKeyState(virtualKey) & 0x8000) != 0;
+
+    [DllImport("user32.dll")]
+    private static extern short GetKeyState(int virtualKey);
 }
