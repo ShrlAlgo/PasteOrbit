@@ -8,6 +8,7 @@ namespace PasteOrbit.App;
 public sealed class Win32MessageBridge : IDisposable
 {
     private const int GwlWndProc = -4;
+    private const uint WmClose = 0x0010;
     private const uint WmMouseActivate = 0x0021;
     private const int MaNoactivate = 3;
     private readonly IntPtr _handle;
@@ -32,6 +33,8 @@ public sealed class Win32MessageBridge : IDisposable
 
     public event Action<uint, IntPtr, IntPtr>? Message;
 
+    public event Func<bool>? CloseRequested;
+
     public IntPtr Handle => _handle;
 
     public bool PreventActivation { get; set; }
@@ -46,6 +49,7 @@ public sealed class Win32MessageBridge : IDisposable
         _disposed = true;
         SetWindowLongPtr(_handle, GwlWndProc, _previousWndProc);
         Message = null;
+        CloseRequested = null;
         GC.KeepAlive(_windowProc);
     }
 
@@ -56,6 +60,11 @@ public sealed class Win32MessageBridge : IDisposable
             try
             {
                 // 原生 WndProc 不能承载托管异常；否则任一消息订阅者异常都会直接终止进程。
+                if (message == WmClose && CloseRequested?.Invoke() == true)
+                {
+                    return IntPtr.Zero;
+                }
+
                 Message?.Invoke(message, wParam, lParam);
             }
             catch (Exception exception)

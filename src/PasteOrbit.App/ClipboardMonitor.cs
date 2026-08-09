@@ -1,7 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Text.Json;
 using Microsoft.UI.Dispatching;
 using PasteOrbit.Core;
@@ -221,10 +220,16 @@ public sealed class ClipboardMonitor : IDisposable
                 var text = await data.GetTextAsync();
                 if (!string.IsNullOrEmpty(text))
                 {
+                    var html = data.Contains(StandardDataFormats.Html)
+                        ? await data.GetHtmlFormatAsync()
+                        : null;
+                    var rtf = data.Contains(StandardDataFormats.Rtf)
+                        ? await data.GetRtfAsync()
+                        : null;
                     return new ClipboardCapture(
                         ClipboardContentKind.Text,
                         text,
-                        Encoding.UTF8.GetBytes(text),
+                        new ClipboardTextContent(text, html, rtf).Serialize(),
                         sourceApplication);
                 }
             }
@@ -240,7 +245,7 @@ public sealed class ClipboardMonitor : IDisposable
             : new ClipboardCapture(
                 ClipboardContentKind.Text,
                 nativeText,
-                Encoding.UTF8.GetBytes(nativeText),
+                new ClipboardTextContent(nativeText, null, null).Serialize(),
                 sourceApplication);
     }
 

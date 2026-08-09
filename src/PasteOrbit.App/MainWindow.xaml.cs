@@ -1,10 +1,14 @@
 using System.Collections.ObjectModel;
 using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.Json;
 
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Text;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
@@ -13,6 +17,7 @@ using Microsoft.UI.Xaml.Media;
 using PasteOrbit.Core;
 
 using Windows.Graphics;
+using Windows.Storage.Streams;
 
 using WinRT.Interop;
 
@@ -58,6 +63,8 @@ public sealed partial class MainWindow : Window
     private AppSettings _settings;
     private ClipboardContentKind? _selectedKind;
     private HistoryListItem? _hoveredHistoryItem;
+    private HistoryListItem? _previewedHistoryItem;
+    private FrameworkElement? _previewedHistoryCard;
     private IntPtr _pasteTarget;
     private IntPtr _pasteFocusWindow;
     private MonitorRect _pasteInputBounds;
@@ -80,7 +87,6 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        RootGrid.ActualThemeChanged += RootGrid_ActualThemeChanged;
         HistoryList.ItemsSource = _displayItems;
         SearchBox.KeyDown += Input_KeyDown;
         SearchBox.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(SearchBox_PointerPressed), true);
@@ -101,6 +107,8 @@ public sealed partial class MainWindow : Window
         {
             _settings.GlobalHotKey = new AppSettings().GlobalHotKey;
         }
+
+        NormalizePanelShortcuts(_settings);
 
         ApplyThemeSettings();
         ApplyViewSettings();
@@ -139,6 +147,7 @@ public sealed partial class MainWindow : Window
         _handle = WindowNative.GetWindowHandle(this);
         _messageBridge = new Win32MessageBridge(_handle);
         _messageBridge.Message += MessageBridge_Message;
+        _messageBridge.CloseRequested += MessageBridge_CloseRequested;
         _appWindow = AppWindow.GetFromWindowId(Win32Interop.GetWindowIdFromWindow(_handle));
         _appWindow.Closing += AppWindow_Closing;
         ConfigureWindow();
@@ -228,7 +237,7 @@ public sealed partial class MainWindow : Window
         {
             _appWindow.SetIcon(iconPath);
         }
-        ApplyNativeTitleBarTheme(RootGrid.ActualTheme == ElementTheme.Dark);
+        ApplyNativeTitleBarTheme();
     }
 
     private void ApplyToolWindowStyle()
@@ -360,6 +369,17 @@ public sealed partial class MainWindow : Window
         // 主窗口是托盘应用的常驻面板，点击系统关闭按钮只隐藏面板，不结束监听和托盘进程。
         args.Cancel = true;
         HidePanel();
+    }
+
+    private bool MessageBridge_CloseRequested()
+    {
+        if (_isExiting)
+        {
+            return false;
+        }
+
+        HidePanel();
+        return true;
     }
 
     private void MessageBridge_Message(uint message, IntPtr wParam, IntPtr lParam)
@@ -1032,6 +1052,7 @@ public sealed partial class MainWindow : Window
 
     private void RefreshHistory()
     {
+        CloseContentPreview();
         _hoveredHistoryItem = null;
         var reusableItems = _displayItems.ToDictionary(displayItem => displayItem.Item.Id);
         _displayItems.Clear();
@@ -1071,7 +1092,7 @@ public sealed partial class MainWindow : Window
         _displayItems.Clear();
     }
 
-    private async Task PlayAsync(HistoryListItem selected)
+    private async Task PlayAsync(HistoryListItem selected, bool plainTextOnly = false)
     {
         var pasteTarget = GetPasteTargetSnapshot();
         _monitor.SuspendCapture();
@@ -1085,7 +1106,8 @@ public sealed partial class MainWindow : Window
                 content,
                 pasteTarget.TargetWindow,
                 pasteTarget.FocusWindow,
-                () => TryRestoreAutomationFocus(pasteTarget));
+                () => TryRestoreAutomationFocus(pasteTarget),
+                plainTextOnly);
             if (pasted)
             {
                 HidePanel();
@@ -1108,11 +1130,16 @@ public sealed partial class MainWindow : Window
 
     private async void RecordPasteAsFileButton_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.DataContext is not HistoryListItem selected)
+        if (GetHistoryListItem(sender) is not HistoryListItem selected)
         {
             return;
         }
 
+        await PasteAsFileAsync(selected);
+    }
+
+    private async Task PasteAsFileAsync(HistoryListItem selected)
+    {
         var targetWindow = GetPasteTargetWindow();
         _monitor.SuspendCapture();
         try
@@ -1224,7 +1251,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void SearchBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
+    private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
     {
         RefreshHistory();
     }
@@ -1327,16 +1354,51 @@ public sealed partial class MainWindow : Window
             HidePanel();
             e.Handled = true;
         }
+        else if (PanelShortcut.Matches(e, _settings.FocusSearchShortcut))
+        {
+            SearchBox.Focus(FocusState.Programmatic);
+            e.Handled = true;
+        }
         else if (e.Key == VirtualKey.Down && ReferenceEquals(sender, SearchBox) && _displayItems.Count > 0)
         {
             HistoryList.Focus(FocusState.Programmatic);
             HistoryList.SelectedIndex = 0;
             e.Handled = true;
         }
-        else if (e.Key == VirtualKey.Enter && HistoryList.SelectedItem is HistoryListItem selected)
+        else if (ReferenceEquals(sender, HistoryList)
+                 && HistoryList.SelectedItem is HistoryListItem selected)
         {
-            e.Handled = true;
-            await PlayAsync(selected);
+            if (PanelShortcut.Matches(e, _settings.PlainTextPasteShortcut))
+            {
+                e.Handled = true;
+                await PlayAsync(selected, plainTextOnly: true);
+            }
+            else if (PanelShortcut.Matches(e, _settings.PasteShortcut))
+            {
+                e.Handled = true;
+                await PlayAsync(selected);
+            }
+            else if (PanelShortcut.Matches(e, _settings.PreviewShortcut))
+            {
+                e.Handled = true;
+                await ToggleContentPreviewAsync(selected);
+            }
+            else if (PanelShortcut.Matches(e, _settings.PinShortcut))
+            {
+                e.Handled = true;
+                TogglePinned(selected);
+            }
+            else if (PanelShortcut.Matches(e, _settings.DeleteShortcut))
+            {
+                e.Handled = true;
+                DeleteRecord(selected);
+            }
+            else if (selected.Item.Kind is ClipboardContentKind.Text or ClipboardContentKind.Image
+                     && PanelShortcut.Matches(e, _settings.PasteAsFileShortcut))
+            {
+                e.Handled = true;
+                await PasteAsFileAsync(selected);
+            }
         }
     }
 
@@ -1378,6 +1440,213 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private async void RecordPreviewButton_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not HistoryListItem selected)
+        {
+            return;
+        }
+
+        HistoryList.SelectedItem = selected;
+        await ToggleContentPreviewAsync(selected);
+    }
+
+    private async void RecordPlainTextPasteButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetHistoryListItem(sender) is HistoryListItem selected)
+        {
+            await PlayAsync(selected, plainTextOnly: true);
+        }
+    }
+
+    private async Task ToggleContentPreviewAsync(HistoryListItem selected)
+    {
+        if (!TryGetCardPreviewElements(selected, out var card, out var preview, out var host))
+        {
+            return;
+        }
+
+        if (ReferenceEquals(_previewedHistoryItem, selected))
+        {
+            CloseContentPreview();
+            return;
+        }
+
+        CloseContentPreview();
+
+        try
+        {
+            await selected.EnsurePreviewLoadedAsync(_repository.LoadContent);
+            if (!ReferenceEquals(card.DataContext, selected))
+            {
+                return;
+            }
+
+            _previewedHistoryItem = selected;
+            _previewedHistoryCard = card;
+            preview.Visibility = Visibility.Visible;
+            SetCardPreviewButtonState(card, isExpanded: true);
+
+            switch (selected.Item.Kind)
+            {
+                case ClipboardContentKind.Text when !string.IsNullOrEmpty(selected.RichTextContent):
+                    var richTextPreview = CreateRichTextPreview();
+                    host.Content = richTextPreview;
+                    card.UpdateLayout();
+                    await LoadRichTextPreviewAsync(richTextPreview, selected.RichTextContent);
+                    break;
+                case ClipboardContentKind.Text:
+                    host.Content = CreateTextPreview(selected.Item.SearchText);
+                    break;
+                case ClipboardContentKind.Image:
+                    host.Content = new Image
+                    {
+                        Source = selected.Thumbnail,
+                        Stretch = Stretch.Uniform,
+                        HorizontalAlignment = HorizontalAlignment.Stretch,
+                        VerticalAlignment = VerticalAlignment.Stretch
+                    };
+                    break;
+                case ClipboardContentKind.Files:
+                    var content = await Task.Run(() => _repository.LoadContent(selected.Item.Id));
+                    var paths = JsonSerializer.Deserialize<string[]>(content) ?? [];
+                    host.Content = CreateTextPreview(string.Join(Environment.NewLine, paths));
+                    break;
+            }
+        }
+        catch (Exception)
+        {
+            CloseContentPreview();
+            StatusText.Text = "无法预览该条记录";
+        }
+    }
+
+    private static RichEditBox CreateRichTextPreview()
+    {
+        var preview = new RichEditBox
+        {
+            Background = new SolidColorBrush(Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(0),
+            IsReadOnly = true,
+            IsSpellCheckEnabled = false,
+            IsTabStop = false,
+            TextWrapping = TextWrapping.Wrap
+        };
+        ScrollViewer.SetVerticalScrollMode(preview, ScrollMode.Auto);
+        ScrollViewer.SetVerticalScrollBarVisibility(preview, ScrollBarVisibility.Auto);
+        ScrollViewer.SetHorizontalScrollMode(preview, ScrollMode.Disabled);
+        ScrollViewer.SetHorizontalScrollBarVisibility(preview, ScrollBarVisibility.Disabled);
+        AutomationProperties.SetName(preview, "富文本预览");
+        return preview;
+    }
+
+    private static ScrollViewer CreateTextPreview(string text)
+    {
+        var previewText = new TextBlock
+        {
+            Text = text,
+            TextWrapping = TextWrapping.Wrap,
+            IsTextSelectionEnabled = true
+        };
+        AutomationProperties.SetName(previewText, "文本预览");
+        return new ScrollViewer
+        {
+            VerticalScrollMode = ScrollMode.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollMode = ScrollMode.Disabled,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Content = previewText
+        };
+    }
+
+    private static async Task LoadRichTextPreviewAsync(RichEditBox preview, string richText)
+    {
+        using var stream = new InMemoryRandomAccessStream();
+        using (var output = stream.GetOutputStreamAt(0))
+        using (var writer = new DataWriter(output))
+        {
+            writer.WriteBytes(Encoding.UTF8.GetBytes(richText));
+            await writer.StoreAsync();
+            writer.DetachStream();
+        }
+
+        stream.Seek(0);
+        preview.TextDocument.LoadFromStream(TextSetOptions.FormatRtf, stream);
+    }
+
+    private void CloseContentPreview()
+    {
+        if (_previewedHistoryCard is FrameworkElement card
+            && TryGetCardPreviewElements(card, out var preview, out var host))
+        {
+            preview.Visibility = Visibility.Collapsed;
+            host.Content = null;
+            SetCardPreviewButtonState(card, isExpanded: false);
+        }
+
+        _previewedHistoryItem = null;
+        _previewedHistoryCard = null;
+    }
+
+    private static void SetCardPreviewButtonState(FrameworkElement card, bool isExpanded)
+    {
+        if (card.FindName("RecordPreviewIcon") is FontIcon icon)
+        {
+            icon.Glyph = isExpanded ? "\uED1A" : "\uE890";
+        }
+
+        if (card.FindName("RecordPreviewButton") is Button button)
+        {
+            var label = isExpanded ? "收起预览" : "预览内容";
+            ToolTipService.SetToolTip(button, label);
+            AutomationProperties.SetName(button, label);
+        }
+    }
+
+    private bool TryGetCardPreviewElements(
+        HistoryListItem item,
+        out FrameworkElement card,
+        out Border preview,
+        out ContentControl host)
+    {
+        card = null!;
+        preview = null!;
+        host = null!;
+
+        if (HistoryList.ContainerFromItem(item) is not ListViewItem container
+            || container.ContentTemplateRoot is not FrameworkElement cardRoot
+            || !ReferenceEquals(cardRoot.DataContext, item)
+            || !TryGetCardPreviewElements(cardRoot, out var previewContent, out var previewHost))
+        {
+            return false;
+        }
+
+        card = cardRoot;
+        preview = previewContent;
+        host = previewHost;
+        return true;
+    }
+
+    private static bool TryGetCardPreviewElements(
+        FrameworkElement card,
+        out Border preview,
+        out ContentControl host)
+    {
+        preview = null!;
+        host = null!;
+
+        if (card.FindName("CardPreviewContent") is not Border previewContent
+            || card.FindName("CardPreviewHost") is not ContentControl previewHost)
+        {
+            return false;
+        }
+
+        preview = previewContent;
+        host = previewHost;
+        return true;
+    }
+
     private void HistoryCard_PointerEntered(object sender, PointerRoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is not HistoryListItem item)
@@ -1412,7 +1681,10 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        card.Background = GetBrush(highlighted ? "HistoryFocusBrush" : "SurfaceBrush");
+        if (card.FindName("HistoryFocusBackground") is Border focusBackground)
+        {
+            focusBackground.Opacity = highlighted ? 1 : 0;
+        }
 
         // 选中状态优先于置顶底色，取消选中后恢复置顶层的显示。
         if (card.FindName("PinnedCardBackground") is Border pinnedBackground)
@@ -1428,6 +1700,11 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        TogglePinned(selected);
+    }
+
+    private void TogglePinned(HistoryListItem selected)
+    {
         var updated = _history.SetPinned(selected.Item.Id, !selected.Item.IsPinned);
         if (updated is not null)
         {
@@ -1439,17 +1716,29 @@ public sealed partial class MainWindow : Window
 
     private void RecordDeleteButton_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.DataContext is not HistoryListItem selected)
+        if (GetHistoryListItem(sender) is not HistoryListItem selected)
         {
             return;
         }
 
+        DeleteRecord(selected);
+    }
+
+    private void DeleteRecord(HistoryListItem selected)
+    {
         if (_history.Remove(selected.Item.Id))
         {
             _repository.Delete([selected.Item.Id]);
             StatusText.Text = "记录已删除";
             RefreshHistory();
         }
+    }
+
+    private static HistoryListItem? GetHistoryListItem(object sender)
+    {
+        return sender is FrameworkElement element
+            ? element.DataContext as HistoryListItem ?? element.Tag as HistoryListItem
+            : null;
     }
 
     private void WindowPinToggle_Changed(object sender, RoutedEventArgs e)
@@ -1484,6 +1773,7 @@ public sealed partial class MainWindow : Window
 
     private void SettingsWindow_SettingsChanged(AppSettings settings)
     {
+        NormalizePanelShortcuts(settings);
         if (_messageBridge is not null
             && _storageAvailable
             && !string.Equals(settings.GlobalHotKey, _settings.GlobalHotKey, StringComparison.Ordinal)
@@ -1512,6 +1802,18 @@ public sealed partial class MainWindow : Window
         StatusText.Text = "设置已应用";
     }
 
+    private static void NormalizePanelShortcuts(AppSettings settings)
+    {
+        var defaults = new AppSettings();
+        settings.PasteShortcut = PanelShortcut.NormalizeOrDefault(settings.PasteShortcut, defaults.PasteShortcut);
+        settings.PlainTextPasteShortcut = PanelShortcut.NormalizeOrDefault(settings.PlainTextPasteShortcut, defaults.PlainTextPasteShortcut);
+        settings.PreviewShortcut = PanelShortcut.NormalizeOrDefault(settings.PreviewShortcut, defaults.PreviewShortcut);
+        settings.PinShortcut = PanelShortcut.NormalizeOrDefault(settings.PinShortcut, defaults.PinShortcut);
+        settings.DeleteShortcut = PanelShortcut.NormalizeOrDefault(settings.DeleteShortcut, defaults.DeleteShortcut);
+        settings.PasteAsFileShortcut = PanelShortcut.NormalizeOrDefault(settings.PasteAsFileShortcut, defaults.PasteAsFileShortcut);
+        settings.FocusSearchShortcut = PanelShortcut.NormalizeOrDefault(settings.FocusSearchShortcut, defaults.FocusSearchShortcut);
+    }
+
     private void ApplyViewSettings()
     {
         var styleKey = string.Equals(_settings.Density, "舒适", StringComparison.Ordinal)
@@ -1522,48 +1824,17 @@ public sealed partial class MainWindow : Window
 
     private void ApplyThemeSettings()
     {
-        RootGrid.RequestedTheme = _settings.ThemeMode switch
+        WindowSurface.RequestedTheme = _settings.ThemeMode switch
         {
             "深色" => ElementTheme.Dark,
             "浅色" => ElementTheme.Light,
             _ => ElementTheme.Default
         };
 
-        ApplyThemePalette(RootGrid.ActualTheme == ElementTheme.Dark);
-    }
-
-    private void RootGrid_ActualThemeChanged(FrameworkElement sender, object args)
-    {
-        ApplyThemePalette(sender.ActualTheme == ElementTheme.Dark);
-    }
-
-    private void ApplyThemePalette(bool isDark)
-    {
-        SetBrushColor("PageBackgroundBrush", isDark ? (32, 32, 32) : (247, 249, 252));
-        SetBrushColor("SurfaceBrush", isDark ? (43, 43, 43) : (255, 255, 255));
-        SetBrushColor("SurfaceAltBrush", isDark ? (37, 37, 37) : (251, 252, 254));
-        SetBrushColor("SurfacePointerOverBrush", isDark ? (52, 52, 52) : (242, 244, 247));
-        SetBrushColor("SurfacePressedBrush", isDark ? (61, 61, 61) : (228, 231, 236));
-        SetBrushColor("PinnedSurfaceBrush", isDark ? (52, 61, 73) : (238, 244, 250));
-        SetBrushColor("HistoryFocusBrush", isDark ? (39, 66, 94) : (232, 243, 255));
-        SetBrushColor("TextPrimaryBrush", isDark ? (243, 243, 243) : (29, 41, 57));
-        SetBrushColor("TextSecondaryBrush", isDark ? (185, 185, 185) : (102, 112, 133));
-        SetBrushColor("TextMutedBrush", isDark ? (214, 214, 214) : (52, 64, 84));
-        SetBrushColor("BorderBrush", isDark ? (69, 69, 69) : (217, 225, 234));
-        SetBrushColor("BorderPointerOverBrush", isDark ? (102, 102, 102) : (184, 196, 210));
-        SetBrushColor("BorderPressedBrush", isDark ? (119, 119, 119) : (152, 162, 179));
-        SetBrushColor("AccentBrush", isDark ? (15, 108, 189) : (15, 108, 189));
-        SetBrushColor("AccentPointerOverBrush", isDark ? (25, 118, 210) : (11, 92, 171));
-        SetBrushColor("AccentPressedBrush", isDark ? (11, 92, 141) : (8, 76, 141));
-        SetBrushColor("AccentDisabledBrush", isDark ? (74, 106, 132) : (166, 208, 245));
-        SetBrushColor("AccentForegroundBrush", 255, 255, 255);
-
-        WindowSurface.Background = GetBrush("PageBackgroundBrush");
-        ApplyNativeTitleBarTheme(isDark);
     }
 
     // 原生标题栏不继承应用内容区的主题，需要同步设置按钮和文字颜色。
-    private void ApplyNativeTitleBarTheme(bool isDark)
+    private void ApplyNativeTitleBarTheme()
     {
         if (_appWindow is null)
         {
@@ -1571,50 +1842,18 @@ public sealed partial class MainWindow : Window
         }
 
         var titleBar = _appWindow.TitleBar;
-        var background = isDark
-            ? ColorHelper.FromArgb(255, 32, 32, 32)
-            : ColorHelper.FromArgb(255, 247, 249, 252);
-        var foreground = isDark
-            ? ColorHelper.FromArgb(255, 243, 243, 243)
-            : ColorHelper.FromArgb(255, 29, 41, 57);
-        var inactiveForeground = foreground;
-        var hoverBackground = isDark
-            ? ColorHelper.FromArgb(255, 52, 52, 52)
-            : ColorHelper.FromArgb(255, 242, 244, 247);
-        var pressedBackground = isDark
-            ? ColorHelper.FromArgb(255, 61, 61, 61)
-            : ColorHelper.FromArgb(255, 228, 231, 236);
-
-        titleBar.BackgroundColor = background;
-        titleBar.InactiveBackgroundColor = background;
-        titleBar.ForegroundColor = foreground;
-        titleBar.InactiveForegroundColor = inactiveForeground;
-        titleBar.ButtonBackgroundColor = background;
-        titleBar.ButtonInactiveBackgroundColor = background;
-        titleBar.ButtonForegroundColor = foreground;
-        titleBar.ButtonInactiveForegroundColor = inactiveForeground;
-        titleBar.ButtonHoverBackgroundColor = hoverBackground;
-        titleBar.ButtonHoverForegroundColor = foreground;
-        titleBar.ButtonPressedBackgroundColor = pressedBackground;
-        titleBar.ButtonPressedForegroundColor = foreground;
-    }
-
-    private void SetBrushColor(string key, (int Red, int Green, int Blue) color)
-    {
-        SetBrushColor(key, color.Red, color.Green, color.Blue);
-    }
-
-    private void SetBrushColor(string key, int red, int green, int blue)
-    {
-        if (RootGrid.Resources[key] is SolidColorBrush brush)
-        {
-            brush.Color = ColorHelper.FromArgb(255, (byte)red, (byte)green, (byte)blue);
-        }
-    }
-
-    private SolidColorBrush GetBrush(string key)
-    {
-        return (SolidColorBrush)RootGrid.Resources[key];
+        titleBar.BackgroundColor = null;
+        titleBar.InactiveBackgroundColor = null;
+        titleBar.ForegroundColor = null;
+        titleBar.InactiveForegroundColor = null;
+        titleBar.ButtonBackgroundColor = Colors.Transparent;
+        titleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
+        titleBar.ButtonForegroundColor = null;
+        titleBar.ButtonInactiveForegroundColor = null;
+        titleBar.ButtonHoverBackgroundColor = null;
+        titleBar.ButtonHoverForegroundColor = null;
+        titleBar.ButtonPressedBackgroundColor = null;
+        titleBar.ButtonPressedForegroundColor = null;
     }
 
     private void ShowPanel(bool activatePanel)
@@ -1651,6 +1890,7 @@ public sealed partial class MainWindow : Window
 
     private void HidePanel()
     {
+        CloseContentPreview();
         _panelMonitorTimer?.Stop();
         _panelShownWithoutActivation = false;
         _panelTargetWindow = IntPtr.Zero;

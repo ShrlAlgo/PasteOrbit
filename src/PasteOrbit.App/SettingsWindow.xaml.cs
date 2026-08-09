@@ -8,7 +8,6 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
 using WinRT.Interop;
 using Windows.Graphics;
 
@@ -39,7 +38,6 @@ public sealed partial class SettingsWindow : Window
         _store = store;
         _currentPageTag = "General";
         _isInitialized = true;
-        SettingsRoot.ActualThemeChanged += SettingsRoot_ActualThemeChanged;
         ApplyThemeSettings(settings.ThemeMode);
         _isLoadingSettings = true;
         LoadSettings(settings);
@@ -77,7 +75,7 @@ public sealed partial class SettingsWindow : Window
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(SettingsTitleBar);
         appWindow.SetPresenter(presenter);
-        ApplyNativeTitleBarTheme(SettingsRoot.ActualTheme == ElementTheme.Dark);
+        ApplyNativeTitleBarTheme();
         var workArea = DisplayArea.GetFromWindowId(appWindow.Id, DisplayAreaFallback.Primary).WorkArea;
         appWindow.Move(new PointInt32(
             workArea.X + (workArea.Width - appWindow.Size.Width) / 2,
@@ -105,6 +103,14 @@ public sealed partial class SettingsWindow : Window
         HotKeyTextBox.Text = GlobalHotKey.TryNormalizeShortcut(settings.GlobalHotKey, out var normalizedShortcut)
             ? normalizedShortcut
             : new AppSettings().GlobalHotKey;
+        var defaults = new AppSettings();
+        PasteShortcutTextBox.Text = PanelShortcut.NormalizeOrDefault(settings.PasteShortcut, defaults.PasteShortcut);
+        PlainTextPasteShortcutTextBox.Text = PanelShortcut.NormalizeOrDefault(settings.PlainTextPasteShortcut, defaults.PlainTextPasteShortcut);
+        PreviewShortcutTextBox.Text = PanelShortcut.NormalizeOrDefault(settings.PreviewShortcut, defaults.PreviewShortcut);
+        PinShortcutTextBox.Text = PanelShortcut.NormalizeOrDefault(settings.PinShortcut, defaults.PinShortcut);
+        DeleteShortcutTextBox.Text = PanelShortcut.NormalizeOrDefault(settings.DeleteShortcut, defaults.DeleteShortcut);
+        PasteAsFileShortcutTextBox.Text = PanelShortcut.NormalizeOrDefault(settings.PasteAsFileShortcut, defaults.PasteAsFileShortcut);
+        FocusSearchShortcutTextBox.Text = PanelShortcut.NormalizeOrDefault(settings.FocusSearchShortcut, defaults.FocusSearchShortcut);
         SelectComboItem(ThemeComboBox, settings.ThemeMode);
         SelectComboItem(DensityComboBox, settings.Density);
         SelectComboItem(RetentionDaysComboBox, settings.RetentionDays.ToString());
@@ -120,31 +126,10 @@ public sealed partial class SettingsWindow : Window
             _ => ElementTheme.Default
         };
 
-        ApplyThemePalette(SettingsRoot.ActualTheme == ElementTheme.Dark);
-    }
-
-    private void SettingsRoot_ActualThemeChanged(FrameworkElement sender, object args)
-    {
-        ApplyThemePalette(sender.ActualTheme == ElementTheme.Dark);
-    }
-
-    private void ApplyThemePalette(bool isDark)
-    {
-        SetBrushColor("PageBackgroundBrush", isDark ? (32, 32, 32) : (247, 249, 252));
-        SetBrushColor("SurfaceBrush", isDark ? (43, 43, 43) : (255, 255, 255));
-        SetBrushColor("SurfaceAltBrush", isDark ? (37, 37, 37) : (251, 252, 254));
-        SetBrushColor("TextPrimaryBrush", isDark ? (243, 243, 243) : (29, 41, 57));
-        SetBrushColor("TextSecondaryBrush", isDark ? (185, 185, 185) : (102, 112, 133));
-        SetBrushColor("TextMutedBrush", isDark ? (214, 214, 214) : (52, 64, 84));
-        SetBrushColor("BorderBrush", isDark ? (69, 69, 69) : (217, 225, 234));
-        SetBrushColor("AccentBrush", 15, 108, 189);
-        SetBrushColor("AccentForegroundBrush", 255, 255, 255);
-        SettingsRoot.Background = GetBrush("PageBackgroundBrush");
-        ApplyNativeTitleBarTheme(isDark);
     }
 
     // 原生标题栏不继承设置页内容区的主题，需要单独同步颜色。
-    private void ApplyNativeTitleBarTheme(bool isDark)
+    private void ApplyNativeTitleBarTheme()
     {
         if (_appWindow is null)
         {
@@ -152,52 +137,18 @@ public sealed partial class SettingsWindow : Window
         }
 
         var titleBar = _appWindow.TitleBar;
-        var background = isDark
-            ? ColorHelper.FromArgb(255, 32, 32, 32)
-            : ColorHelper.FromArgb(255, 247, 249, 252);
-        var foreground = isDark
-            ? ColorHelper.FromArgb(255, 243, 243, 243)
-            : ColorHelper.FromArgb(255, 29, 41, 57);
-        var inactiveForeground = isDark
-            ? ColorHelper.FromArgb(255, 185, 185, 185)
-            : ColorHelper.FromArgb(255, 102, 112, 133);
-        var hoverBackground = isDark
-            ? ColorHelper.FromArgb(255, 52, 52, 52)
-            : ColorHelper.FromArgb(255, 242, 244, 247);
-        var pressedBackground = isDark
-            ? ColorHelper.FromArgb(255, 61, 61, 61)
-            : ColorHelper.FromArgb(255, 228, 231, 236);
-
-        titleBar.BackgroundColor = background;
-        titleBar.InactiveBackgroundColor = background;
-        titleBar.ForegroundColor = foreground;
-        titleBar.InactiveForegroundColor = inactiveForeground;
-        titleBar.ButtonBackgroundColor = background;
-        titleBar.ButtonInactiveBackgroundColor = background;
-        titleBar.ButtonForegroundColor = foreground;
-        titleBar.ButtonInactiveForegroundColor = inactiveForeground;
-        titleBar.ButtonHoverBackgroundColor = hoverBackground;
-        titleBar.ButtonHoverForegroundColor = foreground;
-        titleBar.ButtonPressedBackgroundColor = pressedBackground;
-        titleBar.ButtonPressedForegroundColor = foreground;
-    }
-
-    private void SetBrushColor(string key, (int Red, int Green, int Blue) color)
-    {
-        SetBrushColor(key, color.Red, color.Green, color.Blue);
-    }
-
-    private void SetBrushColor(string key, int red, int green, int blue)
-    {
-        if (SettingsRoot.Resources[key] is SolidColorBrush brush)
-        {
-            brush.Color = ColorHelper.FromArgb(255, (byte)red, (byte)green, (byte)blue);
-        }
-    }
-
-    private SolidColorBrush GetBrush(string key)
-    {
-        return (SolidColorBrush)SettingsRoot.Resources[key];
+        titleBar.BackgroundColor = null;
+        titleBar.InactiveBackgroundColor = null;
+        titleBar.ForegroundColor = null;
+        titleBar.InactiveForegroundColor = null;
+        titleBar.ButtonBackgroundColor = Colors.Transparent;
+        titleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
+        titleBar.ButtonForegroundColor = null;
+        titleBar.ButtonInactiveForegroundColor = null;
+        titleBar.ButtonHoverBackgroundColor = null;
+        titleBar.ButtonHoverForegroundColor = null;
+        titleBar.ButtonPressedBackgroundColor = null;
+        titleBar.ButtonPressedForegroundColor = null;
     }
 
     private static void SelectComboItem(ComboBox comboBox, string value)
@@ -261,6 +212,24 @@ public sealed partial class SettingsWindow : Window
             : new AppSettings().GlobalHotKey;
     }
 
+    private void PanelShortcutTextBox_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (sender is not TextBox textBox
+            || !PanelShortcut.TryFormat(
+                e.Key,
+                IsVirtualKeyDown(VirtualKeyControl),
+                IsVirtualKeyDown(VirtualKeyAlt),
+                IsVirtualKeyDown(VirtualKeyShift),
+                out var shortcut))
+        {
+            return;
+        }
+
+        textBox.Text = shortcut;
+        ApplyCurrentSettings();
+    }
+
     private static bool IsVirtualKeyDown(int virtualKey)
     {
         return (GetKeyState(virtualKey) & 0x8000) != 0;
@@ -276,6 +245,13 @@ public sealed partial class SettingsWindow : Window
             MonitorImages = MonitorImagesToggleSwitch.IsOn,
             MonitorFiles = MonitorFilesToggleSwitch.IsOn,
             GlobalHotKey = GetCurrentHotKey(),
+            PasteShortcut = PasteShortcutTextBox.Text,
+            PlainTextPasteShortcut = PlainTextPasteShortcutTextBox.Text,
+            PreviewShortcut = PreviewShortcutTextBox.Text,
+            PinShortcut = PinShortcutTextBox.Text,
+            DeleteShortcut = DeleteShortcutTextBox.Text,
+            PasteAsFileShortcut = PasteAsFileShortcutTextBox.Text,
+            FocusSearchShortcut = FocusSearchShortcutTextBox.Text,
             ThemeMode = GetSelectedText(ThemeComboBox),
             Density = GetSelectedText(DensityComboBox),
             RetentionDays = int.Parse(GetSelectedText(RetentionDaysComboBox)),

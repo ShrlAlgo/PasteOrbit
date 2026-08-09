@@ -1,0 +1,66 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+            <StaticResource x:Key="PageBackgroundBrush" ResourceKey="ApplicationPageBackgroundThemeBrush" />
+            <StaticResource x:Key="SurfaceBrush" ResourceKey="CardBackgroundFillColorDefaultBrush" />
+            <StaticResource x:Key="SurfaceAltBrush" ResourceKey="CardBackgroundFillColorSecondaryBrush" />
+            <StaticResource x:Key="SurfacePointerOverBrush" ResourceKey="SubtleFillColorSecondaryBrush" />
+            <StaticResource x:Key="SurfacePressedBrush" ResourceKey="SubtleFillColorTertiaryBrush" />
+            <StaticResource x:Key="PinnedSurfaceBrush" ResourceKey="AccentFillColorDisabledBrush" />
+            <StaticResource x:Key="HistoryFocusBrush" ResourceKey="SubtleFillColorSecondaryBrush" />
+            <StaticResource x:Key="TextPrimaryBrush" ResourceKey="TextFillColorPrimaryBrush" />
+            <StaticResource x:Key="TextSecondaryBrush" ResourceKey="TextFillColorSecondaryBrush" />
+            <StaticResource x:Key="TextMutedBrush" ResourceKey="TextFillColorTertiaryBrush" />
+            <StaticResource x:Key="BorderBrush" ResourceKey="CardStrokeColorDefaultBrush" />
+            <StaticResource x:Key="BorderPointerOverBrush" ResourceKey="ControlStrokeColorDefaultBrush" />
+            <StaticResource x:Key="BorderPressedBrush" ResourceKey="ControlStrokeColorSecondaryBrush" />
+            <StaticResource x:Key="AccentBrush" ResourceKey="AccentFillColorDefaultBrush" />
+            <StaticResource x:Key="AccentPointerOverBrush" ResourceKey="AccentFillColorSecondaryBrush" />
+            <StaticResource x:Key="AccentPressedBrush" ResourceKey="AccentFillColorTertiaryBrush" />
+            <StaticResource x:Key="AccentDisabledBrush" ResourceKey="AccentFillColorDisabledBrush" />
+            <StaticResource x:Key="AccentForegroundBrush" ResourceKey="TextOnAccentFillColorPrimaryBrush" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+            <StaticResource x:Key="PageBackgroundBrush" ResourceKey="ApplicationPageBackgroundThemeBrush" />
+            <StaticResource x:Key="SurfaceBrush" ResourceKey="CardBackgroundFillColorDefaultBrush" />
+            <StaticResource x:Key="SurfaceAltBrush" ResourceKey="CardBackgroundFillColorSecondaryBrush" />
+            <StaticResource x:Key="SurfacePointerOverBrush" ResourceKey="SubtleFillColorSecondaryBrush" />
+            <StaticResource x:Key="SurfacePressedBrush" ResourceKey="SubtleFillColorTertiaryBrush" />
+            <StaticResource x:Key="PinnedSurfaceBrush" ResourceKey="AccentFillColorDisabledBrush" />
+            <StaticResource x:Key="HistoryFocusBrush" ResourceKey="SubtleFillColorSecondaryBrush" />
+            <StaticResource x:Key="TextPrimaryBrush" ResourceKey="TextFillColorPrimaryBrush" />
+            <StaticResource x:Key="TextSecondaryBrush" ResourceKey="TextFillColorSecondaryBrush" />
+            <StaticResource x:Key="TextMutedBrush" ResourceKey="TextFillColorTertiaryBrush" />
+            <StaticResource x:Key="BorderBrush" ResourceKey="CardStrokeColorDefaultBrush" />
+            <StaticResource x:Key="BorderPointerOverBrush" ResourceKey="ControlStrokeColorDefaultBrush" />
+            <StaticResource x:Key="BorderPressedBrush" ResourceKey="ControlStrokeColorSecondaryBrush" />
+            <StaticResource x:Key="AccentBrush" ResourceKey="AccentFillColorDefaultBrush" />
+            <StaticResource x:Key="AccentPointerOverBrush" ResourceKey="AccentFillColorSecondaryBrush" />
+            <StaticResource x:Key="AccentPressedBrush" ResourceKey="AccentFillColorTertiaryBrush" />
+            <StaticResource x:Key="AccentDisabledBrush" ResourceKey="AccentFillColorDisabledBrush" />
+            <StaticResource x:Key="AccentForegroundBrush" ResourceKey="TextOnAccentFillColorPrimaryBrush" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="HighContrast">
+            <StaticResource x:Key="PageBackgroundBrush" ResourceKey="ApplicationPageBackgroundThemeBrush" />
+            <StaticResource x:Key="SurfaceBrush" ResourceKey="CardBackgroundFillColorDefaultBrush" />
+            <StaticResource x:Key="SurfaceAltBrush" ResourceKey="CardBackgroundFillColorSecondaryBrush" />
+            <StaticResource x:Key="SurfacePointerOverBrush" ResourceKey="SubtleFillColorSecondaryBrush" />
+            <StaticResource x:Key="SurfacePressedBrush" ResourceKey="SubtleFillColorTertiaryBrush" />
+            <StaticResource x:Key="PinnedSurfaceBrush" ResourceKey="AccentFillColorDisabledBrush" />
+            <StaticResource x:Key="HistoryFocusBrush" ResourceKey="SubtleFillColorSecondaryBrush" />
+            <StaticResource x:Key="TextPrimaryBrush" ResourceKey="TextFillColorPrimaryBrush" />
+            <StaticResource x:Key="TextSecondaryBrush" ResourceKey="TextFillColorSecondaryBrush" />
+            <StaticResource x:Key="TextMutedBrush" ResourceKey="TextFillColorTertiaryBrush" />
+            <StaticResource x:Key="BorderBrush" ResourceKey="CardStrokeColorDefaultBrush" />
+            <StaticResource x:Key="BorderPointerOverBrush" ResourceKey="ControlStrokeColorDefaultBrush" />
+            <StaticResource x:Key="BorderPressedBrush" ResourceKey="ControlStrokeColorSecondaryBrush" />
+            <StaticResource x:Key="AccentBrush" ResourceKey="AccentFillColorDefaultBrush" />
+            <StaticResource x:Key="AccentPointerOverBrush" ResourceKey="AccentFillColorSecondaryBrush" />
+            <StaticResource x:Key="AccentPressedBrush" ResourceKey="AccentFillColorTertiaryBrush" />
+            <StaticResource x:Key="AccentDisabledBrush" ResourceKey="AccentFillColorDisabledBrush" />
+            <StaticResource x:Key="AccentForegroundBrush" ResourceKey="TextOnAccentFillColorPrimaryBrush" />
+        </ResourceDictionary>
+    </ResourceDictionary.ThemeDictionaries>
+</ResourceDictionary>

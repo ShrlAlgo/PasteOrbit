@@ -7,6 +7,20 @@ public sealed class AppSettings
 {
     public string GlobalHotKey { get; set; } = "Alt + V";
 
+    public string PasteShortcut { get; set; } = "Enter";
+
+    public string PlainTextPasteShortcut { get; set; } = "Shift + Enter";
+
+    public string PreviewShortcut { get; set; } = "Space";
+
+    public string PinShortcut { get; set; } = "Ctrl + P";
+
+    public string DeleteShortcut { get; set; } = "Delete";
+
+    public string PasteAsFileShortcut { get; set; } = "Ctrl + Shift + S";
+
+    public string FocusSearchShortcut { get; set; } = "Ctrl + F";
+
     public bool StartWithWindows { get; set; }
 
     public bool AutoHideOnDeactivate { get; set; } = true;

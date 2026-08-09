@@ -46,7 +46,7 @@ internal static class ExplorerFilePaste
         {
             if (item.Kind == ClipboardContentKind.Text)
             {
-                var text = Encoding.UTF8.GetString(content);
+                var text = ClipboardTextContent.Deserialize(content).Text;
                 await File.WriteAllTextAsync(
                     filePath,
                     text,

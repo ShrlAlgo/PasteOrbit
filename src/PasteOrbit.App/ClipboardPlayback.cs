@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Text.Json;
 using PasteOrbit.Core;
 using Windows.ApplicationModel.DataTransfer;
@@ -23,7 +22,8 @@ public static class ClipboardPlayback
         byte[] content,
         IntPtr targetWindow,
         IntPtr focusWindow = default,
-        Action? restoreInputFocus = null)
+        Action? restoreInputFocus = null,
+        bool plainTextOnly = false)
     {
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(content);
@@ -32,7 +32,7 @@ public static class ClipboardPlayback
         {
             try
             {
-                await WriteClipboardAsync(item, content);
+                await WriteClipboardAsync(item, content, plainTextOnly);
                 break;
             }
             catch (COMException) when (attempt < RetryCount - 1)
@@ -80,7 +80,10 @@ public static class ClipboardPlayback
         return await ExplorerFilePaste.TrySaveAsync(item, content, targetWindow);
     }
 
-    private static async Task WriteClipboardAsync(ClipboardHistoryEntry item, byte[] content)
+    private static async Task WriteClipboardAsync(
+        ClipboardHistoryEntry item,
+        byte[] content,
+        bool plainTextOnly)
     {
         if (item.Kind != ClipboardContentKind.Image)
         {
@@ -92,7 +95,18 @@ public static class ClipboardPlayback
         switch (item.Kind)
         {
             case ClipboardContentKind.Text:
-                package.SetText(Encoding.UTF8.GetString(content));
+                var textContent = ClipboardTextContent.Deserialize(content);
+                package.SetText(textContent.Text);
+                if (!plainTextOnly && !string.IsNullOrEmpty(textContent.Html))
+                {
+                    package.SetHtmlFormat(textContent.Html);
+                }
+
+                if (!plainTextOnly && !string.IsNullOrEmpty(textContent.Rtf))
+                {
+                    package.SetRtf(textContent.Rtf);
+                }
+
                 break;
             case ClipboardContentKind.Image:
                 _clipboardStream?.Dispose();

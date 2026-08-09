@@ -17,8 +17,11 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
     private readonly DispatcherQueue _dispatcherQueue;
     private Task? _previewLoadTask;
     private BitmapImage? _thumbnail;
+    private string? _richTextContent;
+    private string _formatLabel = string.Empty;
     private string _metadata;
     private bool _previewRequested;
+    private bool _textMetadataLoaded;
     private bool _fileMetadataLoaded;
     private bool _disposed;
 
@@ -68,7 +71,7 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
 
     public string PinToolTip => IsPinned ? "取消置顶" : "置顶记录";
 
-    public Symbol PinSymbol => IsPinned ? Symbol.UnPin : Symbol.Pin;
+    public string PinGlyph => IsPinned ? "\uE77A" : "\uE718";
 
     public Visibility PasteAsFileVisibility => Item.Kind is ClipboardContentKind.Text or ClipboardContentKind.Image
         ? Visibility.Visible
@@ -93,6 +96,14 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
         ? Visibility.Collapsed
         : Visibility.Visible;
 
+    public string FormatLabel => _formatLabel;
+
+    public Visibility FormatBadgeVisibility => string.IsNullOrEmpty(_formatLabel)
+        ? Visibility.Collapsed
+        : Visibility.Visible;
+
+    internal string? RichTextContent => _richTextContent;
+
     public static HistoryListItem From(ClipboardHistoryEntry item)
     {
         ArgumentNullException.ThrowIfNull(item);
@@ -103,7 +114,12 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
     {
         ArgumentNullException.ThrowIfNull(loadContent);
         _previewRequested = true;
-        if (_disposed || Item.Kind == ClipboardContentKind.Text)
+        if (_disposed)
+        {
+            return Task.CompletedTask;
+        }
+
+        if (Item.Kind == ClipboardContentKind.Text && _textMetadataLoaded)
         {
             return Task.CompletedTask;
         }
@@ -145,6 +161,21 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
     {
         try
         {
+            if (Item.Kind == ClipboardContentKind.Text)
+            {
+                var textContent = await Task.Run(() => ClipboardTextContent.Deserialize(loadContent(Item.Id)));
+                await RunOnUiThreadAsync(() =>
+                {
+                    if (!_disposed)
+                    {
+                        ApplyTextContent(textContent);
+                    }
+
+                    return Task.CompletedTask;
+                });
+                return;
+            }
+
             if (Item.Kind == ClipboardContentKind.Files)
             {
                 var fileMetadata = await Task.Run(() => CreateFilesMetadata(loadContent(Item.Id)));
@@ -170,7 +201,12 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
             {
                 if (!_disposed)
                 {
-                    Metadata = Item.Kind == ClipboardContentKind.Image ? "图片 · 预览不可用" : "文件 · 信息不可用";
+                    Metadata = Item.Kind switch
+                    {
+                        ClipboardContentKind.Image => "图片 · 预览不可用",
+                        ClipboardContentKind.Files => "文件 · 信息不可用",
+                        _ => Metadata
+                    };
                 }
 
                 return Task.CompletedTask;
@@ -180,6 +216,21 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
         {
             _previewLoadTask = null;
         }
+    }
+
+    private void ApplyTextContent(ClipboardTextContent content)
+    {
+        _richTextContent = content.Rtf;
+        _formatLabel = (content.Html, content.Rtf) switch
+        {
+            (not null, not null) => "HTML · RTF",
+            (not null, null) => "HTML",
+            (null, not null) => "RTF",
+            _ => string.Empty
+        };
+        _textMetadataLoaded = true;
+        OnPropertyChanged(nameof(FormatLabel));
+        OnPropertyChanged(nameof(FormatBadgeVisibility));
     }
 
     private async Task LoadImagePreviewAsync(byte[] content)
@@ -205,7 +256,7 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
         }
 
         thumbnailStream.Seek(0);
-        var thumbnail = new BitmapImage { DecodePixelWidth = 300 };
+        var thumbnail = new BitmapImage { DecodePixelWidth = 420 };
         await thumbnail.SetSourceAsync(thumbnailStream);
         if (_disposed || !_previewRequested)
         {

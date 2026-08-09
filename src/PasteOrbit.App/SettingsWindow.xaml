@@ -3,23 +3,17 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:toolkit="using:CommunityToolkit.WinUI.Controls"
         Title="PasteOrbit 设置">
-    <Grid x:Name="SettingsRoot" RequestedTheme="Light" Background="#F7F9FC">
+    <Grid x:Name="SettingsRoot" Background="{ThemeResource PageBackgroundBrush}">
         <Grid.Resources>
-            <SolidColorBrush x:Key="PageBackgroundBrush" Color="#F7F9FC" />
-            <SolidColorBrush x:Key="SurfaceBrush" Color="#FFFFFF" />
-            <SolidColorBrush x:Key="SurfaceAltBrush" Color="#FBFCFE" />
-            <SolidColorBrush x:Key="TextPrimaryBrush" Color="#1D2939" />
-            <SolidColorBrush x:Key="TextSecondaryBrush" Color="#667085" />
-            <SolidColorBrush x:Key="TextMutedBrush" Color="#344054" />
-            <SolidColorBrush x:Key="BorderBrush" Color="#D9E1EA" />
-            <SolidColorBrush x:Key="AccentBrush" Color="#0F6CBD" />
-            <SolidColorBrush x:Key="AccentForegroundBrush" Color="#FFFFFF" />
             <x:Double x:Key="SettingsCardWrapThreshold">420</x:Double>
+            <Style TargetType="FontIcon">
+                <Setter Property="FontFamily" Value="{StaticResource SymbolThemeFontFamily}" />
+            </Style>
             <Style x:Key="SettingsIconButtonStyle" TargetType="Button">
                 <Setter Property="Width" Value="36" />
                 <Setter Property="Height" Value="36" />
                 <Setter Property="Padding" Value="0" />
-                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+                <Setter Property="Foreground" Value="{ThemeResource TextPrimaryBrush}" />
                 <Setter Property="Background" Value="Transparent" />
                 <Setter Property="BorderThickness" Value="0" />
                 <Setter Property="CornerRadius" Value="8" />
@@ -27,20 +21,28 @@
             <Style x:Key="SettingsActionButtonStyle" TargetType="Button">
                 <Setter Property="MinHeight" Value="34" />
                 <Setter Property="Padding" Value="14,0" />
-                <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
-                <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
-                <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+                <Setter Property="Foreground" Value="{ThemeResource TextMutedBrush}" />
+                <Setter Property="Background" Value="{ThemeResource SurfaceBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource BorderBrush}" />
                 <Setter Property="BorderThickness" Value="1" />
                 <Setter Property="CornerRadius" Value="6" />
+            </Style>
+            <Style x:Key="ShortcutTextBoxStyle"
+                   TargetType="TextBox"
+                   BasedOn="{StaticResource DefaultTextBoxStyle}">
+                <Setter Property="Width" Value="180" />
+                <Setter Property="IsReadOnly" Value="True" />
+                <Setter Property="IsTabStop" Value="True" />
+                <Setter Property="PlaceholderText" Value="按下快捷键" />
             </Style>
             <Style x:Key="SettingsComboBoxStyle"
                    TargetType="ComboBox"
                    BasedOn="{StaticResource DefaultComboBoxStyle}">
                 <Setter Property="MinHeight" Value="34" />
                 <Setter Property="Padding" Value="10,0" />
-                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
-                <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
-                <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+                <Setter Property="Foreground" Value="{ThemeResource TextPrimaryBrush}" />
+                <Setter Property="Background" Value="{ThemeResource SurfaceBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource BorderBrush}" />
                 <Setter Property="BorderThickness" Value="1" />
                 <Setter Property="CornerRadius" Value="6" />
             </Style>
@@ -54,8 +56,8 @@
         <TitleBar x:Name="SettingsTitleBar"
                   Grid.Row="0"
                   Title="PasteOrbit 设置"
-                  Background="{StaticResource PageBackgroundBrush}"
-                  Foreground="{StaticResource TextPrimaryBrush}"
+                  Background="{ThemeResource PageBackgroundBrush}"
+                  Foreground="{ThemeResource TextPrimaryBrush}"
                   IsPaneToggleButtonVisible="True"
                   IsBackButtonVisible="True"
                   IsBackButtonEnabled="True"
@@ -74,27 +76,27 @@
                         ExpandedModeThresholdWidth="760"
                         CompactPaneLength="48"
                         OpenPaneLength="200"
-                        Background="{StaticResource SurfaceBrush}"
+                        Background="{ThemeResource SurfaceBrush}"
                         SelectionChanged="SettingsNavigation_SelectionChanged">
             <NavigationView.MenuItems>
                 <NavigationViewItem Tag="General" Content="常规" IsSelected="True">
                     <NavigationViewItem.Icon>
-                        <SymbolIcon Symbol="Setting" />
+                        <FontIcon Glyph="&#xE713;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
                 <NavigationViewItem Tag="HotKey" Content="快捷键">
                     <NavigationViewItem.Icon>
-                        <SymbolIcon Symbol="Keyboard" />
+                        <FontIcon Glyph="&#xE765;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
                 <NavigationViewItem Tag="History" Content="历史记录">
                     <NavigationViewItem.Icon>
-                        <SymbolIcon Symbol="Clock" />
+                        <FontIcon Glyph="&#xE823;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
                 <NavigationViewItem Tag="Privacy" Content="隐私与安全">
                     <NavigationViewItem.Icon>
-                        <SymbolIcon Symbol="Document" />
+                        <FontIcon Glyph="&#xE8A5;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
             </NavigationView.MenuItems>
@@ -103,7 +105,7 @@
                 <Grid Margin="42,26,42,24">
                     <StackPanel x:Name="GeneralPanel">
                         <TextBlock Text="启动与窗口" FontSize="18" FontWeight="SemiBold" />
-                        <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,8,0,4" />
+                        <Border Height="1" Background="{ThemeResource BorderBrush}" Margin="0,8,0,4" />
                         <toolkit:SettingsCard Header="开机自动启动"
                                               Description="登录 Windows 后自动运行 PasteOrbit"
                                               Margin="0,0,0,8"
@@ -117,7 +119,7 @@
                             <ToggleSwitch x:Name="AutoHideToggleSwitch" />
                         </toolkit:SettingsCard>
                         <TextBlock Text="剪贴板监听" FontSize="18" FontWeight="SemiBold" Margin="0,18,0,0" />
-                        <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,8,0,4" />
+                        <Border Height="1" Background="{ThemeResource BorderBrush}" Margin="0,8,0,4" />
                         <toolkit:SettingsCard Header="监听文本"
                                               Description="记录复制到剪贴板的文本内容"
                                               Margin="0,0,0,8"
@@ -137,7 +139,7 @@
                             <ToggleSwitch x:Name="MonitorFilesToggleSwitch" />
                         </toolkit:SettingsCard>
                         <TextBlock Text="外观" FontSize="18" FontWeight="SemiBold" Margin="0,18,0,0" />
-                        <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,8,0,4" />
+                        <Border Height="1" Background="{ThemeResource BorderBrush}" Margin="0,8,0,4" />
                         <toolkit:SettingsCard Header="主题模式"
                                               Description="选择浅色、深色或跟随系统"
                                               Margin="0,0,0,8"
@@ -158,25 +160,43 @@
 
                     <StackPanel x:Name="HotKeyPanel" Visibility="Collapsed">
                         <TextBlock Text="快捷键" FontSize="18" FontWeight="SemiBold" />
-                        <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,8,0,4" />
+                        <Border Height="1" Background="{ThemeResource BorderBrush}" Margin="0,8,0,4" />
                         <toolkit:SettingsCard Header="打开剪切板历史"
-                                              Description="点击输入框后按下新的组合键，修改会立即生效"
+                                              Description="全局快捷键，必须包含修饰键"
                                               Margin="0,0,0,8"
                                               ContentAlignment="Right">
                             <TextBox x:Name="HotKeyTextBox"
-                                     Width="180"
-                                     IsReadOnly="True"
-                                     IsTabStop="True"
-                                     PlaceholderText="按下组合键"
-                                     Background="{StaticResource SurfaceBrush}"
-                                     BorderBrush="{StaticResource BorderBrush}"
+                                     Style="{StaticResource ShortcutTextBoxStyle}"
                                      KeyDown="HotKeyTextBox_KeyDown" />
                         </toolkit:SettingsCard>
+                        <toolkit:SettingsCard Header="粘贴选中记录" Margin="0,0,0,8" ContentAlignment="Right">
+                            <TextBox x:Name="PasteShortcutTextBox" Style="{StaticResource ShortcutTextBoxStyle}" KeyDown="PanelShortcutTextBox_KeyDown" />
+                        </toolkit:SettingsCard>
+                        <toolkit:SettingsCard Header="粘贴为纯文本" Margin="0,0,0,8" ContentAlignment="Right">
+                            <TextBox x:Name="PlainTextPasteShortcutTextBox" Style="{StaticResource ShortcutTextBoxStyle}" KeyDown="PanelShortcutTextBox_KeyDown" />
+                        </toolkit:SettingsCard>
+                        <toolkit:SettingsCard Header="展开或收起预览" Margin="0,0,0,8" ContentAlignment="Right">
+                            <TextBox x:Name="PreviewShortcutTextBox" Style="{StaticResource ShortcutTextBoxStyle}" KeyDown="PanelShortcutTextBox_KeyDown" />
+                        </toolkit:SettingsCard>
+                        <toolkit:SettingsCard Header="置顶或取消置顶" Margin="0,0,0,8" ContentAlignment="Right">
+                            <TextBox x:Name="PinShortcutTextBox" Style="{StaticResource ShortcutTextBoxStyle}" KeyDown="PanelShortcutTextBox_KeyDown" />
+                        </toolkit:SettingsCard>
+                        <toolkit:SettingsCard Header="删除选中记录" Margin="0,0,0,8" ContentAlignment="Right">
+                            <TextBox x:Name="DeleteShortcutTextBox" Style="{StaticResource ShortcutTextBoxStyle}" KeyDown="PanelShortcutTextBox_KeyDown" />
+                        </toolkit:SettingsCard>
+                        <toolkit:SettingsCard Header="粘贴为文件" Margin="0,0,0,8" ContentAlignment="Right">
+                            <TextBox x:Name="PasteAsFileShortcutTextBox" Style="{StaticResource ShortcutTextBoxStyle}" KeyDown="PanelShortcutTextBox_KeyDown" />
+                        </toolkit:SettingsCard>
+                        <toolkit:SettingsCard Header="聚焦搜索框" Margin="0,0,0,8" ContentAlignment="Right">
+                            <TextBox x:Name="FocusSearchShortcutTextBox" Style="{StaticResource ShortcutTextBoxStyle}" KeyDown="PanelShortcutTextBox_KeyDown" />
+                        </toolkit:SettingsCard>
+                        <TextBlock Text="Esc 隐藏面板，方向键用于列表导航，这些系统操作保持固定。"
+                                   Foreground="{ThemeResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,4,0,0" />
                     </StackPanel>
 
                     <StackPanel x:Name="HistoryPanel" Visibility="Collapsed">
                         <TextBlock Text="历史记录" FontSize="18" FontWeight="SemiBold" />
-                        <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,8,0,4" />
+                        <Border Height="1" Background="{ThemeResource BorderBrush}" Margin="0,8,0,4" />
                         <toolkit:SettingsCard Header="保留天数"
                                               Description="自动清理超过该天数的未置顶记录"
                                               Margin="0,0,0,8"
@@ -193,21 +213,21 @@
                                 <ComboBoxItem Content="1000" /><ComboBoxItem Content="5000" /><ComboBoxItem Content="10000" />
                             </ComboBox>
                         </toolkit:SettingsCard>
-                        <TextBlock Text="置顶记录不参与自动过期和数量清理。" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,12,0,0" />
+                        <TextBlock Text="置顶记录不参与自动过期和数量清理。" Foreground="{ThemeResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,12,0,0" />
                     </StackPanel>
 
                     <StackPanel x:Name="PrivacyPanel" Visibility="Collapsed">
                         <TextBlock Text="隐私与安全" FontSize="18" FontWeight="SemiBold" />
-                        <Border Height="1" Background="{StaticResource BorderBrush}" Margin="0,8,0,4" />
+                        <Border Height="1" Background="{ThemeResource BorderBrush}" Margin="0,8,0,4" />
                         <TextBlock Text="本地数据保护已启用" FontSize="16" FontWeight="SemiBold" Margin="0,22,0,8" />
-                        <TextBlock Text="剪切板正文使用当前 Windows 用户凭据加密，其他用户无法直接读取。" Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap" />
+                        <TextBlock Text="剪切板正文使用当前 Windows 用户凭据加密，其他用户无法直接读取。" Foreground="{ThemeResource TextSecondaryBrush}" TextWrapping="Wrap" />
                     </StackPanel>
                 </Grid>
                 </ScrollViewer>
             </NavigationView.Content>
         </NavigationView>
 
-        <Border Grid.Row="2" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
+        <Border Grid.Row="2" Background="{ThemeResource SurfaceBrush}" BorderBrush="{ThemeResource BorderBrush}" BorderThickness="0,1,0,0">
             <Grid Margin="20,0">
                 <Button Style="{StaticResource SettingsActionButtonStyle}" Content="恢复默认" HorizontalAlignment="Right" Click="RestoreDefaultsButton_Click" />
             </Grid>
