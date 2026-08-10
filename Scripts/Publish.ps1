@@ -10,6 +10,7 @@ $ErrorActionPreference = 'Stop'
 
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $projectPath = Join-Path $repositoryRoot 'src\PasteOrbit.App\PasteOrbit.App.csproj'
+$buildOutputDirectory = Join-Path $repositoryRoot 'src\PasteOrbit.App\bin\Release\net8.0-windows10.0.26100.0'
 $artifactsDirectory = Join-Path $repositoryRoot 'artifacts'
 $publishDirectory = Join-Path $artifactsDirectory 'PasteOrbit-win-x64'
 $archiveName = if ([string]::IsNullOrWhiteSpace($Version)) {
@@ -63,6 +64,35 @@ if ($LASTEXITCODE -ne 0) {
     throw "dotnet publish 失败，退出代码：$LASTEXITCODE"
 }
 
+# dotnet publish 当前不会把 WinUI 生成的 XBF/PRI 资源复制到非打包应用的发布目录。
+# 这些文件是运行时加载 XAML 和资源索引所必需的，必须保留原有相对路径。
+$winUiResourcePaths = @(
+    'App.xbf',
+    'MainWindow.xbf',
+    'SettingsWindow.xbf',
+    'PasteOrbit.pri',
+    'Themes\AppBrushes.xbf'
+)
+
+foreach ($relativePath in $winUiResourcePaths) {
+    $sourcePath = Join-Path $buildOutputDirectory $relativePath
+    $destinationPath = Join-Path $publishDirectory $relativePath
+
+    if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+        throw "缺少 WinUI 发布资源：$sourcePath"
+    }
+
+    $destinationDirectory = Split-Path -Parent $destinationPath
+    New-Item -ItemType Directory -Path $destinationDirectory -Force | Out-Null
+    Copy-Item -LiteralPath $sourcePath -Destination $destinationPath -Force
+}
+
+foreach ($relativePath in $winUiResourcePaths) {
+    $publishedPath = Join-Path $publishDirectory $relativePath
+    if (-not (Test-Path -LiteralPath $publishedPath -PathType Leaf)) {
+        throw "WinUI 发布资源复制失败：$publishedPath"
+    }
+}
 Get-ChildItem -LiteralPath $publishDirectory -Filter '*.pdb' -File -Recurse |
     Remove-Item -Force
 

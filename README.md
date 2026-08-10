@@ -21,8 +21,6 @@ PasteOrbit 是一款基于 WinUI 3 的 Windows 本地剪切板历史工具。
 - 导出和恢复本地加密备份。
 - 配置主题、界面密度、保留天数、记录上限和功能快捷键。
 
-应用不提供云同步、局域网同步或移动端同步。
-
 ## 系统要求
 
 - Windows 10 版本 1809 或更高版本。
@@ -126,6 +124,12 @@ dotnet build .\src\PasteOrbit.App\PasteOrbit.App.csproj -c Release
 
 ```powershell
 .\Scripts\Publish.ps1 -Version 1.0.0
+```
+
+建议在 PowerShell 终端中运行，避免双击脚本后窗口自动关闭：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\Scripts\Publish.ps1 -Version 1.0.0
 ```
 
 发布结果位于 `artifacts`：
