@@ -37,12 +37,12 @@ function Remove-PackagePath {
     Remove-Item -LiteralPath $resolvedTarget -Recurse -Force
 }
 
+# 避免正在运行的程序锁定发布文件，必须在清理旧发布目录之前停止进程。
+Get-Process -Name 'PasteOrbit' -ErrorAction SilentlyContinue | Stop-Process -Force
+
 Remove-PackagePath -Path $publishDirectory
 Remove-PackagePath -Path $archivePath
 New-Item -ItemType Directory -Path $publishDirectory -Force | Out-Null
-
-# 避免正在运行的程序锁定 Release 发布文件。
-Get-Process -Name 'PasteOrbit' -ErrorAction SilentlyContinue | Stop-Process -Force
 
 $publishArguments = @(
     'publish',

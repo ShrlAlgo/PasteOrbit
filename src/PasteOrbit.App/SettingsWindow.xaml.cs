@@ -122,7 +122,6 @@ public sealed partial class SettingsWindow : Window
         PinShortcutTextBox.Text = PanelShortcut.NormalizeOrDefault(settings.PinShortcut, defaults.PinShortcut);
         DeleteShortcutTextBox.Text = PanelShortcut.NormalizeOrDefault(settings.DeleteShortcut, defaults.DeleteShortcut);
         PasteAsFileShortcutTextBox.Text = PanelShortcut.NormalizeOrDefault(settings.PasteAsFileShortcut, defaults.PasteAsFileShortcut);
-        FocusSearchShortcutTextBox.Text = PanelShortcut.NormalizeOrDefault(settings.FocusSearchShortcut, defaults.FocusSearchShortcut);
         SelectComboItem(ThemeComboBox, settings.ThemeMode);
         SelectComboItem(DensityComboBox, settings.Density);
         SelectComboItem(RetentionDaysComboBox, settings.RetentionDays.ToString());
@@ -270,7 +269,6 @@ public sealed partial class SettingsWindow : Window
             PinShortcut = PinShortcutTextBox.Text,
             DeleteShortcut = DeleteShortcutTextBox.Text,
             PasteAsFileShortcut = PasteAsFileShortcutTextBox.Text,
-            FocusSearchShortcut = FocusSearchShortcutTextBox.Text,
             ThemeMode = GetSelectedText(ThemeComboBox),
             Density = GetSelectedText(DensityComboBox),
             RetentionDays = int.Parse(GetSelectedText(RetentionDaysComboBox)),

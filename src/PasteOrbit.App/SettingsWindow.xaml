@@ -225,9 +225,6 @@
                         <toolkit:SettingsCard Header="粘贴为文件" Margin="0,0,0,8" ContentAlignment="Right">
                             <TextBox x:Name="PasteAsFileShortcutTextBox" Style="{StaticResource ShortcutTextBoxStyle}" KeyDown="PanelShortcutTextBox_KeyDown" />
                         </toolkit:SettingsCard>
-                        <toolkit:SettingsCard Header="聚焦搜索框" Margin="0,0,0,8" ContentAlignment="Right">
-                            <TextBox x:Name="FocusSearchShortcutTextBox" Style="{StaticResource ShortcutTextBoxStyle}" KeyDown="PanelShortcutTextBox_KeyDown" />
-                        </toolkit:SettingsCard>
                         <TextBlock Text="Esc 隐藏面板，方向键用于列表导航，这些系统操作保持固定。"
                                    Foreground="{ThemeResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,4,0,0" />
                     </StackPanel>

@@ -52,7 +52,6 @@ PasteOrbit 是一款基于 WinUI 3 的 Windows 本地剪切板历史工具。
 | 置顶或取消置顶 | `Ctrl + P` |
 | 删除选中记录 | `Delete` |
 | 粘贴为文件 | `Ctrl + Shift + S` |
-| 聚焦搜索框 | `Ctrl + F` |
 | 隐藏面板 | `Esc` |
 
 新配置使用以上默认值。

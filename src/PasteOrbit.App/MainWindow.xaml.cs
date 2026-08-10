@@ -460,7 +460,7 @@ public sealed partial class MainWindow : Window
         EnqueueOnUi(() =>
         {
             PositionWindow();
-            ShowPanel(activatePanel: false);
+            ShowPanel(activatePanel: true);
         });
     }
 
@@ -1480,11 +1480,6 @@ public sealed partial class MainWindow : Window
             e.Handled = true;
             await PlayAsync(quickPasteItem);
         }
-        else if (PanelShortcut.Matches(e, _settings.FocusSearchShortcut))
-        {
-            SearchBox.Focus(FocusState.Programmatic);
-            e.Handled = true;
-        }
         else if (e.Key == VirtualKey.Down && ReferenceEquals(sender, SearchBox) && _displayItems.Count > 0)
         {
             HistoryList.Focus(FocusState.Programmatic);
@@ -2024,7 +2019,6 @@ public sealed partial class MainWindow : Window
         settings.PinShortcut = PanelShortcut.NormalizeOrDefault(settings.PinShortcut, defaults.PinShortcut);
         settings.DeleteShortcut = PanelShortcut.NormalizeOrDefault(settings.DeleteShortcut, defaults.DeleteShortcut);
         settings.PasteAsFileShortcut = PanelShortcut.NormalizeOrDefault(settings.PasteAsFileShortcut, defaults.PasteAsFileShortcut);
-        settings.FocusSearchShortcut = PanelShortcut.NormalizeOrDefault(settings.FocusSearchShortcut, defaults.FocusSearchShortcut);
     }
 
     private void ApplyViewSettings()

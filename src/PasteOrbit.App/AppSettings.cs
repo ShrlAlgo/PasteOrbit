@@ -18,8 +18,6 @@ public sealed class AppSettings
 
     public string PasteAsFileShortcut { get; set; } = "Ctrl + Shift + S";
 
-    public string FocusSearchShortcut { get; set; } = "Ctrl + F";
-
     public bool StartWithWindows { get; set; }
 
     public bool AutoHideOnDeactivate { get; set; } = true;
