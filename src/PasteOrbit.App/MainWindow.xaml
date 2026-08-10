@@ -304,7 +304,7 @@
                         Width="16"
                         Height="16"
                         Stretch="Uniform">
-                        <FontIcon Glyph="&#xE894;" />
+                        <FontIcon Glyph="&#xE75C;" />
                     </Viewbox>
                 </Button>
             </Grid>

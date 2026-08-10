@@ -69,7 +69,6 @@ public sealed partial class MainWindow : Window
     private HistoryListItem? _previewedHistoryItem;
     private FrameworkElement? _previewedHistoryCard;
     private IntPtr _pasteTarget;
-    private IntPtr _pasteFocusWindow;
     private MonitorRect _pasteInputBounds;
     private IntPtr _handle;
     private Win32MessageBridge? _messageBridge;
@@ -538,35 +537,15 @@ public sealed partial class MainWindow : Window
             }
 
             _pasteTarget = IntPtr.Zero;
-            _pasteFocusWindow = IntPtr.Zero;
             _pasteInputBounds = default;
             _hasPasteInputBounds = false;
             return;
         }
 
         _pasteTarget = foregroundWindow;
-        _pasteFocusWindow = IntPtr.Zero;
         _pasteInputBounds = default;
         _hasPasteInputBounds = TryGetActiveInputBounds(foregroundWindow, out _pasteInputBounds);
-        var threadId = GetWindowThreadProcessId(foregroundWindow, IntPtr.Zero);
-        if (threadId == 0)
-        {
-            return;
-        }
 
-        if (TryGetFocusedChildWindow(threadId, foregroundWindow, out var focusedWindow))
-        {
-            _pasteFocusWindow = focusedWindow;
-            return;
-        }
-
-        var threadInfo = new GuiThreadInfo { Size = (uint)Marshal.SizeOf<GuiThreadInfo>() };
-        if (GetGUIThreadInfo(threadId, ref threadInfo)
-            && threadInfo.FocusWindow != IntPtr.Zero
-            && threadInfo.FocusWindow != foregroundWindow)
-        {
-            _pasteFocusWindow = threadInfo.FocusWindow;
-        }
     }
 
     private bool TryGetActiveInputBounds(IntPtr foregroundWindow, out MonitorRect bounds)
@@ -1221,7 +1200,6 @@ public sealed partial class MainWindow : Window
                 selected.Item,
                 content,
                 pasteTarget.TargetWindow,
-                pasteTarget.FocusWindow,
                 () => TryRestoreAutomationFocus(pasteTarget),
                 plainTextOnly);
             if (pasted)
@@ -1291,18 +1269,12 @@ public sealed partial class MainWindow : Window
     {
         return new PasteTargetSnapshot(
             GetPasteTargetWindow(),
-            _pasteFocusWindow,
             _pasteInputBounds,
             _hasPasteInputBounds);
     }
 
     private static bool TryRestoreAutomationFocus(PasteTargetSnapshot pasteTarget)
     {
-        if (pasteTarget.FocusWindow != IntPtr.Zero)
-        {
-            return false;
-        }
-
         if (!pasteTarget.HasInputBounds)
         {
             return false;
@@ -2196,7 +2168,6 @@ public sealed partial class MainWindow : Window
 
     private readonly record struct PasteTargetSnapshot(
         IntPtr TargetWindow,
-        IntPtr FocusWindow,
         MonitorRect InputBounds,
         bool HasInputBounds);
 

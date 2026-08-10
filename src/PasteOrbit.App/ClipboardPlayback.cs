@@ -23,8 +23,7 @@ public static class ClipboardPlayback
         ClipboardHistoryEntry item,
         byte[] content,
         IntPtr targetWindow,
-        IntPtr focusWindow = default,
-        Action? restoreInputFocus = null,
+        Func<bool>? restoreInputFocus = null,
         bool plainTextOnly = false)
     {
         ArgumentNullException.ThrowIfNull(item);
@@ -48,12 +47,17 @@ public static class ClipboardPlayback
             return false;
         }
 
-        if (!ActivateTargetWindow(targetWindow, focusWindow))
+        if (!ActivateTargetWindow(targetWindow))
         {
             return false;
         }
 
-        restoreInputFocus?.Invoke();
+        await Task.Delay(80);
+        if (restoreInputFocus is null || !restoreInputFocus())
+        {
+            return false;
+        }
+
         await Task.Delay(100);
         var inputs = new[]
         {
@@ -155,7 +159,7 @@ public static class ClipboardPlayback
         Clipboard.Flush();
     }
 
-    private static bool ActivateTargetWindow(IntPtr targetWindow, IntPtr focusWindow = default)
+    private static bool ActivateTargetWindow(IntPtr targetWindow)
     {
         if (targetWindow == IntPtr.Zero || !IsWindow(targetWindow))
         {
@@ -178,11 +182,6 @@ public static class ClipboardPlayback
             if (!SetForegroundWindow(targetWindow))
             {
                 return false;
-            }
-
-            if (focusWindow != IntPtr.Zero && IsWindow(focusWindow))
-            {
-                SetFocus(focusWindow);
             }
 
             return true;
