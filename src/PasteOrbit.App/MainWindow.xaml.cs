@@ -30,6 +30,12 @@ public sealed partial class MainWindow : Window
     private const int SwHide = 0;
     private const int SwShownoactivate = 4;
     private const int SwShow = 5;
+    private const uint WmNcHitTest = 0x0084;
+    private const uint WmNcMouseLeave = 0x02A2;
+    private const int HtClose = 20;
+    private const uint RdwInvalidate = 0x0001;
+    private const uint RdwFrame = 0x0400;
+    private const uint RdwUpdateNow = 0x0100;
     private const uint SwpNoSize = 0x0001;
     private const uint SwpNoMove = 0x0002;
     private const uint SwpFrameChanged = 0x0020;
@@ -2055,6 +2061,7 @@ public sealed partial class MainWindow : Window
             Activate();
             SetForegroundWindow(_handle);
             HistoryList.Focus(FocusState.Programmatic);
+            RefreshNativeTitleBarHoverState();
             return;
         }
 
@@ -2087,6 +2094,37 @@ public sealed partial class MainWindow : Window
                 SetWindowPos(_handle, HwndNotopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
             }
         }
+    }
+
+    private static IntPtr MakeMouseLParam(int x, int y)
+    {
+        var packedPoint = (uint)(ushort)x | ((uint)(ushort)y << 16);
+        return new IntPtr(unchecked((int)packedPoint));
+    }
+
+    private void RefreshNativeTitleBarHoverState()
+    {
+        if (_handle == IntPtr.Zero || !GetCursorPos(out var cursorPoint))
+        {
+            return;
+        }
+
+        var hitTest = SendMessage(
+            _handle,
+            WmNcHitTest,
+            IntPtr.Zero,
+            MakeMouseLParam(cursorPoint.X, cursorPoint.Y));
+        if (hitTest.ToInt64() == HtClose)
+        {
+            return;
+        }
+
+        SendMessage(_handle, WmNcMouseLeave, IntPtr.Zero, IntPtr.Zero);
+        RedrawWindow(
+            _handle,
+            IntPtr.Zero,
+            IntPtr.Zero,
+            RdwInvalidate | RdwFrame | RdwUpdateNow);
     }
 
     private void PanelMonitorTimer_Tick(DispatcherQueueTimer sender, object args)
@@ -2247,6 +2285,12 @@ public sealed partial class MainWindow : Window
 
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hwnd, nint insertAfter, int x, int y, int width, int height, uint flags);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SendMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern bool RedrawWindow(IntPtr hwnd, IntPtr updateRect, IntPtr updateRegion, uint flags);
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
     private static extern nint GetWindowLongPtr(IntPtr hwnd, int index);
