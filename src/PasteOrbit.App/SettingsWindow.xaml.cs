@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security;
 using System.Security.Cryptography;
@@ -36,6 +38,13 @@ public sealed partial class SettingsWindow : Window
     private readonly Stack<string> _navigationHistory = [];
     private string? _currentPageTag;
     private bool _isNavigatingBack;
+
+    private sealed record RunningProcessItem(string ProcessName, string WindowTitle)
+    {
+        public string DisplayName => string.IsNullOrWhiteSpace(WindowTitle)
+            ? ProcessName
+            : $"{WindowTitle} ({ProcessName})";
+    }
 
     public SettingsWindow(
         AppSettings settings,
@@ -173,6 +182,227 @@ public sealed partial class SettingsWindow : Window
     private static string GetSelectedText(ComboBox comboBox)
     {
         return (comboBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? string.Empty;
+    }
+
+    private static IReadOnlyList<RunningProcessItem> GetRunningProcesses()
+    {
+        var processItems = new Dictionary<string, RunningProcessItem>(StringComparer.OrdinalIgnoreCase);
+        foreach (var process in Process.GetProcesses())
+        {
+            using (process)
+            {
+                if (process.Id == Environment.ProcessId)
+                {
+                    continue;
+                }
+
+                string processName;
+                try
+                {
+                    processName = process.ProcessName;
+                }
+                catch (ArgumentException)
+                {
+                    continue;
+                }
+                catch (InvalidOperationException)
+                {
+                    continue;
+                }
+                catch (Win32Exception)
+                {
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(processName))
+                {
+                    continue;
+                }
+
+                var windowTitle = string.Empty;
+                try
+                {
+                    windowTitle = process.MainWindowTitle;
+                }
+                catch (ArgumentException)
+                {
+                }
+                catch (InvalidOperationException)
+                {
+                }
+                catch (Win32Exception)
+                {
+                }
+
+                if (!processItems.TryGetValue(processName, out var existingItem)
+                    || (string.IsNullOrWhiteSpace(existingItem.WindowTitle)
+                        && !string.IsNullOrWhiteSpace(windowTitle)))
+                {
+                    processItems[processName] = new RunningProcessItem(processName, windowTitle);
+                }
+            }
+        }
+
+        return processItems.Values
+            .OrderByDescending(item => !string.IsNullOrWhiteSpace(item.WindowTitle))
+            .ThenBy(item => item.DisplayName, StringComparer.CurrentCultureIgnoreCase)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<RunningProcessItem> FilterRunningProcesses(
+        IReadOnlyList<RunningProcessItem> processItems,
+        string? searchText)
+    {
+        if (string.IsNullOrWhiteSpace(searchText))
+        {
+            return processItems;
+        }
+
+        var query = searchText.Trim();
+        return processItems
+            .Where(item => item.ProcessName.Contains(query, StringComparison.CurrentCultureIgnoreCase)
+                           || item.WindowTitle.Contains(query, StringComparison.CurrentCultureIgnoreCase))
+            .ToArray();
+    }
+
+    private async void SelectExcludedApplicationButton_Click(object sender, RoutedEventArgs e)
+    {
+        IReadOnlyList<RunningProcessItem> processItems;
+        try
+        {
+            processItems = await Task.Run(GetRunningProcesses);
+        }
+        catch (Exception exception) when (exception is Win32Exception or InvalidOperationException or UnauthorizedAccessException)
+        {
+            await ShowMessageAsync("无法读取进程", exception.Message);
+            return;
+        }
+
+        if (processItems.Count == 0)
+        {
+            await ShowMessageAsync("没有可选进程", "当前没有读取到正在运行的进程。");
+            return;
+        }
+
+        var searchBox = new TextBox
+        {
+            PlaceholderText = "搜索进程名或窗口标题",
+            MinWidth = 460
+        };
+        var processList = new ListView
+        {
+            ItemsSource = processItems,
+            DisplayMemberPath = nameof(RunningProcessItem.DisplayName),
+            SelectionMode = ListViewSelectionMode.Multiple,
+            MaxHeight = 420,
+            MinWidth = 460
+        };
+        var emptyResultText = new TextBlock
+        {
+            Text = "没有匹配的进程",
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 24, 0, 16),
+            Visibility = Visibility.Collapsed
+        };
+        var content = new StackPanel
+        {
+            Spacing = 8
+        };
+        content.Children.Add(searchBox);
+        content.Children.Add(processList);
+        content.Children.Add(emptyResultText);
+
+        var dialog = new ContentDialog
+        {
+            Title = "选择不记录的应用",
+            Content = content,
+            PrimaryButtonText = "添加",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary,
+            IsPrimaryButtonEnabled = false,
+            XamlRoot = SettingsRoot.XamlRoot
+        };
+        var selectedProcessNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var isRestoringSelection = false;
+
+        void UpdatePrimaryButton()
+        {
+            dialog.IsPrimaryButtonEnabled = selectedProcessNames.Count > 0;
+            dialog.PrimaryButtonText = selectedProcessNames.Count == 0
+                ? "添加"
+                : $"添加（{selectedProcessNames.Count}）";
+        }
+
+        processList.SelectionChanged += (_, args) =>
+        {
+            if (isRestoringSelection)
+            {
+                return;
+            }
+
+            foreach (var item in args.AddedItems.OfType<RunningProcessItem>())
+            {
+                selectedProcessNames.Add(item.ProcessName);
+            }
+
+            foreach (var item in args.RemovedItems.OfType<RunningProcessItem>())
+            {
+                selectedProcessNames.Remove(item.ProcessName);
+            }
+
+            UpdatePrimaryButton();
+        };
+        searchBox.TextChanged += (_, _) =>
+        {
+            var filteredItems = FilterRunningProcesses(processItems, searchBox.Text);
+            isRestoringSelection = true;
+            processList.ItemsSource = filteredItems;
+            foreach (var item in filteredItems.Where(item => selectedProcessNames.Contains(item.ProcessName)))
+            {
+                processList.SelectedItems.Add(item);
+            }
+
+            isRestoringSelection = false;
+            processList.Visibility = filteredItems.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+            emptyResultText.Visibility = filteredItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            UpdatePrimaryButton();
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        AddExcludedApplications(selectedProcessNames);
+    }
+
+    private void AddExcludedApplications(IEnumerable<string> processNames)
+    {
+        var values = new List<string>();
+        var knownProcessNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var configuredValues = ExcludedApplicationsTextBox.Text.Split(
+            [';', ',', '\r', '\n'],
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        foreach (var value in configuredValues.Concat(processNames))
+        {
+            var processName = NormalizeProcessName(value);
+            if (!string.IsNullOrWhiteSpace(processName) && knownProcessNames.Add(processName))
+            {
+                values.Add(processName);
+            }
+        }
+
+        ExcludedApplicationsTextBox.Text = string.Join("; ", values);
+        ApplyCurrentSettings();
+    }
+
+    private static string NormalizeProcessName(string value)
+    {
+        var processName = value.Trim();
+        return processName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+            ? processName[..^4]
+            : processName;
     }
 
     private void AttachSettingHandlers()

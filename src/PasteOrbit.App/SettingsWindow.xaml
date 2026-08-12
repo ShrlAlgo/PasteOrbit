@@ -255,12 +255,17 @@
                         <TextBlock Text="隐私与安全" FontSize="18" FontWeight="SemiBold" />
                         <Border Height="1" Background="{ThemeResource BorderBrush}" Margin="0,8,0,4" />
                         <toolkit:SettingsCard Header="不记录指定应用"
-                                              Description="填写进程名并用分号分隔，例如 Bitwarden; mstsc"
+                                              Description="填写进程名或从当前运行进程中选择，多个进程用分号分隔"
                                               Margin="0,0,0,8"
                                               ContentAlignment="Right">
-                            <TextBox x:Name="ExcludedApplicationsTextBox"
-                                     Width="300"
-                                     PlaceholderText="进程名，用分号分隔" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBox x:Name="ExcludedApplicationsTextBox"
+                                         Width="240"
+                                         PlaceholderText="进程名，用分号分隔" />
+                                <Button Content="选择进程"
+                                        Style="{StaticResource SettingsActionButtonStyle}"
+                                        Click="SelectExcludedApplicationButton_Click" />
+                            </StackPanel>
                         </toolkit:SettingsCard>
                         <toolkit:SettingsCard Header="本地加密备份"
                                               Description="导出或恢复由当前 Windows 用户凭据保护的备份文件"
