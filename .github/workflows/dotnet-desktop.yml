@@ -4,15 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Optional package version, for example 1.2.0
-        required: false
+        description: Release version, for example 1.2.0
+        required: true
         type: string
   push:
     tags:
       - "v*"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   package:
@@ -20,28 +20,39 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 8.0.x
 
       - name: Publish
         id: publish
         shell: pwsh
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
         run: |
-          $version = '${{ github.event.inputs.version }}'
-          if ([string]::IsNullOrWhiteSpace($version) -and $env:GITHUB_REF_TYPE -eq 'tag') {
-            $version = $env:GITHUB_REF_NAME.TrimStart('v')
-          }
-
-          if ([string]::IsNullOrWhiteSpace($version)) {
-            .\Scripts\Publish.ps1
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $releaseTag = $env:GITHUB_REF_NAME
+            $version = $releaseTag.TrimStart('v', 'V')
           }
           else {
-            .\Scripts\Publish.ps1 -Version $version
+            $version = $env:REQUESTED_VERSION.Trim()
+            if ([string]::IsNullOrWhiteSpace($version)) {
+              throw '手动发布必须填写版本号。'
+            }
+
+            $releaseTag = if ($version.StartsWith('v', [StringComparison]::OrdinalIgnoreCase)) {
+              $version
+            }
+            else {
+              "v$version"
+            }
+            $version = $version.TrimStart('v', 'V')
           }
+
+          .\Scripts\Publish.ps1 -Version $version
 
           $archive = Get-ChildItem -LiteralPath .\artifacts -Filter 'PasteOrbit-*.zip' -File |
             Select-Object -First 1
@@ -50,12 +61,44 @@ jobs:
           }
 
           "archive=$($archive.FullName)" >> $env:GITHUB_OUTPUT
+          "release_tag=$releaseTag" >> $env:GITHUB_OUTPUT
 
       - name: Upload package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: PasteOrbit-win-x64
           path: ${{ steps.publish.outputs.archive }}
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.publish.outputs.release_tag }}
+          ARCHIVE_PATH: ${{ steps.publish.outputs.archive }}
+        run: |
+          $arguments = @(
+            'release'
+            'create'
+            $env:RELEASE_TAG
+            $env:ARCHIVE_PATH
+            '--repo'
+            $env:GITHUB_REPOSITORY
+            '--title'
+            $env:RELEASE_TAG
+            '--generate-notes'
+          )
+
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $arguments += '--verify-tag'
+          }
+          else {
+            $arguments += @('--target', $env:GITHUB_SHA)
+          }
+
+          & gh @arguments
+          if ($LASTEXITCODE -ne 0) {
+            throw "GitHub Release 发布失败，退出代码：$LASTEXITCODE"
+          }
