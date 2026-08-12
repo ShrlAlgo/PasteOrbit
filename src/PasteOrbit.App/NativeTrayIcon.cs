@@ -1,5 +1,7 @@
 using System.Runtime.InteropServices;
 
+using Microsoft.UI.Xaml;
+
 namespace PasteOrbit.App;
 
 /// <summary>
@@ -19,6 +21,7 @@ public sealed class NativeTrayIcon : IDisposable
     private const uint WmLButtonDblClk = 0x0203;
     private const uint WmRButtonUp = 0x0205;
     private const uint NotifyIconVersion4 = 4;
+    private const uint TrayIconId = 1;
     private const uint ImageIcon = 1;
     private const uint LrLoadFromFile = 0x00000010;
     private const uint LrDefaultSize = 0x00000040;
@@ -34,6 +37,7 @@ public sealed class NativeTrayIcon : IDisposable
     private readonly Win32MessageBridge _bridge;
     private readonly string _iconPath;
     private NotifyIconData _notifyIconData;
+    private WinUiTrayMenuHost? _winUiMenuHost;
     private IntPtr _icon;
     private bool _disposed;
     private bool _menuShowing;
@@ -47,7 +51,7 @@ public sealed class NativeTrayIcon : IDisposable
         {
             Size = (uint)Marshal.SizeOf<NotifyIconData>(),
             WindowHandle = bridge.Handle,
-            Id = 1,
+            Id = TrayIconId,
             Flags = NifMessage | NifIcon | NifTip,
             CallbackMessage = WmTrayCallback
         };
@@ -63,6 +67,16 @@ public sealed class NativeTrayIcon : IDisposable
         // 使用新版托盘回调协议，右键通常以 WM_CONTEXTMENU 发送；兼容处理仍保留旧版消息。
         _notifyIconData.VersionOrTimeout = NotifyIconVersion4;
         ShellNotifyIcon(NimSetVersion, ref _notifyIconData);
+
+        try
+        {
+            _winUiMenuHost = new WinUiTrayMenuHost(bridge.Handle, TrayIconId);
+            _winUiMenuHost.CommandInvoked += WinUiMenuHost_CommandInvoked;
+        }
+        catch (Exception exception)
+        {
+            System.Diagnostics.Debug.WriteLine($"WinUI 托盘菜单宿主初始化失败：{exception}");
+        }
 
         _bridge.Message += Bridge_Message;
     }
@@ -80,9 +94,29 @@ public sealed class NativeTrayIcon : IDisposable
     public bool IsListeningPaused { get; set; }
 
     /// <summary>
-    /// 显示由 Windows Shell 绘制的原生托盘菜单，避免额外窗口导致托盘溢出面板失去激活。
+    /// 显示 WinUI 托盘菜单；宿主不可用时回退到 Windows 原生菜单。
     /// </summary>
     public void ShowContextMenu(int screenX, int screenY)
+    {
+        if (_disposed || _menuShowing)
+        {
+            return;
+        }
+
+        if (_winUiMenuHost?.TryShow(screenX, screenY, IsListeningPaused) == true)
+        {
+            return;
+        }
+
+        ShowNativeContextMenu(screenX, screenY);
+    }
+
+    public void SetTheme(ElementTheme theme)
+    {
+        _winUiMenuHost?.SetTheme(theme);
+    }
+
+    private void ShowNativeContextMenu(int screenX, int screenY)
     {
         if (_disposed || _menuShowing)
         {
@@ -149,6 +183,13 @@ public sealed class NativeTrayIcon : IDisposable
 
         _disposed = true;
         _bridge.Message -= Bridge_Message;
+        if (_winUiMenuHost is not null)
+        {
+            _winUiMenuHost.CommandInvoked -= WinUiMenuHost_CommandInvoked;
+            _winUiMenuHost.Dispose();
+            _winUiMenuHost = null;
+        }
+
         ShellNotifyIcon(NimDelete, ref _notifyIconData);
         DestroyIcon(_icon);
         _icon = IntPtr.Zero;
@@ -181,6 +222,25 @@ public sealed class NativeTrayIcon : IDisposable
             {
                 ContextMenuRequested?.Invoke(point.X, point.Y);
             }
+        }
+    }
+
+    private void WinUiMenuHost_CommandInvoked(WinUiTrayMenuHost.TrayMenuCommand command)
+    {
+        switch (command)
+        {
+            case WinUiTrayMenuHost.TrayMenuCommand.OpenHistory:
+                OpenRequested?.Invoke();
+                break;
+            case WinUiTrayMenuHost.TrayMenuCommand.ToggleListening:
+                PauseRequested?.Invoke();
+                break;
+            case WinUiTrayMenuHost.TrayMenuCommand.OpenSettings:
+                SettingsRequested?.Invoke();
+                break;
+            case WinUiTrayMenuHost.TrayMenuCommand.Exit:
+                ExitRequested?.Invoke();
+                break;
         }
     }
 

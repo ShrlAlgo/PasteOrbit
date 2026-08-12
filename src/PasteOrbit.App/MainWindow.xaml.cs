@@ -178,6 +178,7 @@ public sealed partial class MainWindow : Window
             _trayIcon.SettingsRequested += TraySettingsRequested;
             _trayIcon.ExitRequested += TrayExitRequested;
             _trayIcon.ContextMenuRequested += TrayContextMenuRequested;
+            _trayIcon.SetTheme(WindowSurface.RequestedTheme);
         }
         catch (Exception exception)
         {
@@ -388,7 +389,7 @@ public sealed partial class MainWindow : Window
 
     private void TrayContextMenuRequested(int screenX, int screenY)
     {
-        // 先退出托盘回调，再显示原生菜单，避免 TrackPopupMenuEx 重入 WinUI 的 WndProc。
+        // 退出托盘回调后再创建 Flyout，避免 XAML 菜单重入 Win32 消息过程。
         _dispatcherQueue?.TryEnqueue(() => _trayIcon?.ShowContextMenu(screenX, screenY));
     }
 
@@ -2009,12 +2010,14 @@ public sealed partial class MainWindow : Window
 
     private void ApplyThemeSettings()
     {
-        WindowSurface.RequestedTheme = _settings.ThemeMode switch
+        var theme = _settings.ThemeMode switch
         {
             "深色" => ElementTheme.Dark,
             "浅色" => ElementTheme.Light,
             _ => ElementTheme.Default
         };
+        WindowSurface.RequestedTheme = theme;
+        _trayIcon?.SetTheme(theme);
 
     }
 
