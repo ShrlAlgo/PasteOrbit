@@ -61,13 +61,42 @@ jobs:
           }
 
           "archive=$($archive.FullName)" >> $env:GITHUB_OUTPUT
+          "package_version=$version" >> $env:GITHUB_OUTPUT
           "release_tag=$releaseTag" >> $env:GITHUB_OUTPUT
+
+      - name: Build installer
+        id: installer
+        shell: pwsh
+        env:
+          PACKAGE_VERSION: ${{ steps.publish.outputs.package_version }}
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path -LiteralPath $iscc -PathType Leaf)) {
+            choco install innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) {
+              throw "Inno Setup 安装失败，退出代码：$LASTEXITCODE"
+            }
+          }
+
+          & $iscc "/DAppVersion=$env:PACKAGE_VERSION" .\Scripts\Installer.iss
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup 编译失败，退出代码：$LASTEXITCODE"
+          }
+
+          $installer = Join-Path $PWD "artifacts\PasteOrbit-$env:PACKAGE_VERSION-Setup.exe"
+          if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
+            throw "未找到安装程序：$installer"
+          }
+
+          "installer=$installer" >> $env:GITHUB_OUTPUT
 
       - name: Upload package
         uses: actions/upload-artifact@v7
         with:
           name: PasteOrbit-win-x64
-          path: ${{ steps.publish.outputs.archive }}
+          path: |
+            ${{ steps.publish.outputs.archive }}
+            ${{ steps.installer.outputs.installer }}
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
@@ -78,12 +107,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.publish.outputs.release_tag }}
           ARCHIVE_PATH: ${{ steps.publish.outputs.archive }}
+          INSTALLER_PATH: ${{ steps.installer.outputs.installer }}
         run: |
           $arguments = @(
             'release'
             'create'
             $env:RELEASE_TAG
             $env:ARCHIVE_PATH
+            $env:INSTALLER_PATH
             '--repo'
             $env:GITHUB_REPOSITORY
             '--title'

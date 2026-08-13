@@ -130,7 +130,7 @@ public static class ClipboardPlayback
                 break;
             case ClipboardContentKind.Files:
                 var paths = JsonSerializer.Deserialize<string[]>(content)
-                    ?? throw new InvalidDataException("文件剪切板内容无效。");
+                    ?? throw new InvalidDataException(AppLocalization.GetString("FileClipboardInvalid"));
                 var storageItems = new List<IStorageItem>();
                 foreach (var path in paths)
                 {
@@ -146,13 +146,16 @@ public static class ClipboardPlayback
 
                 if (storageItems.Count == 0)
                 {
-                    throw new FileNotFoundException("文件剪切板内容已失效。");
+                    throw new FileNotFoundException(AppLocalization.GetString("FileClipboardExpired"));
                 }
 
                 package.SetStorageItems(storageItems);
                 break;
             default:
-                throw new ArgumentOutOfRangeException(nameof(item), item.Kind, "不支持的剪切板内容类型。");
+                throw new ArgumentOutOfRangeException(
+                    nameof(item),
+                    item.Kind,
+                    AppLocalization.GetString("UnsupportedClipboardContentType"));
         }
 
         Clipboard.SetContent(package);

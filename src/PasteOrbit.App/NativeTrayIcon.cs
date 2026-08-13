@@ -55,13 +55,13 @@ public sealed class NativeTrayIcon : IDisposable
             Flags = NifMessage | NifIcon | NifTip,
             CallbackMessage = WmTrayCallback
         };
-        _notifyIconData.SetTip("PasteOrbit · 剪切板历史");
+        _notifyIconData.SetTip(AppLocalization.GetString("TrayToolTip"));
         _icon = LoadImage(IntPtr.Zero, _iconPath, ImageIcon, 0, 0, LrLoadFromFile | LrDefaultSize);
         _notifyIconData.IconHandle = _icon;
         if (_icon == IntPtr.Zero || !ShellNotifyIcon(NimAdd, ref _notifyIconData))
         {
             DestroyIcon(_icon);
-            throw new InvalidOperationException("无法创建 PasteOrbit 托盘图标。");
+            throw new InvalidOperationException(AppLocalization.GetString("TrayIconCreateFailed"));
         }
 
         // 使用新版托盘回调协议，右键通常以 WM_CONTEXTMENU 发送；兼容处理仍保留旧版消息。
@@ -134,11 +134,13 @@ public sealed class NativeTrayIcon : IDisposable
 
         try
         {
-            AppendMenu(menu, MfString, MenuOpen, "打开历史");
-            AppendMenu(menu, MfString, MenuPause, IsListeningPaused ? "恢复监听" : "暂停 10 分钟");
-            AppendMenu(menu, MfString, MenuSettings, "设置");
+            AppendMenu(menu, MfString, MenuOpen, AppLocalization.GetString("TrayOpenHistory"));
+            AppendMenu(menu, MfString, MenuPause, IsListeningPaused
+                ? AppLocalization.GetString("TrayResumeMonitoring")
+                : AppLocalization.GetString("TrayPauseMonitoring"));
+            AppendMenu(menu, MfString, MenuSettings, AppLocalization.GetString("TraySettings"));
             AppendMenu(menu, MfSeparator, 0, null);
-            AppendMenu(menu, MfString, MenuExit, "退出");
+            AppendMenu(menu, MfString, MenuExit, AppLocalization.GetString("TrayExit"));
 
             SetForegroundWindow(_bridge.Handle);
             var command = TrackPopupMenuEx(

@@ -4,6 +4,8 @@ namespace PasteOrbit.App;
 
 public sealed class AppSettings
 {
+    public string Language { get; set; } = string.Empty;
+
     public string GlobalHotKey { get; set; } = "Alt + V";
 
     public string PasteShortcut { get; set; } = "Enter";
@@ -26,13 +28,15 @@ public sealed class AppSettings
 
     public bool MonitorImages { get; set; } = true;
 
+    public bool EnableImageOcr { get; set; } = true;
+
     public bool MonitorFiles { get; set; } = true;
 
     public string ExcludedApplications { get; set; } = "1Password; Bitwarden; KeePass; KeePassXC; mstsc; msrdc; Windows365";
 
-    public string ThemeMode { get; set; } = "跟随系统";
+    public string ThemeMode { get; set; } = "System";
 
-    public string Density { get; set; } = "紧凑";
+    public string Density { get; set; } = "Compact";
 
     public int RetentionDays { get; set; } = 30;
 
@@ -54,9 +58,26 @@ public sealed class AppSettingsStore
     {
         try
         {
-            return File.Exists(Path)
+            var settings = File.Exists(Path)
                 ? JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(Path)) ?? new AppSettings()
                 : new AppSettings();
+            settings.ThemeMode = settings.ThemeMode switch
+            {
+                "跟随系统" => "System",
+                "浅色" => "Light",
+                "深色" => "Dark",
+                _ => settings.ThemeMode
+            };
+            settings.Density = settings.Density switch
+            {
+                "紧凑" => "Compact",
+                "舒适" => "Comfortable",
+                _ => settings.Density
+            };
+            settings.Language = settings.Language is "zh-CN" or "en-US"
+                ? settings.Language
+                : string.Empty;
+            return settings;
         }
         catch (JsonException)
         {

@@ -171,13 +171,15 @@ internal sealed class WinUiTrayMenuHost : IDisposable
         {
             ShouldConstrainToRootBounds = false
         };
-        menu.Items.Add(CreateCommandItem("打开历史", TrayMenuCommand.OpenHistory));
+        menu.Items.Add(CreateCommandItem(AppLocalization.GetString("TrayOpenHistory"), TrayMenuCommand.OpenHistory));
         menu.Items.Add(CreateCommandItem(
-            isListeningPaused ? "恢复监听" : "暂停 10 分钟",
+            isListeningPaused
+                ? AppLocalization.GetString("TrayResumeMonitoring")
+                : AppLocalization.GetString("TrayPauseMonitoring"),
             TrayMenuCommand.ToggleListening));
-        menu.Items.Add(CreateCommandItem("设置", TrayMenuCommand.OpenSettings));
+        menu.Items.Add(CreateCommandItem(AppLocalization.GetString("TraySettings"), TrayMenuCommand.OpenSettings));
         menu.Items.Add(new MenuFlyoutSeparator());
-        menu.Items.Add(CreateCommandItem("退出", TrayMenuCommand.Exit));
+        menu.Items.Add(CreateCommandItem(AppLocalization.GetString("TrayExit"), TrayMenuCommand.Exit));
         menu.Closed += CurrentMenu_Closed;
         return menu;
     }

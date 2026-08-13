@@ -29,14 +29,14 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
     private HistoryListItem(ClipboardHistoryEntry item)
     {
         _dispatcherQueue = DispatcherQueue.GetForCurrentThread()
-            ?? throw new InvalidOperationException("无法获取历史列表的 UI 调度队列。");
+            ?? throw new InvalidOperationException(AppLocalization.GetString("HistoryDispatcherUnavailable"));
         Item = item;
         Preview = item.SearchText.ReplaceLineEndings(" ");
         _metadata = item.Kind switch
         {
-            ClipboardContentKind.Text => $"{item.SearchText.Length} 个字符",
-            ClipboardContentKind.Image => "图片",
-            ClipboardContentKind.Files => "文件",
+            ClipboardContentKind.Text => AppLocalization.Format("CharacterCount", item.SearchText.Length),
+            ClipboardContentKind.Image => AppLocalization.GetString("ContentTypeImage"),
+            ClipboardContentKind.Files => AppLocalization.GetString("ContentTypeFiles"),
             _ => string.Empty
         };
     }
@@ -46,6 +46,12 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
     public ClipboardHistoryEntry Item { get; }
 
     public string Preview { get; }
+
+    public string OcrPreview => Item.OcrText?.ReplaceLineEndings(" ") ?? string.Empty;
+
+    public Visibility OcrTextVisibility => string.IsNullOrEmpty(Item.OcrText)
+        ? Visibility.Collapsed
+        : Visibility.Visible;
 
     public string Metadata
     {
@@ -62,7 +68,7 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
         }
     }
 
-    public string SourceLabel => Item.SourceApplication ?? "未知应用";
+    public string SourceLabel => Item.SourceApplication ?? AppLocalization.GetString("UnknownApplication");
 
     public string TimeLabel => Item.UpdatedAt.ToLocalTime().ToString("HH:mm");
 
@@ -70,7 +76,9 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
 
     public Visibility PinnedVisibility => IsPinned ? Visibility.Visible : Visibility.Collapsed;
 
-    public string PinToolTip => IsPinned ? "取消置顶" : "置顶记录";
+    public string PinToolTip => IsPinned
+        ? AppLocalization.GetString("UnpinItem")
+        : AppLocalization.GetString("PinItem");
 
     public string PinGlyph => IsPinned ? "\uE77A" : "\uE718";
 
@@ -223,8 +231,8 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
                 {
                     Metadata = Item.Kind switch
                     {
-                        ClipboardContentKind.Image => "图片 · 预览不可用",
-                        ClipboardContentKind.Files => "文件 · 信息不可用",
+                        ClipboardContentKind.Image => AppLocalization.GetString("ImagePreviewUnavailable"),
+                        ClipboardContentKind.Files => AppLocalization.GetString("FileInfoUnavailable"),
                         _ => Metadata
                     };
                 }
@@ -286,7 +294,10 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
             return;
         }
 
-        Metadata = $"{Math.Max(1, content.Length / 1024d):0.#} KB";
+        var size = $"{Math.Max(1, content.Length / 1024d):0.#} KB";
+        Metadata = string.IsNullOrEmpty(Item.OcrText)
+            ? size
+            : AppLocalization.Format("ImageMetadataWithOcr", size, Item.OcrText.Length);
         if (!_previewRequested)
         {
             return;
@@ -336,7 +347,7 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
                 }
             }))
         {
-            completion.SetException(new InvalidOperationException("无法调度图片预览更新。"));
+            completion.SetException(new InvalidOperationException(AppLocalization.GetString("PreviewDispatchUnavailable")));
         }
 
         return completion.Task;
@@ -345,9 +356,11 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
     private static string CreateFilesMetadata(byte[] content)
     {
         var paths = JsonSerializer.Deserialize<string[]>(content) ?? [];
-        var metadata = $"{paths.Length} 个文件";
+        var metadata = AppLocalization.Format("FileCount", paths.Length);
         var missingCount = paths.Count(path => !File.Exists(path) && !Directory.Exists(path));
-        return missingCount > 0 ? $"{metadata} · {missingCount} 项已失效" : metadata;
+        return missingCount > 0
+            ? AppLocalization.Format("MissingFileCount", metadata, missingCount)
+            : metadata;
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

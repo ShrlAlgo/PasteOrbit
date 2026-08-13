@@ -37,6 +37,27 @@ Assert(pinnedResult?.IsPinned == true, "记录应可置顶");
 Assert(history.Remove(second.Id), "记录应可删除");
 Assert(history.GetSnapshot().Count == 0, "删除后记录不应保留");
 
+var chinese = history.AddOrUpdate(
+    new ClipboardCapture(ClipboardContentKind.Text, "剪贴板历史", "pinyin"u8.ToArray(), "notepad"),
+    now.AddSeconds(2));
+Assert(history.Search("jiantieban").Single().Id == chinese.Id, "搜索应匹配中文全拼");
+Assert(history.Search("jtb").Single().Id == chinese.Id, "搜索应匹配拼音首字母");
+Assert(history.Search("JIAN").Single().Id == chinese.Id, "拼音搜索应忽略大小写");
+Assert(history.Search("不存在").Count == 0, "无关查询不应匹配拼音索引");
+var updatedChinese = history.AddOrUpdate(
+    new ClipboardCapture(ClipboardContentKind.Text, "轨道交通", "pinyin"u8.ToArray(), "notepad"),
+    now.AddSeconds(3));
+Assert(updatedChinese.Id == chinese.Id, "重复内容更新时应保留原记录标识");
+Assert(history.Search("gdjt").Single().Id == chinese.Id, "记录更新后应重建拼音索引");
+Assert(history.Search("jtb").Count == 0, "记录更新后不应保留旧拼音索引");
+
+var image = history.AddOrUpdate(
+    new ClipboardCapture(ClipboardContentKind.Image, "图片内容", "image"u8.ToArray(), "snippingtool"),
+    now.AddSeconds(4));
+Assert(history.SetOcrText(image.Id, "剪切板中的识别文字")?.OcrText == "剪切板中的识别文字", "OCR 文字应更新到历史记录");
+Assert(history.Search("识别文字").Single().Id == image.Id, "搜索应匹配 OCR 文字");
+Assert(history.Search("sbwz").Single().Id == image.Id, "拼音搜索应匹配 OCR 文字首字母");
+
 var protectedText = UserDataProtector.ProtectText("仅当前用户可读取");
 Assert(protectedText.AsSpan().IndexOf("仅当前用户可读取"u8) < 0, "密文不应包含明文");
 Assert(UserDataProtector.UnprotectText(protectedText) == "仅当前用户可读取", "DPAPI 应能往返解密");
@@ -60,6 +81,9 @@ try
     repository.Upsert(entry, sameContent);
     Assert(repository.LoadEntries().Single() == entry, "元数据查询应保留记录信息");
     Assert(repository.LoadContent(entry.Id).AsSpan().SequenceEqual(sameContent), "正文应能按记录标识加载");
+    Assert(repository.SetOcrText(entry.Id, "encrypted OCR text"), "OCR 文字应能独立更新");
+    Assert(repository.LoadEntries().Single().OcrText == "encrypted OCR text", "SQLite 应解密 OCR 文字");
+    Assert(File.ReadAllBytes(databasePath).AsSpan().IndexOf("encrypted OCR text"u8) < 0, "数据库不应出现 OCR 明文");
     Assert(repository.SetPinned(entry.Id, true), "置顶状态应能独立更新");
     Assert(repository.LoadEntries().Single().IsPinned, "独立置顶更新应持久化");
 

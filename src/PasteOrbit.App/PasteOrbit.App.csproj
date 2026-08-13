@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <!-- 使用项目内原生托盘实现，避免额外托盘窗口依赖。 -->
@@ -24,6 +24,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWinUI>true</UseWinUI>
     <WindowsPackageType>None</WindowsPackageType>
+    <DefaultLanguage>zh-CN</DefaultLanguage>
     <!-- 使用本机已安装的 Windows App Runtime，避免把整套运行时复制到输出目录。 -->
     <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
     <Platforms>x64</Platforms>

@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <data name="LanguageSystem" xml:space="preserve"><value>Use system setting</value></data>
+  <data name="LanguageChinese" xml:space="preserve"><value>Simplified Chinese</value></data>
+  <data name="LanguageEnglish" xml:space="preserve"><value>English</value></data>
+  <data name="SettingsThemeCard.Header" xml:space="preserve"><value>Theme</value></data>
+  <data name="SettingsThemeCard.Description" xml:space="preserve"><value>Use the light, dark, or system theme</value></data>
+  <data name="ThemeSystemOption.Content" xml:space="preserve"><value>Use system setting</value></data>
+  <data name="ThemeLightOption.Content" xml:space="preserve"><value>Light</value></data>
+  <data name="ThemeDarkOption.Content" xml:space="preserve"><value>Dark</value></data>
+  <data name="SettingsDensityCard.Header" xml:space="preserve"><value>Interface density</value></data>
+  <data name="SettingsDensityCard.Description" xml:space="preserve"><value>Adjust spacing between history cards</value></data>
+  <data name="DensityCompactOption.Content" xml:space="preserve"><value>Compact</value></data>
+  <data name="DensityComfortableOption.Content" xml:space="preserve"><value>Comfortable</value></data>
+  <data name="SettingsLanguageCard.Header" xml:space="preserve"><value>Display language</value></data>
+  <data name="SettingsLanguageCard.Description" xml:space="preserve"><value>Changes take effect after PasteOrbit restarts</value></data>
+  <data name="LanguageSystemOption.Content" xml:space="preserve"><value>Use system setting</value></data>
+  <data name="LanguageChineseOption.Content" xml:space="preserve"><value>Simplified Chinese</value></data>
+  <data name="LanguageEnglishOption.Content" xml:space="preserve"><value>English</value></data>
+  <data name="AppIcon.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>PasteOrbit app icon</value></data>
+  <data name="MainSettingsButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Open settings</value></data>
+  <data name="MainSettingsButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Settings</value></data>
+  <data name="MainWindowPinToggle.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Keep window on top</value></data>
+  <data name="MainWindowPinToggle.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Keep window on top</value></data>
+  <data name="MainSearchBox.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Search clipboard history</value></data>
+  <data name="MainSearchBox.PlaceholderText" xml:space="preserve"><value>Search clipboard history</value></data>
+  <data name="FilterAllButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Show all items</value></data>
+  <data name="FilterAllButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>All</value></data>
+  <data name="FilterTextButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Show text items</value></data>
+  <data name="FilterTextButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Text</value></data>
+  <data name="FilterImageButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Show image items</value></data>
+  <data name="FilterImageButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Images</value></data>
+  <data name="FilterFilesButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Show file items</value></data>
+  <data name="FilterFilesButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Files</value></data>
+  <data name="ClearHistoryButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Clear clipboard history</value></data>
+  <data name="ClearHistoryButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Clear clipboard history</value></data>
+  <data name="HistoryList.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Clipboard history</value></data>
+  <data name="RecordPreviewButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Preview content</value></data>
+  <data name="RecordPreviewButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Preview content</value></data>
+  <data name="RecordMoreButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>More actions</value></data>
+  <data name="RecordMoreButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>More actions</value></data>
+  <data name="PastePlainTextMenuItem.Text" xml:space="preserve"><value>Paste as plain text</value></data>
+  <data name="PasteAsFileMenuItem.Text" xml:space="preserve"><value>Paste as file</value></data>
+  <data name="PasteOcrTextMenuItem.Text" xml:space="preserve"><value>Paste recognized text</value></data>
+  <data name="DeleteRecordMenuItem.Text" xml:space="preserve"><value>Delete item</value></data>
+  <data name="EmptyHistoryText.Text" xml:space="preserve"><value>No clipboard history</value></data>
+  <data name="SettingsWindowTitle" xml:space="preserve"><value>PasteOrbit Settings</value></data>
+  <data name="SettingsTitleBar.Title" xml:space="preserve"><value>PasteOrbit Settings</value></data>
+  <data name="SettingsTitleBar.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>PasteOrbit settings title bar</value></data>
+  <data name="SettingsGeneralNavigation.Content" xml:space="preserve"><value>General</value></data>
+  <data name="SettingsHotKeyNavigation.Content" xml:space="preserve"><value>Shortcuts</value></data>
+  <data name="SettingsHistoryNavigation.Content" xml:space="preserve"><value>History</value></data>
+  <data name="SettingsPrivacyNavigation.Content" xml:space="preserve"><value>Privacy &amp; security</value></data>
+  <data name="SettingsStartupSection.Text" xml:space="preserve"><value>Startup and window</value></data>
+  <data name="SettingsStartupCard.Header" xml:space="preserve"><value>Launch at startup</value></data>
+  <data name="SettingsStartupCard.Description" xml:space="preserve"><value>Run PasteOrbit automatically after signing in to Windows</value></data>
+  <data name="SettingsAutoHideCard.Header" xml:space="preserve"><value>Auto-hide when inactive</value></data>
+  <data name="SettingsAutoHideCard.Description" xml:space="preserve"><value>Hide the history panel when the window loses focus</value></data>
+  <data name="SettingsMonitoringSection.Text" xml:space="preserve"><value>Clipboard monitoring</value></data>
+  <data name="SettingsMonitorTextCard.Header" xml:space="preserve"><value>Monitor text</value></data>
+  <data name="SettingsMonitorTextCard.Description" xml:space="preserve"><value>Save text copied to the clipboard</value></data>
+  <data name="SettingsMonitorImagesCard.Header" xml:space="preserve"><value>Monitor images</value></data>
+  <data name="SettingsMonitorImagesCard.Description" xml:space="preserve"><value>Save images copied to the clipboard</value></data>
+  <data name="SettingsImageOcrCard.Header" xml:space="preserve"><value>Recognize image text automatically</value></data>
+  <data name="SettingsImageOcrCard.Description" xml:space="preserve"><value>Use Windows OCR to extract text from newly copied images and make it searchable</value></data>
+  <data name="SettingsMonitorFilesCard.Header" xml:space="preserve"><value>Monitor files</value></data>
+  <data name="SettingsMonitorFilesCard.Description" xml:space="preserve"><value>Save files copied to the clipboard</value></data>
+  <data name="SettingsAppearanceSection.Text" xml:space="preserve"><value>Appearance</value></data>
+  <data name="SettingsHotKeySection.Text" xml:space="preserve"><value>Shortcuts</value></data>
+  <data name="SettingsGlobalHotKeyCard.Header" xml:space="preserve"><value>Open clipboard history</value></data>
+  <data name="SettingsGlobalHotKeyCard.Description" xml:space="preserve"><value>Global shortcut that must include a modifier key</value></data>
+  <data name="SettingsPasteShortcutCard.Header" xml:space="preserve"><value>Paste selected item</value></data>
+  <data name="SettingsPlainTextShortcutCard.Header" xml:space="preserve"><value>Paste as plain text</value></data>
+  <data name="SettingsPreviewShortcutCard.Header" xml:space="preserve"><value>Expand or collapse preview</value></data>
+  <data name="SettingsPinShortcutCard.Header" xml:space="preserve"><value>Pin or unpin item</value></data>
+  <data name="SettingsDeleteShortcutCard.Header" xml:space="preserve"><value>Delete selected item</value></data>
+  <data name="SettingsPasteAsFileShortcutCard.Header" xml:space="preserve"><value>Paste as file</value></data>
+  <data name="SettingsShortcutHint.Text" xml:space="preserve"><value>Esc hides the panel. Arrow keys navigate the list. These system actions cannot be changed.</value></data>
+  <data name="SettingsHistorySection.Text" xml:space="preserve"><value>History</value></data>
+  <data name="SettingsRetentionCard.Header" xml:space="preserve"><value>Retention period</value></data>
+  <data name="SettingsRetentionCard.Description" xml:space="preserve"><value>Automatically remove unpinned items older than this period</value></data>
+  <data name="SettingsMaxEntriesCard.Header" xml:space="preserve"><value>Maximum items</value></data>
+  <data name="SettingsMaxEntriesCard.Description" xml:space="preserve"><value>Remove unpinned items first when the limit is reached</value></data>
+  <data name="SettingsPinnedRetentionHint.Text" xml:space="preserve"><value>Pinned items are excluded from automatic expiration and count limits.</value></data>
+  <data name="SettingsPrivacySection.Text" xml:space="preserve"><value>Privacy &amp; security</value></data>
+  <data name="SettingsExcludedAppsCard.Header" xml:space="preserve"><value>Excluded applications</value></data>
+  <data name="SettingsExcludedAppsCard.Description" xml:space="preserve"><value>Enter process names or select running processes. Separate multiple names with semicolons.</value></data>
+  <data name="ExcludedApplicationsTextBox.PlaceholderText" xml:space="preserve"><value>Process names separated by semicolons</value></data>
+  <data name="SelectProcessButton.Content" xml:space="preserve"><value>Select processes</value></data>
+  <data name="SettingsBackupCard.Header" xml:space="preserve"><value>Encrypted local backup</value></data>
+  <data name="SettingsBackupCard.Description" xml:space="preserve"><value>Export or restore a backup protected with the current Windows user credentials</value></data>
+  <data name="ExportBackupButton.Content" xml:space="preserve"><value>Export backup</value></data>
+  <data name="RestoreBackupButton.Content" xml:space="preserve"><value>Restore backup</value></data>
+  <data name="SettingsProtectionTitle.Text" xml:space="preserve"><value>Local data protection is enabled</value></data>
+  <data name="SettingsProtectionDescription.Text" xml:space="preserve"><value>Clipboard content is encrypted with the current Windows user credentials and cannot be read directly by other users.</value></data>
+  <data name="RestoreDefaultsButton.Content" xml:space="preserve"><value>Restore defaults</value></data>
+  <data name="ShortcutPlaceholder" xml:space="preserve"><value>Press shortcut keys</value></data>
+  <data name="HistoryDispatcherUnavailable" xml:space="preserve"><value>The history list UI dispatcher is unavailable.</value></data>
+  <data name="CharacterCount" xml:space="preserve"><value>{0} characters</value></data>
+  <data name="ContentTypeImage" xml:space="preserve"><value>Image</value></data>
+  <data name="ContentTypeFiles" xml:space="preserve"><value>Files</value></data>
+  <data name="UnknownApplication" xml:space="preserve"><value>Unknown app</value></data>
+  <data name="UnpinItem" xml:space="preserve"><value>Unpin item</value></data>
+  <data name="PinItem" xml:space="preserve"><value>Pin item</value></data>
+  <data name="ImagePreviewUnavailable" xml:space="preserve"><value>Image · Preview unavailable</value></data>
+  <data name="ImageMetadataWithOcr" xml:space="preserve"><value>{0} · OCR {1} chars</value></data>
+  <data name="FileInfoUnavailable" xml:space="preserve"><value>Files · Information unavailable</value></data>
+  <data name="PreviewDispatchUnavailable" xml:space="preserve"><value>The image preview update could not be dispatched.</value></data>
+  <data name="FileCount" xml:space="preserve"><value>{0} files</value></data>
+  <data name="MissingFileCount" xml:space="preserve"><value>{0} · {1} unavailable</value></data>
+  <data name="ImageContent" xml:space="preserve"><value>Image content</value></data>
+  <data name="TrayToolTip" xml:space="preserve"><value>PasteOrbit · Clipboard history</value></data>
+  <data name="TrayIconCreateFailed" xml:space="preserve"><value>The PasteOrbit tray icon could not be created.</value></data>
+  <data name="TrayOpenHistory" xml:space="preserve"><value>Open history</value></data>
+  <data name="TrayResumeMonitoring" xml:space="preserve"><value>Resume monitoring</value></data>
+  <data name="TrayPauseMonitoring" xml:space="preserve"><value>Pause for 10 minutes</value></data>
+  <data name="TraySettings" xml:space="preserve"><value>Settings</value></data>
+  <data name="TrayExit" xml:space="preserve"><value>Exit</value></data>
+  <data name="StorageInitializationFailed" xml:space="preserve"><value>Local storage could not be initialized. Clipboard monitoring did not start.</value></data>
+  <data name="ListeningStatus" xml:space="preserve"><value>Monitoring · {0} items</value></data>
+  <data name="DatabaseRecovered" xml:space="preserve"><value>The damaged database was preserved and a new database was created</value></data>
+  <data name="InitializationFailed" xml:space="preserve"><value>Initialization failed: {0}</value></data>
+  <data name="MonitoringPaused" xml:space="preserve"><value>Monitoring paused for 10 minutes</value></data>
+  <data name="SavedItemCount" xml:space="preserve"><value>Saved {0} items</value></data>
+  <data name="StorageFailureStoppedMonitoring" xml:space="preserve"><value>Monitoring stopped due to a local storage error</value></data>
+  <data name="ClipboardReadFailed" xml:space="preserve"><value>Could not read the clipboard: {0}</value></data>
+  <data name="ItemCount" xml:space="preserve"><value>{0} items</value></data>
+  <data name="ContentRestoredManualPaste" xml:space="preserve"><value>Content restored. Paste it manually in the target window.</value></data>
+  <data name="ContentRestoreFailed" xml:space="preserve"><value>This clipboard item could not be restored</value></data>
+  <data name="SavedAsFile" xml:space="preserve"><value>Saved as file</value></data>
+  <data name="OpenExplorerFolderFirst" xml:space="preserve"><value>Open a folder in File Explorer first</value></data>
+  <data name="SaveAsFileFailed" xml:space="preserve"><value>Could not save as file</value></data>
+  <data name="ClearCurrentListTitle" xml:space="preserve"><value>Clear the current list?</value></data>
+  <data name="ClearCurrentListMessage" xml:space="preserve"><value>This will delete {0} unpinned items in the current filtered results. Pinned and hidden items will remain. This action cannot be undone.</value></data>
+  <data name="Clear" xml:space="preserve"><value>Clear</value></data>
+  <data name="Cancel" xml:space="preserve"><value>Cancel</value></data>
+  <data name="CurrentListCleared" xml:space="preserve"><value>Cleared {0} items from the current list. Pinned items were preserved.</value></data>
+  <data name="ClearHistoryFailed" xml:space="preserve"><value>Could not clear clipboard history</value></data>
+  <data name="PreviewUnavailable" xml:space="preserve"><value>This item cannot be previewed</value></data>
+  <data name="RichTextPreview" xml:space="preserve"><value>Rich text preview</value></data>
+  <data name="TextPreview" xml:space="preserve"><value>Text preview</value></data>
+  <data name="CollapsePreview" xml:space="preserve"><value>Collapse preview</value></data>
+  <data name="PreviewContent" xml:space="preserve"><value>Preview content</value></data>
+  <data name="ItemPinned" xml:space="preserve"><value>Item pinned</value></data>
+  <data name="ItemUnpinned" xml:space="preserve"><value>Item unpinned</value></data>
+  <data name="ItemDeleted" xml:space="preserve"><value>Item deleted</value></data>
+  <data name="HotKeyNotApplied" xml:space="preserve"><value>Shortcut was not applied: {0}</value></data>
+  <data name="SettingsApplied" xml:space="preserve"><value>Settings applied</value></data>
+  <data name="ProcessReadFailed" xml:space="preserve"><value>Could not read processes</value></data>
+  <data name="NoProcessesTitle" xml:space="preserve"><value>No processes available</value></data>
+  <data name="NoProcessesMessage" xml:space="preserve"><value>No running processes could be read.</value></data>
+  <data name="ProcessSearchPlaceholder" xml:space="preserve"><value>Search process name or window title</value></data>
+  <data name="NoMatchingProcesses" xml:space="preserve"><value>No matching processes</value></data>
+  <data name="SelectExcludedAppsTitle" xml:space="preserve"><value>Select excluded applications</value></data>
+  <data name="Add" xml:space="preserve"><value>Add</value></data>
+  <data name="AddSelectedCount" xml:space="preserve"><value>Add ({0})</value></data>
+  <data name="EncryptedBackupFileType" xml:space="preserve"><value>PasteOrbit encrypted backup</value></data>
+  <data name="BackupExportedTitle" xml:space="preserve"><value>Backup exported</value></data>
+  <data name="BackupExportedMessage" xml:space="preserve"><value>History and settings were written to the encrypted backup file.</value></data>
+  <data name="BackupExportFailed" xml:space="preserve"><value>Export failed</value></data>
+  <data name="RestoreBackupTitle" xml:space="preserve"><value>Restore local backup?</value></data>
+  <data name="RestoreBackupMessage" xml:space="preserve"><value>Current history and settings will be replaced. A local copy will be preserved before restoration.</value></data>
+  <data name="Restore" xml:space="preserve"><value>Restore</value></data>
+  <data name="RestoreCompletedTitle" xml:space="preserve"><value>Restore completed</value></data>
+  <data name="RestoreCompletedMessage" xml:space="preserve"><value>History and settings were restored.</value></data>
+  <data name="RestoreFailed" xml:space="preserve"><value>Restore failed</value></data>
+  <data name="Ok" xml:space="preserve"><value>OK</value></data>
+  <data name="SettingsSaveFailed" xml:space="preserve"><value>Settings could not be applied. Try again later.</value></data>
+  <data name="ClipboardMonitorAlreadyStarted" xml:space="preserve"><value>Clipboard monitoring has already started.</value></data>
+  <data name="ClipboardMonitorRegistrationFailed" xml:space="preserve"><value>Clipboard monitoring could not be registered.</value></data>
+  <data name="RichTextClipboardInvalid" xml:space="preserve"><value>The rich text clipboard content is invalid.</value></data>
+  <data name="FileClipboardInvalid" xml:space="preserve"><value>The file clipboard content is invalid.</value></data>
+  <data name="FileClipboardExpired" xml:space="preserve"><value>The file clipboard content is no longer available.</value></data>
+  <data name="UnsupportedClipboardContentType" xml:space="preserve"><value>The clipboard content type is not supported.</value></data>
+  <data name="GlobalHotKeyAlreadyRegistered" xml:space="preserve"><value>The global shortcut is already registered.</value></data>
+  <data name="GlobalHotKeyWrongMessageBridge" xml:space="preserve"><value>The shortcut can only be reconfigured on its registered window message bridge.</value></data>
+  <data name="GlobalHotKeyRegistrationFailedWithReason" xml:space="preserve"><value>Shortcut {0} could not be registered: {1}</value></data>
+  <data name="GlobalHotKeyEmpty" xml:space="preserve"><value>The shortcut cannot be empty.</value></data>
+  <data name="GlobalHotKeyNeedsModifierAndKey" xml:space="preserve"><value>The shortcut requires at least one modifier and one key.</value></data>
+  <data name="UnsupportedModifier" xml:space="preserve"><value>Unsupported modifier: {0}.</value></data>
+  <data name="DuplicateModifier" xml:space="preserve"><value>Modifier {0} is duplicated.</value></data>
+  <data name="UnsupportedKey" xml:space="preserve"><value>Unsupported key: {0}.</value></data>
+  <data name="GlobalHotKeyRegistrationFailed" xml:space="preserve"><value>Shortcut {0} could not be registered.</value></data>
+  <data name="HistoryDatabaseNotFound" xml:space="preserve"><value>The clipboard history database was not found.</value></data>
+  <data name="InvalidBackupFile" xml:space="preserve"><value>This is not a valid PasteOrbit backup file.</value></data>
+  <data name="UnsupportedBackupVersion" xml:space="preserve"><value>This backup file version is not supported.</value></data>
+  <data name="InvalidBackupKeyInfo" xml:space="preserve"><value>The backup key information is invalid.</value></data>
+  <data name="InvalidBackupKeyLength" xml:space="preserve"><value>The backup key length is invalid.</value></data>
+  <data name="InvalidBackupInitializationVector" xml:space="preserve"><value>The backup initialization vector is invalid.</value></data>
+  <data name="BackupContentEmpty" xml:space="preserve"><value>The backup content is empty.</value></data>
+  <data name="BackupCorrupted" xml:space="preserve"><value>The backup file is damaged or has been modified.</value></data>
+  <data name="InvalidBackupContentLength" xml:space="preserve"><value>The backup content length is invalid.</value></data>
+  <data name="BackupContentIncomplete" xml:space="preserve"><value>The backup content is incomplete.</value></data>
+  <data name="BackupFileIncomplete" xml:space="preserve"><value>The backup file is incomplete.</value></data>
+  <data name="StartupRegistryOpenFailed" xml:space="preserve"><value>The Windows startup registry key could not be opened.</value></data>
+  <data name="ApplicationPathUnavailable" xml:space="preserve"><value>The PasteOrbit application path could not be located.</value></data>
+  <data name="LanguageRestartTitle" xml:space="preserve"><value>Restart required</value></data>
+  <data name="LanguageRestartMessage" xml:space="preserve"><value>Restart PasteOrbit to apply the new display language.</value></data>
+</root>

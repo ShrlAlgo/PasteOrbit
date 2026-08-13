@@ -61,12 +61,14 @@ public sealed class ClipboardMonitor : IDisposable
         ArgumentNullException.ThrowIfNull(dispatcherQueue);
         if (_bridge is not null)
         {
-            throw new InvalidOperationException("剪切板监听已启动。");
+            throw new InvalidOperationException(AppLocalization.GetString("ClipboardMonitorAlreadyStarted"));
         }
 
         if (!AddClipboardFormatListener(bridge.Handle))
         {
-            throw new Win32Exception(Marshal.GetLastWin32Error(), "无法注册剪切板监听。");
+            throw new Win32Exception(
+                Marshal.GetLastWin32Error(),
+                AppLocalization.GetString("ClipboardMonitorRegistrationFailed"));
         }
 
         _bridge = bridge;
@@ -227,7 +229,7 @@ public sealed class ClipboardMonitor : IDisposable
                 {
                     return new ClipboardCapture(
                         ClipboardContentKind.Image,
-                        "图片内容",
+                        AppLocalization.GetString("ImageContent"),
                         content,
                         sourceApplication);
                 }

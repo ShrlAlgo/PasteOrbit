@@ -66,12 +66,14 @@ public sealed class ClipboardRepository
                 source_application BLOB NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
-                is_pinned INTEGER NOT NULL
+                is_pinned INTEGER NOT NULL,
+                ocr_text BLOB NULL
             );
             CREATE INDEX IF NOT EXISTS ix_clipboard_items_updated_at
                 ON clipboard_items(updated_at DESC);
             """;
         command.ExecuteNonQuery();
+        EnsureOcrTextColumn(connection);
     }
 
     public IReadOnlyList<ClipboardHistoryEntry> LoadEntries()
@@ -80,7 +82,7 @@ public sealed class ClipboardRepository
         using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT id, kind, content_hash, search_text, source_application,
-                   created_at, updated_at, is_pinned
+                   created_at, updated_at, is_pinned, ocr_text
             FROM clipboard_items
             ORDER BY is_pinned DESC, updated_at DESC;
             """;
@@ -97,7 +99,8 @@ public sealed class ClipboardRepository
                 reader.IsDBNull(4) ? null : UserDataProtector.UnprotectText((byte[])reader[4]),
                 DateTimeOffset.Parse(reader.GetString(5), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
                 DateTimeOffset.Parse(reader.GetString(6), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
-                reader.GetBoolean(7)));
+                reader.GetBoolean(7),
+                reader.IsDBNull(8) ? null : UserDataProtector.UnprotectText((byte[])reader[8])));
         }
 
         return entries;
@@ -130,7 +133,8 @@ public sealed class ClipboardRepository
             entry.SourceApplication,
             entry.CreatedAt,
             entry.UpdatedAt,
-            entry.IsPinned);
+            entry.IsPinned,
+            entry.OcrText);
     }
 
     private void UpsertCore(
@@ -142,7 +146,8 @@ public sealed class ClipboardRepository
         string? sourceApplication,
         DateTimeOffset createdAt,
         DateTimeOffset updatedAt,
-        bool isPinned)
+        bool isPinned,
+        string? ocrText)
     {
 
         using var connection = OpenConnection();
@@ -150,16 +155,17 @@ public sealed class ClipboardRepository
         command.CommandText = """
             INSERT INTO clipboard_items (
                 id, kind, content_hash, search_text, content, source_application,
-                created_at, updated_at, is_pinned)
+                created_at, updated_at, is_pinned, ocr_text)
             VALUES (
                 $id, $kind, $content_hash, $search_text, $content, $source_application,
-                $created_at, $updated_at, $is_pinned)
+                $created_at, $updated_at, $is_pinned, $ocr_text)
             ON CONFLICT(content_hash) DO UPDATE SET
                 search_text = excluded.search_text,
                 content = excluded.content,
                 source_application = excluded.source_application,
                 updated_at = excluded.updated_at,
-                is_pinned = excluded.is_pinned;
+                is_pinned = excluded.is_pinned,
+                ocr_text = excluded.ocr_text;
             """;
 
         command.Parameters.AddWithValue("$id", id.ToString("D"));
@@ -173,7 +179,21 @@ public sealed class ClipboardRepository
         command.Parameters.AddWithValue("$created_at", createdAt.ToString("O", CultureInfo.InvariantCulture));
         command.Parameters.AddWithValue("$updated_at", updatedAt.ToString("O", CultureInfo.InvariantCulture));
         command.Parameters.AddWithValue("$is_pinned", isPinned);
+        command.Parameters.Add("$ocr_text", SqliteType.Blob).Value = ocrText is null
+            ? DBNull.Value
+            : UserDataProtector.ProtectText(ocrText);
         command.ExecuteNonQuery();
+    }
+
+    public bool SetOcrText(Guid id, string ocrText)
+    {
+        ArgumentNullException.ThrowIfNull(ocrText);
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE clipboard_items SET ocr_text = $ocr_text WHERE id = $id;";
+        command.Parameters.AddWithValue("$id", id.ToString("D"));
+        command.Parameters.Add("$ocr_text", SqliteType.Blob).Value = UserDataProtector.ProtectText(ocrText);
+        return command.ExecuteNonQuery() > 0;
     }
 
     public bool SetPinned(Guid id, bool isPinned)
@@ -217,5 +237,24 @@ public sealed class ClipboardRepository
         var connection = new SqliteConnection(_connectionString);
         connection.Open();
         return connection;
+    }
+
+    private static void EnsureOcrTextColumn(SqliteConnection connection)
+    {
+        using var schemaCommand = connection.CreateCommand();
+        schemaCommand.CommandText = "PRAGMA table_info(clipboard_items);";
+        using var reader = schemaCommand.ExecuteReader();
+        while (reader.Read())
+        {
+            if (string.Equals(reader.GetString(1), "ocr_text", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+        }
+
+        reader.Close();
+        using var migrationCommand = connection.CreateCommand();
+        migrationCommand.CommandText = "ALTER TABLE clipboard_items ADD COLUMN ocr_text BLOB NULL;";
+        migrationCommand.ExecuteNonQuery();
     }
 }

@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Threading;
+using Microsoft.Windows.Globalization;
 using Microsoft.UI.Xaml;
 
 namespace PasteOrbit.App;
@@ -17,6 +18,16 @@ public partial class App : Application
 
     public App()
     {
+        var settingsPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "PasteOrbit",
+            "settings.json");
+        var language = new AppSettingsStore(settingsPath).Load().Language;
+        if (!string.IsNullOrEmpty(language))
+        {
+            ApplicationLanguages.PrimaryLanguageOverride = language;
+        }
+
         InitializeComponent();
         _singleInstanceMutex = new Mutex(true, SingleInstanceMutexName, out var createdNew);
         _isPrimaryInstance = createdNew;

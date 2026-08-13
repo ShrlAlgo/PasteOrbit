@@ -71,7 +71,6 @@
                 <Setter Property="Width" Value="180" />
                 <Setter Property="IsReadOnly" Value="True" />
                 <Setter Property="IsTabStop" Value="True" />
-                <Setter Property="PlaceholderText" Value="按下快捷键" />
             </Style>
             <Style x:Key="SettingsComboBoxStyle"
                    TargetType="ComboBox"
@@ -92,6 +91,7 @@
         </Grid.RowDefinitions>
 
         <TitleBar x:Name="SettingsTitleBar"
+                  x:Uid="SettingsTitleBar"
                   Grid.Row="0"
                   Title="PasteOrbit 设置"
                   Background="{ThemeResource PageBackgroundBrush}"
@@ -117,22 +117,22 @@
                         Background="{ThemeResource SurfaceBrush}"
                         SelectionChanged="SettingsNavigation_SelectionChanged">
             <NavigationView.MenuItems>
-                <NavigationViewItem Tag="General" Content="常规" IsSelected="True">
+                <NavigationViewItem x:Uid="SettingsGeneralNavigation" Tag="General" Content="常规" IsSelected="True">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE713;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Tag="HotKey" Content="快捷键">
+                <NavigationViewItem x:Uid="SettingsHotKeyNavigation" Tag="HotKey" Content="快捷键">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE765;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Tag="History" Content="历史记录">
+                <NavigationViewItem x:Uid="SettingsHistoryNavigation" Tag="History" Content="历史记录">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE823;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Tag="Privacy" Content="隐私与安全">
+                <NavigationViewItem x:Uid="SettingsPrivacyNavigation" Tag="Privacy" Content="隐私与安全">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE8A5;" />
                     </NavigationViewItem.Icon>
@@ -142,64 +142,86 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <Grid Margin="42,26,42,24">
                     <StackPanel x:Name="GeneralPanel">
-                        <TextBlock Text="启动与窗口" FontSize="18" FontWeight="SemiBold" />
+                        <TextBlock x:Uid="SettingsStartupSection" Text="启动与窗口" FontSize="18" FontWeight="SemiBold" />
                         <Border Height="1" Background="{ThemeResource BorderBrush}" Margin="0,8,0,4" />
-                        <toolkit:SettingsCard Header="开机自动启动"
+                        <toolkit:SettingsCard x:Uid="SettingsStartupCard" Header="开机自动启动"
                                               Description="登录 Windows 后自动运行 PasteOrbit"
                                               Margin="0,0,0,8"
                                               ContentAlignment="Right">
                             <ToggleSwitch x:Name="StartWithWindowsToggleSwitch" />
                         </toolkit:SettingsCard>
-                        <toolkit:SettingsCard Header="失去焦点时自动隐藏"
+                        <toolkit:SettingsCard x:Uid="SettingsAutoHideCard" Header="失去焦点时自动隐藏"
                                               Description="窗口失去焦点后自动收起历史面板"
                                               Margin="0,0,0,8"
                                               ContentAlignment="Right">
                             <ToggleSwitch x:Name="AutoHideToggleSwitch" />
                         </toolkit:SettingsCard>
-                        <TextBlock Text="剪贴板监听" FontSize="18" FontWeight="SemiBold" Margin="0,18,0,0" />
+                        <TextBlock x:Uid="SettingsMonitoringSection" Text="剪贴板监听" FontSize="18" FontWeight="SemiBold" Margin="0,18,0,0" />
                         <Border Height="1" Background="{ThemeResource BorderBrush}" Margin="0,8,0,4" />
-                        <toolkit:SettingsCard Header="监听文本"
+                        <toolkit:SettingsCard x:Uid="SettingsMonitorTextCard" Header="监听文本"
                                               Description="记录复制到剪贴板的文本内容"
                                               Margin="0,0,0,8"
                                               ContentAlignment="Right">
                             <ToggleSwitch x:Name="MonitorTextToggleSwitch" />
                         </toolkit:SettingsCard>
-                        <toolkit:SettingsCard Header="监听图片"
+                        <toolkit:SettingsCard x:Uid="SettingsMonitorImagesCard" Header="监听图片"
                                               Description="记录复制到剪贴板的图片内容"
                                               Margin="0,0,0,8"
                                               ContentAlignment="Right">
                             <ToggleSwitch x:Name="MonitorImagesToggleSwitch" />
                         </toolkit:SettingsCard>
-                        <toolkit:SettingsCard Header="监听文件"
+                        <toolkit:SettingsCard x:Uid="SettingsImageOcrCard" Header="自动识别图片文字"
+                                              Description="使用 Windows OCR 提取新复制图片中的文字，并用于搜索"
+                                              Margin="0,0,0,8"
+                                              ContentAlignment="Right">
+                            <ToggleSwitch x:Name="ImageOcrToggleSwitch" />
+                        </toolkit:SettingsCard>
+                        <toolkit:SettingsCard x:Uid="SettingsMonitorFilesCard" Header="监听文件"
                                               Description="记录复制到剪贴板的文件内容"
                                               Margin="0,0,0,8"
                                               ContentAlignment="Right">
                             <ToggleSwitch x:Name="MonitorFilesToggleSwitch" />
                         </toolkit:SettingsCard>
-                        <TextBlock Text="外观" FontSize="18" FontWeight="SemiBold" Margin="0,18,0,0" />
+                        <TextBlock x:Uid="SettingsAppearanceSection" Text="外观" FontSize="18" FontWeight="SemiBold" Margin="0,18,0,0" />
                         <Border Height="1" Background="{ThemeResource BorderBrush}" Margin="0,8,0,4" />
                         <toolkit:SettingsCard Header="主题模式"
+                                              x:Uid="SettingsThemeCard"
                                               Description="选择浅色、深色或跟随系统"
                                               Margin="0,0,0,8"
                                               ContentAlignment="Right">
                             <ComboBox x:Name="ThemeComboBox" Width="180" Style="{StaticResource SettingsComboBoxStyle}">
-                                <ComboBoxItem Content="跟随系统" /><ComboBoxItem Content="浅色" /><ComboBoxItem Content="深色" />
+                                <ComboBoxItem x:Uid="ThemeSystemOption" Content="跟随系统" Tag="System" />
+                                <ComboBoxItem x:Uid="ThemeLightOption" Content="浅色" Tag="Light" />
+                                <ComboBoxItem x:Uid="ThemeDarkOption" Content="深色" Tag="Dark" />
                             </ComboBox>
                         </toolkit:SettingsCard>
                         <toolkit:SettingsCard Header="界面密度"
+                                              x:Uid="SettingsDensityCard"
                                               Description="调整历史记录卡片的间距"
                                               Margin="0,0,0,8"
                                               ContentAlignment="Right">
                             <ComboBox x:Name="DensityComboBox" Width="180" Style="{StaticResource SettingsComboBoxStyle}">
-                                <ComboBoxItem Content="紧凑" /><ComboBoxItem Content="舒适" />
+                                <ComboBoxItem x:Uid="DensityCompactOption" Content="紧凑" Tag="Compact" />
+                                <ComboBoxItem x:Uid="DensityComfortableOption" Content="舒适" Tag="Comfortable" />
+                            </ComboBox>
+                        </toolkit:SettingsCard>
+                        <toolkit:SettingsCard x:Uid="SettingsLanguageCard"
+                                              Header="显示语言"
+                                              Description="更改将在重新启动 PasteOrbit 后生效"
+                                              Margin="0,0,0,8"
+                                              ContentAlignment="Right">
+                            <ComboBox x:Name="LanguageComboBox" Width="180" Style="{StaticResource SettingsComboBoxStyle}">
+                                <ComboBoxItem x:Uid="LanguageSystemOption" Content="跟随系统" Tag="" />
+                                <ComboBoxItem x:Uid="LanguageChineseOption" Content="简体中文" Tag="zh-CN" />
+                                <ComboBoxItem x:Uid="LanguageEnglishOption" Content="English" Tag="en-US" />
                             </ComboBox>
                         </toolkit:SettingsCard>
                     </StackPanel>
 
                     <StackPanel x:Name="HotKeyPanel" Visibility="Collapsed">
-                        <TextBlock Text="快捷键" FontSize="18" FontWeight="SemiBold" />
+                        <TextBlock x:Uid="SettingsHotKeySection" Text="快捷键" FontSize="18" FontWeight="SemiBold" />
                         <Border Height="1" Background="{ThemeResource BorderBrush}" Margin="0,8,0,4" />
-                        <toolkit:SettingsCard Header="打开剪切板历史"
+                        <toolkit:SettingsCard x:Uid="SettingsGlobalHotKeyCard" Header="打开剪切板历史"
                                               Description="全局快捷键，必须包含修饰键"
                                               Margin="0,0,0,8"
                                               ContentAlignment="Right">
@@ -207,32 +229,32 @@
                                      Style="{StaticResource ShortcutTextBoxStyle}"
                                      KeyDown="HotKeyTextBox_KeyDown" />
                         </toolkit:SettingsCard>
-                        <toolkit:SettingsCard Header="粘贴选中记录" Margin="0,0,0,8" ContentAlignment="Right">
+                        <toolkit:SettingsCard x:Uid="SettingsPasteShortcutCard" Header="粘贴选中记录" Margin="0,0,0,8" ContentAlignment="Right">
                             <TextBox x:Name="PasteShortcutTextBox" Style="{StaticResource ShortcutTextBoxStyle}" KeyDown="PanelShortcutTextBox_KeyDown" />
                         </toolkit:SettingsCard>
-                        <toolkit:SettingsCard Header="粘贴为纯文本" Margin="0,0,0,8" ContentAlignment="Right">
+                        <toolkit:SettingsCard x:Uid="SettingsPlainTextShortcutCard" Header="粘贴为纯文本" Margin="0,0,0,8" ContentAlignment="Right">
                             <TextBox x:Name="PlainTextPasteShortcutTextBox" Style="{StaticResource ShortcutTextBoxStyle}" KeyDown="PanelShortcutTextBox_KeyDown" />
                         </toolkit:SettingsCard>
-                        <toolkit:SettingsCard Header="展开或收起预览" Margin="0,0,0,8" ContentAlignment="Right">
+                        <toolkit:SettingsCard x:Uid="SettingsPreviewShortcutCard" Header="展开或收起预览" Margin="0,0,0,8" ContentAlignment="Right">
                             <TextBox x:Name="PreviewShortcutTextBox" Style="{StaticResource ShortcutTextBoxStyle}" KeyDown="PanelShortcutTextBox_KeyDown" />
                         </toolkit:SettingsCard>
-                        <toolkit:SettingsCard Header="置顶或取消置顶" Margin="0,0,0,8" ContentAlignment="Right">
+                        <toolkit:SettingsCard x:Uid="SettingsPinShortcutCard" Header="置顶或取消置顶" Margin="0,0,0,8" ContentAlignment="Right">
                             <TextBox x:Name="PinShortcutTextBox" Style="{StaticResource ShortcutTextBoxStyle}" KeyDown="PanelShortcutTextBox_KeyDown" />
                         </toolkit:SettingsCard>
-                        <toolkit:SettingsCard Header="删除选中记录" Margin="0,0,0,8" ContentAlignment="Right">
+                        <toolkit:SettingsCard x:Uid="SettingsDeleteShortcutCard" Header="删除选中记录" Margin="0,0,0,8" ContentAlignment="Right">
                             <TextBox x:Name="DeleteShortcutTextBox" Style="{StaticResource ShortcutTextBoxStyle}" KeyDown="PanelShortcutTextBox_KeyDown" />
                         </toolkit:SettingsCard>
-                        <toolkit:SettingsCard Header="粘贴为文件" Margin="0,0,0,8" ContentAlignment="Right">
+                        <toolkit:SettingsCard x:Uid="SettingsPasteAsFileShortcutCard" Header="粘贴为文件" Margin="0,0,0,8" ContentAlignment="Right">
                             <TextBox x:Name="PasteAsFileShortcutTextBox" Style="{StaticResource ShortcutTextBoxStyle}" KeyDown="PanelShortcutTextBox_KeyDown" />
                         </toolkit:SettingsCard>
-                        <TextBlock Text="Esc 隐藏面板，方向键用于列表导航，这些系统操作保持固定。"
+                        <TextBlock x:Uid="SettingsShortcutHint" Text="Esc 隐藏面板，方向键用于列表导航，这些系统操作保持固定。"
                                    Foreground="{ThemeResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,4,0,0" />
                     </StackPanel>
 
                     <StackPanel x:Name="HistoryPanel" Visibility="Collapsed">
-                        <TextBlock Text="历史记录" FontSize="18" FontWeight="SemiBold" />
+                        <TextBlock x:Uid="SettingsHistorySection" Text="历史记录" FontSize="18" FontWeight="SemiBold" />
                         <Border Height="1" Background="{ThemeResource BorderBrush}" Margin="0,8,0,4" />
-                        <toolkit:SettingsCard Header="保留天数"
+                        <toolkit:SettingsCard x:Uid="SettingsRetentionCard" Header="保留天数"
                                               Description="自动清理超过该天数的未置顶记录"
                                               Margin="0,0,0,8"
                                               ContentAlignment="Right">
@@ -240,7 +262,7 @@
                                 <ComboBoxItem Content="7" /><ComboBoxItem Content="30" /><ComboBoxItem Content="90" /><ComboBoxItem Content="365" />
                             </ComboBox>
                         </toolkit:SettingsCard>
-                        <toolkit:SettingsCard Header="最多记录数"
+                        <toolkit:SettingsCard x:Uid="SettingsMaxEntriesCard" Header="最多记录数"
                                               Description="达到上限时优先清理未置顶记录"
                                               Margin="0,0,0,8"
                                               ContentAlignment="Right">
@@ -248,36 +270,37 @@
                                 <ComboBoxItem Content="1000" /><ComboBoxItem Content="5000" /><ComboBoxItem Content="10000" />
                             </ComboBox>
                         </toolkit:SettingsCard>
-                        <TextBlock Text="置顶记录不参与自动过期和数量清理。" Foreground="{ThemeResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,12,0,0" />
+                        <TextBlock x:Uid="SettingsPinnedRetentionHint" Text="置顶记录不参与自动过期和数量清理。" Foreground="{ThemeResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,12,0,0" />
                     </StackPanel>
 
                     <StackPanel x:Name="PrivacyPanel" Visibility="Collapsed">
-                        <TextBlock Text="隐私与安全" FontSize="18" FontWeight="SemiBold" />
+                        <TextBlock x:Uid="SettingsPrivacySection" Text="隐私与安全" FontSize="18" FontWeight="SemiBold" />
                         <Border Height="1" Background="{ThemeResource BorderBrush}" Margin="0,8,0,4" />
-                        <toolkit:SettingsCard Header="不记录指定应用"
+                        <toolkit:SettingsCard x:Uid="SettingsExcludedAppsCard" Header="不记录指定应用"
                                               Description="填写进程名或从当前运行进程中选择，多个进程用分号分隔"
                                               Margin="0,0,0,8"
                                               ContentAlignment="Right">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <TextBox x:Name="ExcludedApplicationsTextBox"
+                                         x:Uid="ExcludedApplicationsTextBox"
                                          Width="240"
                                          PlaceholderText="进程名，用分号分隔" />
-                                <Button Content="选择进程"
+                                <Button x:Uid="SelectProcessButton" Content="选择进程"
                                         Style="{StaticResource SettingsActionButtonStyle}"
                                         Click="SelectExcludedApplicationButton_Click" />
                             </StackPanel>
                         </toolkit:SettingsCard>
-                        <toolkit:SettingsCard Header="本地加密备份"
+                        <toolkit:SettingsCard x:Uid="SettingsBackupCard" Header="本地加密备份"
                                               Description="导出或恢复由当前 Windows 用户凭据保护的备份文件"
                                               Margin="0,0,0,8"
                                               ContentAlignment="Right">
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Button Content="导出备份" Click="ExportBackupButton_Click" />
-                                <Button Content="恢复备份" Click="RestoreBackupButton_Click" />
+                                <Button x:Uid="ExportBackupButton" Content="导出备份" Click="ExportBackupButton_Click" />
+                                <Button x:Uid="RestoreBackupButton" Content="恢复备份" Click="RestoreBackupButton_Click" />
                             </StackPanel>
                         </toolkit:SettingsCard>
-                        <TextBlock Text="本地数据保护已启用" FontSize="16" FontWeight="SemiBold" Margin="0,22,0,8" />
-                        <TextBlock Text="剪切板正文使用当前 Windows 用户凭据加密，其他用户无法直接读取。" Foreground="{ThemeResource TextSecondaryBrush}" TextWrapping="Wrap" />
+                        <TextBlock x:Uid="SettingsProtectionTitle" Text="本地数据保护已启用" FontSize="16" FontWeight="SemiBold" Margin="0,22,0,8" />
+                        <TextBlock x:Uid="SettingsProtectionDescription" Text="剪切板正文使用当前 Windows 用户凭据加密，其他用户无法直接读取。" Foreground="{ThemeResource TextSecondaryBrush}" TextWrapping="Wrap" />
                     </StackPanel>
                 </Grid>
                 </ScrollViewer>
@@ -286,7 +309,7 @@
 
         <Border Grid.Row="2" Background="{ThemeResource SurfaceBrush}" BorderBrush="{ThemeResource BorderBrush}" BorderThickness="0,1,0,0">
             <Grid Margin="20,0">
-                <Button Style="{StaticResource SettingsActionButtonStyle}" Content="恢复默认" HorizontalAlignment="Right" Click="RestoreDefaultsButton_Click" />
+                <Button x:Uid="RestoreDefaultsButton" Style="{StaticResource SettingsActionButtonStyle}" Content="恢复默认" HorizontalAlignment="Right" Click="RestoreDefaultsButton_Click" />
             </Grid>
         </Border>
     </Grid>

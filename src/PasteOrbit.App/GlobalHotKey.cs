@@ -23,7 +23,7 @@ public sealed class GlobalHotKey : IDisposable
         ArgumentNullException.ThrowIfNull(bridge);
         if (_bridge is not null)
         {
-            throw new InvalidOperationException("全局快捷键已注册。");
+            throw new InvalidOperationException(AppLocalization.GetString("GlobalHotKeyAlreadyRegistered"));
         }
 
         if (!TryParseShortcut(shortcut, out var definition, out var parseError))
@@ -68,7 +68,7 @@ public sealed class GlobalHotKey : IDisposable
 
         if (!ReferenceEquals(_bridge, bridge))
         {
-            throw new InvalidOperationException("快捷键只能在注册它的窗口消息桥上重新配置。");
+            throw new InvalidOperationException(AppLocalization.GetString("GlobalHotKeyWrongMessageBridge"));
         }
 
         var previousDefinition = _definition;
@@ -93,7 +93,7 @@ public sealed class GlobalHotKey : IDisposable
             }
         }
 
-        error = $"快捷键 {definition.DisplayText} 无法注册：{registrationError}";
+        error = AppLocalization.Format("GlobalHotKeyRegistrationFailedWithReason", definition.DisplayText, registrationError);
         return false;
     }
 
@@ -172,14 +172,14 @@ public sealed class GlobalHotKey : IDisposable
         error = string.Empty;
         if (string.IsNullOrWhiteSpace(shortcut))
         {
-            error = "快捷键不能为空。";
+            error = AppLocalization.GetString("GlobalHotKeyEmpty");
             return false;
         }
 
         var parts = shortcut.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (parts.Length < 2)
         {
-            error = "快捷键至少需要一个修饰键和一个按键。";
+            error = AppLocalization.GetString("GlobalHotKeyNeedsModifierAndKey");
             return false;
         }
 
@@ -198,13 +198,13 @@ public sealed class GlobalHotKey : IDisposable
 
             if (modifierFlag == 0)
             {
-                error = $"不支持的修饰键：{part}。";
+                error = AppLocalization.Format("UnsupportedModifier", part);
                 return false;
             }
 
             if ((modifiers & modifierFlag) != 0)
             {
-                error = $"修饰键 {part} 重复。";
+                error = AppLocalization.Format("DuplicateModifier", part);
                 return false;
             }
 
@@ -213,7 +213,7 @@ public sealed class GlobalHotKey : IDisposable
 
         if (!TryParseVirtualKey(parts[^1], out var virtualKey))
         {
-            error = $"不支持的按键：{parts[^1]}。";
+            error = AppLocalization.Format("UnsupportedKey", parts[^1]);
             return false;
         }
 
@@ -333,7 +333,9 @@ public sealed class GlobalHotKey : IDisposable
         }
 
         var errorCode = Marshal.GetLastWin32Error();
-        throw new Win32Exception(errorCode, $"快捷键 {definition.DisplayText} 无法注册。");
+        throw new Win32Exception(
+            errorCode,
+            AppLocalization.Format("GlobalHotKeyRegistrationFailed", definition.DisplayText));
     }
 
     private void Bridge_Message(uint message, IntPtr wParam, IntPtr lParam)

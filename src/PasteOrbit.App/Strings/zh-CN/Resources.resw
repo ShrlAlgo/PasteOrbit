@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <data name="LanguageSystem" xml:space="preserve"><value>跟随系统</value></data>
+  <data name="LanguageChinese" xml:space="preserve"><value>简体中文</value></data>
+  <data name="LanguageEnglish" xml:space="preserve"><value>English</value></data>
+  <data name="SettingsThemeCard.Header" xml:space="preserve"><value>主题模式</value></data>
+  <data name="SettingsThemeCard.Description" xml:space="preserve"><value>选择浅色、深色或跟随系统</value></data>
+  <data name="ThemeSystemOption.Content" xml:space="preserve"><value>跟随系统</value></data>
+  <data name="ThemeLightOption.Content" xml:space="preserve"><value>浅色</value></data>
+  <data name="ThemeDarkOption.Content" xml:space="preserve"><value>深色</value></data>
+  <data name="SettingsDensityCard.Header" xml:space="preserve"><value>界面密度</value></data>
+  <data name="SettingsDensityCard.Description" xml:space="preserve"><value>调整历史记录卡片的间距</value></data>
+  <data name="DensityCompactOption.Content" xml:space="preserve"><value>紧凑</value></data>
+  <data name="DensityComfortableOption.Content" xml:space="preserve"><value>舒适</value></data>
+  <data name="SettingsLanguageCard.Header" xml:space="preserve"><value>显示语言</value></data>
+  <data name="SettingsLanguageCard.Description" xml:space="preserve"><value>更改将在重新启动 PasteOrbit 后生效</value></data>
+  <data name="LanguageSystemOption.Content" xml:space="preserve"><value>跟随系统</value></data>
+  <data name="LanguageChineseOption.Content" xml:space="preserve"><value>简体中文</value></data>
+  <data name="LanguageEnglishOption.Content" xml:space="preserve"><value>English</value></data>
+  <data name="AppIcon.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>PasteOrbit 应用图标</value></data>
+  <data name="MainSettingsButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>打开设置</value></data>
+  <data name="MainSettingsButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>设置</value></data>
+  <data name="MainWindowPinToggle.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>窗口置顶</value></data>
+  <data name="MainWindowPinToggle.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>窗口置顶</value></data>
+  <data name="MainSearchBox.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>搜索剪切板历史</value></data>
+  <data name="MainSearchBox.PlaceholderText" xml:space="preserve"><value>搜索剪切板历史</value></data>
+  <data name="FilterAllButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>筛选全部</value></data>
+  <data name="FilterAllButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>全部</value></data>
+  <data name="FilterTextButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>筛选文本</value></data>
+  <data name="FilterTextButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>文本</value></data>
+  <data name="FilterImageButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>筛选图片</value></data>
+  <data name="FilterImageButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>图片</value></data>
+  <data name="FilterFilesButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>筛选文件</value></data>
+  <data name="FilterFilesButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>文件</value></data>
+  <data name="ClearHistoryButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>清空剪切板历史</value></data>
+  <data name="ClearHistoryButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>清空剪切板历史</value></data>
+  <data name="HistoryList.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>剪切板历史记录</value></data>
+  <data name="RecordPreviewButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>预览内容</value></data>
+  <data name="RecordPreviewButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>预览内容</value></data>
+  <data name="RecordMoreButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>更多操作</value></data>
+  <data name="RecordMoreButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>更多操作</value></data>
+  <data name="PastePlainTextMenuItem.Text" xml:space="preserve"><value>粘贴为纯文本</value></data>
+  <data name="PasteAsFileMenuItem.Text" xml:space="preserve"><value>粘贴为文件</value></data>
+  <data name="PasteOcrTextMenuItem.Text" xml:space="preserve"><value>粘贴识别文字</value></data>
+  <data name="DeleteRecordMenuItem.Text" xml:space="preserve"><value>删除记录</value></data>
+  <data name="EmptyHistoryText.Text" xml:space="preserve"><value>暂无剪切板记录</value></data>
+  <data name="SettingsWindowTitle" xml:space="preserve"><value>PasteOrbit 设置</value></data>
+  <data name="SettingsTitleBar.Title" xml:space="preserve"><value>PasteOrbit 设置</value></data>
+  <data name="SettingsTitleBar.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>PasteOrbit 设置标题栏</value></data>
+  <data name="SettingsGeneralNavigation.Content" xml:space="preserve"><value>常规</value></data>
+  <data name="SettingsHotKeyNavigation.Content" xml:space="preserve"><value>快捷键</value></data>
+  <data name="SettingsHistoryNavigation.Content" xml:space="preserve"><value>历史记录</value></data>
+  <data name="SettingsPrivacyNavigation.Content" xml:space="preserve"><value>隐私与安全</value></data>
+  <data name="SettingsStartupSection.Text" xml:space="preserve"><value>启动与窗口</value></data>
+  <data name="SettingsStartupCard.Header" xml:space="preserve"><value>开机自动启动</value></data>
+  <data name="SettingsStartupCard.Description" xml:space="preserve"><value>登录 Windows 后自动运行 PasteOrbit</value></data>
+  <data name="SettingsAutoHideCard.Header" xml:space="preserve"><value>失去焦点时自动隐藏</value></data>
+  <data name="SettingsAutoHideCard.Description" xml:space="preserve"><value>窗口失去焦点后自动收起历史面板</value></data>
+  <data name="SettingsMonitoringSection.Text" xml:space="preserve"><value>剪贴板监听</value></data>
+  <data name="SettingsMonitorTextCard.Header" xml:space="preserve"><value>监听文本</value></data>
+  <data name="SettingsMonitorTextCard.Description" xml:space="preserve"><value>记录复制到剪贴板的文本内容</value></data>
+  <data name="SettingsMonitorImagesCard.Header" xml:space="preserve"><value>监听图片</value></data>
+  <data name="SettingsMonitorImagesCard.Description" xml:space="preserve"><value>记录复制到剪贴板的图片内容</value></data>
+  <data name="SettingsImageOcrCard.Header" xml:space="preserve"><value>自动识别图片文字</value></data>
+  <data name="SettingsImageOcrCard.Description" xml:space="preserve"><value>使用 Windows OCR 提取新复制图片中的文字，并用于搜索</value></data>
+  <data name="SettingsMonitorFilesCard.Header" xml:space="preserve"><value>监听文件</value></data>
+  <data name="SettingsMonitorFilesCard.Description" xml:space="preserve"><value>记录复制到剪贴板的文件内容</value></data>
+  <data name="SettingsAppearanceSection.Text" xml:space="preserve"><value>外观</value></data>
+  <data name="SettingsHotKeySection.Text" xml:space="preserve"><value>快捷键</value></data>
+  <data name="SettingsGlobalHotKeyCard.Header" xml:space="preserve"><value>打开剪切板历史</value></data>
+  <data name="SettingsGlobalHotKeyCard.Description" xml:space="preserve"><value>全局快捷键，必须包含修饰键</value></data>
+  <data name="SettingsPasteShortcutCard.Header" xml:space="preserve"><value>粘贴选中记录</value></data>
+  <data name="SettingsPlainTextShortcutCard.Header" xml:space="preserve"><value>粘贴为纯文本</value></data>
+  <data name="SettingsPreviewShortcutCard.Header" xml:space="preserve"><value>展开或收起预览</value></data>
+  <data name="SettingsPinShortcutCard.Header" xml:space="preserve"><value>置顶或取消置顶</value></data>
+  <data name="SettingsDeleteShortcutCard.Header" xml:space="preserve"><value>删除选中记录</value></data>
+  <data name="SettingsPasteAsFileShortcutCard.Header" xml:space="preserve"><value>粘贴为文件</value></data>
+  <data name="SettingsShortcutHint.Text" xml:space="preserve"><value>Esc 隐藏面板，方向键用于列表导航，这些系统操作保持固定。</value></data>
+  <data name="SettingsHistorySection.Text" xml:space="preserve"><value>历史记录</value></data>
+  <data name="SettingsRetentionCard.Header" xml:space="preserve"><value>保留天数</value></data>
+  <data name="SettingsRetentionCard.Description" xml:space="preserve"><value>自动清理超过该天数的未置顶记录</value></data>
+  <data name="SettingsMaxEntriesCard.Header" xml:space="preserve"><value>最多记录数</value></data>
+  <data name="SettingsMaxEntriesCard.Description" xml:space="preserve"><value>达到上限时优先清理未置顶记录</value></data>
+  <data name="SettingsPinnedRetentionHint.Text" xml:space="preserve"><value>置顶记录不参与自动过期和数量清理。</value></data>
+  <data name="SettingsPrivacySection.Text" xml:space="preserve"><value>隐私与安全</value></data>
+  <data name="SettingsExcludedAppsCard.Header" xml:space="preserve"><value>不记录指定应用</value></data>
+  <data name="SettingsExcludedAppsCard.Description" xml:space="preserve"><value>填写进程名或从当前运行进程中选择，多个进程用分号分隔</value></data>
+  <data name="ExcludedApplicationsTextBox.PlaceholderText" xml:space="preserve"><value>进程名，用分号分隔</value></data>
+  <data name="SelectProcessButton.Content" xml:space="preserve"><value>选择进程</value></data>
+  <data name="SettingsBackupCard.Header" xml:space="preserve"><value>本地加密备份</value></data>
+  <data name="SettingsBackupCard.Description" xml:space="preserve"><value>导出或恢复由当前 Windows 用户凭据保护的备份文件</value></data>
+  <data name="ExportBackupButton.Content" xml:space="preserve"><value>导出备份</value></data>
+  <data name="RestoreBackupButton.Content" xml:space="preserve"><value>恢复备份</value></data>
+  <data name="SettingsProtectionTitle.Text" xml:space="preserve"><value>本地数据保护已启用</value></data>
+  <data name="SettingsProtectionDescription.Text" xml:space="preserve"><value>剪切板正文使用当前 Windows 用户凭据加密，其他用户无法直接读取。</value></data>
+  <data name="RestoreDefaultsButton.Content" xml:space="preserve"><value>恢复默认</value></data>
+  <data name="ShortcutPlaceholder" xml:space="preserve"><value>按下快捷键</value></data>
+  <data name="HistoryDispatcherUnavailable" xml:space="preserve"><value>无法获取历史列表的 UI 调度队列。</value></data>
+  <data name="CharacterCount" xml:space="preserve"><value>{0} 个字符</value></data>
+  <data name="ContentTypeImage" xml:space="preserve"><value>图片</value></data>
+  <data name="ContentTypeFiles" xml:space="preserve"><value>文件</value></data>
+  <data name="UnknownApplication" xml:space="preserve"><value>未知应用</value></data>
+  <data name="UnpinItem" xml:space="preserve"><value>取消置顶</value></data>
+  <data name="PinItem" xml:space="preserve"><value>置顶记录</value></data>
+  <data name="ImagePreviewUnavailable" xml:space="preserve"><value>图片 · 预览不可用</value></data>
+  <data name="ImageMetadataWithOcr" xml:space="preserve"><value>{0} · OCR {1} 字</value></data>
+  <data name="FileInfoUnavailable" xml:space="preserve"><value>文件 · 信息不可用</value></data>
+  <data name="PreviewDispatchUnavailable" xml:space="preserve"><value>无法调度图片预览更新。</value></data>
+  <data name="FileCount" xml:space="preserve"><value>{0} 个文件</value></data>
+  <data name="MissingFileCount" xml:space="preserve"><value>{0} · {1} 项已失效</value></data>
+  <data name="ImageContent" xml:space="preserve"><value>图片内容</value></data>
+  <data name="TrayToolTip" xml:space="preserve"><value>PasteOrbit · 剪切板历史</value></data>
+  <data name="TrayIconCreateFailed" xml:space="preserve"><value>无法创建 PasteOrbit 托盘图标。</value></data>
+  <data name="TrayOpenHistory" xml:space="preserve"><value>打开历史</value></data>
+  <data name="TrayResumeMonitoring" xml:space="preserve"><value>恢复监听</value></data>
+  <data name="TrayPauseMonitoring" xml:space="preserve"><value>暂停 10 分钟</value></data>
+  <data name="TraySettings" xml:space="preserve"><value>设置</value></data>
+  <data name="TrayExit" xml:space="preserve"><value>退出</value></data>
+  <data name="StorageInitializationFailed" xml:space="preserve"><value>本地存储初始化失败，剪切板监听未启动</value></data>
+  <data name="ListeningStatus" xml:space="preserve"><value>正在监听 · {0} 条</value></data>
+  <data name="DatabaseRecovered" xml:space="preserve"><value>损坏数据库已保留并创建新库</value></data>
+  <data name="InitializationFailed" xml:space="preserve"><value>初始化失败：{0}</value></data>
+  <data name="MonitoringPaused" xml:space="preserve"><value>监听已暂停 10 分钟</value></data>
+  <data name="SavedItemCount" xml:space="preserve"><value>已保存 {0} 条</value></data>
+  <data name="StorageFailureStoppedMonitoring" xml:space="preserve"><value>本地存储异常，监听已停止</value></data>
+  <data name="ClipboardReadFailed" xml:space="preserve"><value>剪切板读取失败：{0}</value></data>
+  <data name="ItemCount" xml:space="preserve"><value>{0} 条</value></data>
+  <data name="ContentRestoredManualPaste" xml:space="preserve"><value>内容已恢复，请在目标窗口手动粘贴</value></data>
+  <data name="ContentRestoreFailed" xml:space="preserve"><value>无法恢复该条剪切板内容</value></data>
+  <data name="SavedAsFile" xml:space="preserve"><value>已保存为文件</value></data>
+  <data name="OpenExplorerFolderFirst" xml:space="preserve"><value>请先切换到资源管理器文件夹视图</value></data>
+  <data name="SaveAsFileFailed" xml:space="preserve"><value>无法保存为文件</value></data>
+  <data name="ClearCurrentListTitle" xml:space="preserve"><value>清空当前列表？</value></data>
+  <data name="ClearCurrentListMessage" xml:space="preserve"><value>将删除当前筛选结果中的 {0} 条未置顶记录，置顶记录会保留。未显示的记录不会受到影响。此操作不可撤销。</value></data>
+  <data name="Clear" xml:space="preserve"><value>清空</value></data>
+  <data name="Cancel" xml:space="preserve"><value>取消</value></data>
+  <data name="CurrentListCleared" xml:space="preserve"><value>已清空当前列表 · {0} 条，置顶记录已保留</value></data>
+  <data name="ClearHistoryFailed" xml:space="preserve"><value>清空历史失败</value></data>
+  <data name="PreviewUnavailable" xml:space="preserve"><value>无法预览该条记录</value></data>
+  <data name="RichTextPreview" xml:space="preserve"><value>富文本预览</value></data>
+  <data name="TextPreview" xml:space="preserve"><value>文本预览</value></data>
+  <data name="CollapsePreview" xml:space="preserve"><value>收起预览</value></data>
+  <data name="PreviewContent" xml:space="preserve"><value>预览内容</value></data>
+  <data name="ItemPinned" xml:space="preserve"><value>记录已置顶</value></data>
+  <data name="ItemUnpinned" xml:space="preserve"><value>已取消记录置顶</value></data>
+  <data name="ItemDeleted" xml:space="preserve"><value>记录已删除</value></data>
+  <data name="HotKeyNotApplied" xml:space="preserve"><value>快捷键未应用：{0}</value></data>
+  <data name="SettingsApplied" xml:space="preserve"><value>设置已应用</value></data>
+  <data name="ProcessReadFailed" xml:space="preserve"><value>无法读取进程</value></data>
+  <data name="NoProcessesTitle" xml:space="preserve"><value>没有可选进程</value></data>
+  <data name="NoProcessesMessage" xml:space="preserve"><value>当前没有读取到正在运行的进程。</value></data>
+  <data name="ProcessSearchPlaceholder" xml:space="preserve"><value>搜索进程名或窗口标题</value></data>
+  <data name="NoMatchingProcesses" xml:space="preserve"><value>没有匹配的进程</value></data>
+  <data name="SelectExcludedAppsTitle" xml:space="preserve"><value>选择不记录的应用</value></data>
+  <data name="Add" xml:space="preserve"><value>添加</value></data>
+  <data name="AddSelectedCount" xml:space="preserve"><value>添加（{0}）</value></data>
+  <data name="EncryptedBackupFileType" xml:space="preserve"><value>PasteOrbit 加密备份</value></data>
+  <data name="BackupExportedTitle" xml:space="preserve"><value>备份已导出</value></data>
+  <data name="BackupExportedMessage" xml:space="preserve"><value>历史记录和设置已写入加密备份文件。</value></data>
+  <data name="BackupExportFailed" xml:space="preserve"><value>导出失败</value></data>
+  <data name="RestoreBackupTitle" xml:space="preserve"><value>恢复本地备份？</value></data>
+  <data name="RestoreBackupMessage" xml:space="preserve"><value>当前历史记录和设置将被备份内容替换，恢复前会自动保留一份本机副本。</value></data>
+  <data name="Restore" xml:space="preserve"><value>恢复</value></data>
+  <data name="RestoreCompletedTitle" xml:space="preserve"><value>恢复完成</value></data>
+  <data name="RestoreCompletedMessage" xml:space="preserve"><value>历史记录和设置已恢复。</value></data>
+  <data name="RestoreFailed" xml:space="preserve"><value>恢复失败</value></data>
+  <data name="Ok" xml:space="preserve"><value>确定</value></data>
+  <data name="SettingsSaveFailed" xml:space="preserve"><value>设置应用失败，请稍后重试。</value></data>
+  <data name="ClipboardMonitorAlreadyStarted" xml:space="preserve"><value>剪切板监听已启动。</value></data>
+  <data name="ClipboardMonitorRegistrationFailed" xml:space="preserve"><value>无法注册剪切板监听。</value></data>
+  <data name="RichTextClipboardInvalid" xml:space="preserve"><value>富文本剪切板内容无效。</value></data>
+  <data name="FileClipboardInvalid" xml:space="preserve"><value>文件剪切板内容无效。</value></data>
+  <data name="FileClipboardExpired" xml:space="preserve"><value>文件剪切板内容已失效。</value></data>
+  <data name="UnsupportedClipboardContentType" xml:space="preserve"><value>不支持的剪切板内容类型。</value></data>
+  <data name="GlobalHotKeyAlreadyRegistered" xml:space="preserve"><value>全局快捷键已注册。</value></data>
+  <data name="GlobalHotKeyWrongMessageBridge" xml:space="preserve"><value>快捷键只能在注册它的窗口消息桥上重新配置。</value></data>
+  <data name="GlobalHotKeyRegistrationFailedWithReason" xml:space="preserve"><value>快捷键 {0} 无法注册：{1}</value></data>
+  <data name="GlobalHotKeyEmpty" xml:space="preserve"><value>快捷键不能为空。</value></data>
+  <data name="GlobalHotKeyNeedsModifierAndKey" xml:space="preserve"><value>快捷键至少需要一个修饰键和一个按键。</value></data>
+  <data name="UnsupportedModifier" xml:space="preserve"><value>不支持的修饰键：{0}。</value></data>
+  <data name="DuplicateModifier" xml:space="preserve"><value>修饰键 {0} 重复。</value></data>
+  <data name="UnsupportedKey" xml:space="preserve"><value>不支持的按键：{0}。</value></data>
+  <data name="GlobalHotKeyRegistrationFailed" xml:space="preserve"><value>快捷键 {0} 无法注册。</value></data>
+  <data name="HistoryDatabaseNotFound" xml:space="preserve"><value>找不到剪切板历史数据库。</value></data>
+  <data name="InvalidBackupFile" xml:space="preserve"><value>不是有效的 PasteOrbit 备份文件。</value></data>
+  <data name="UnsupportedBackupVersion" xml:space="preserve"><value>不支持该备份文件版本。</value></data>
+  <data name="InvalidBackupKeyInfo" xml:space="preserve"><value>备份密钥信息无效。</value></data>
+  <data name="InvalidBackupKeyLength" xml:space="preserve"><value>备份密钥长度无效。</value></data>
+  <data name="InvalidBackupInitializationVector" xml:space="preserve"><value>备份初始化向量无效。</value></data>
+  <data name="BackupContentEmpty" xml:space="preserve"><value>备份内容为空。</value></data>
+  <data name="BackupCorrupted" xml:space="preserve"><value>备份文件已损坏或被修改。</value></data>
+  <data name="InvalidBackupContentLength" xml:space="preserve"><value>备份内容长度无效。</value></data>
+  <data name="BackupContentIncomplete" xml:space="preserve"><value>备份内容不完整。</value></data>
+  <data name="BackupFileIncomplete" xml:space="preserve"><value>备份文件不完整。</value></data>
+  <data name="StartupRegistryOpenFailed" xml:space="preserve"><value>无法打开 Windows 启动项。</value></data>
+  <data name="ApplicationPathUnavailable" xml:space="preserve"><value>无法定位 PasteOrbit 程序路径。</value></data>
+  <data name="LanguageRestartTitle" xml:space="preserve"><value>需要重新启动</value></data>
+  <data name="LanguageRestartMessage" xml:space="preserve"><value>重新启动 PasteOrbit 后将应用新的显示语言。</value></data>
+</root>

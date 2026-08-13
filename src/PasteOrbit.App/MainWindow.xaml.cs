@@ -67,6 +67,7 @@ public sealed partial class MainWindow : Window
     private readonly GlobalHotKey _hotKey = new();
     private readonly ClipboardMonitor _monitor = new();
     private readonly ClipboardRepository _repository;
+    private readonly ImageOcrService _ocrService;
     private readonly LocalBackupService _backupService;
     private readonly HashSet<string> _excludedApplications = new(StringComparer.OrdinalIgnoreCase);
     private AppSettings _settings;
@@ -126,6 +127,9 @@ public sealed partial class MainWindow : Window
         ApplyViewSettings();
         _repository = new ClipboardRepository(Path.Combine(dataDirectory, "history.db"));
         _backupService = new LocalBackupService(_repository.DatabasePath, _settingsStore.Path);
+        _ocrService = new ImageOcrService(_repository.LoadContent);
+        _ocrService.Recognized += OcrService_Recognized;
+        _ocrService.RecognitionFailed += OcrService_RecognitionFailed;
 
         try
         {
@@ -136,7 +140,7 @@ public sealed partial class MainWindow : Window
         {
             _history = new ClipboardHistory();
             _storageAvailable = false;
-            _startupError = "本地存储初始化失败，剪切板监听未启动";
+            _startupError = AppLocalization.GetString("StorageInitializationFailed");
         }
 
         _monitor.Captured += Monitor_Captured;
@@ -192,8 +196,8 @@ public sealed partial class MainWindow : Window
                 _monitor.Start(_messageBridge, _dispatcherQueue);
                 _hotKey.Start(_messageBridge, _settings.GlobalHotKey);
                 StatusText.Text = _repository.LastRecoveryPath is null
-                    ? $"正在监听 · {_history.Count} 条"
-                    : "损坏数据库已保留并创建新库";
+                    ? AppLocalization.Format("ListeningStatus", _history.Count)
+                    : AppLocalization.GetString("DatabaseRecovered");
             }
             else
             {
@@ -205,7 +209,7 @@ public sealed partial class MainWindow : Window
             _storageAvailable = false;
             _monitor.Dispose();
             _hotKey.Dispose();
-            StatusText.Text = $"初始化失败：{exception.Message}";
+            StatusText.Text = AppLocalization.Format("InitializationFailed", exception.Message);
         }
 
         PositionWindow();
@@ -221,6 +225,7 @@ public sealed partial class MainWindow : Window
         _isExiting = true;
         _trayIcon?.Dispose();
         _monitor.Dispose();
+        _ocrService.Dispose();
         _hotKey.Dispose();
         _messageBridge?.Dispose();
         Close();
@@ -350,7 +355,7 @@ public sealed partial class MainWindow : Window
         }
 
         _listeningPauseTimer?.Start();
-        StatusText.Text = "监听已暂停 10 分钟";
+        StatusText.Text = AppLocalization.GetString("MonitoringPaused");
     }
 
     private void ResumeClipboardListening()
@@ -368,7 +373,7 @@ public sealed partial class MainWindow : Window
             _trayIcon.IsListeningPaused = false;
         }
 
-        StatusText.Text = $"正在监听 · {_history.Count} 条";
+        StatusText.Text = AppLocalization.Format("ListeningStatus", _history.Count);
     }
 
     private void ListeningPauseTimer_Tick(DispatcherQueueTimer sender, object args)
@@ -427,6 +432,7 @@ public sealed partial class MainWindow : Window
         _panelMonitorTimer?.Stop();
         _trayIcon?.Dispose();
         _monitor.Dispose();
+        _ocrService.Dispose();
         _hotKey.Dispose();
         _messageBridge?.Dispose();
         DisposeDisplayItems();
@@ -1069,22 +1075,57 @@ public sealed partial class MainWindow : Window
                 var item = _history.AddOrUpdate(capture);
                 _repository.Upsert(item, capture.Content);
                 CleanupHistory();
-                StatusText.Text = $"已保存 {_history.Count} 条";
+                StatusText.Text = AppLocalization.Format("SavedItemCount", _history.Count);
                 RefreshHistory();
+                if (capture.Kind == ClipboardContentKind.Image
+                    && _settings.EnableImageOcr)
+                {
+                    _ocrService.Enqueue(item.Id);
+                }
             }
             catch (Exception)
             {
                 // 持久化不可靠时停止接收新内容，避免界面状态与磁盘继续分叉。
                 _storageAvailable = false;
                 _monitor.Dispose();
-                StatusText.Text = "本地存储异常，监听已停止";
+                StatusText.Text = AppLocalization.GetString("StorageFailureStoppedMonitoring");
             }
         });
     }
 
     private void Monitor_CaptureFailed(Exception exception)
     {
-        EnqueueOnUi(() => StatusText.Text = $"剪切板读取失败：{exception.Message}");
+        EnqueueOnUi(() => StatusText.Text = AppLocalization.Format("ClipboardReadFailed", exception.Message));
+    }
+
+    private void OcrService_Recognized(Guid id, string text)
+    {
+        EnqueueOnUi(() =>
+        {
+            try
+            {
+                if (!_storageAvailable || !_repository.SetOcrText(id, text))
+                {
+                    return;
+                }
+
+                if (_history.SetOcrText(id, text) is not null)
+                {
+                    RefreshHistory();
+                }
+            }
+            catch (Exception exception)
+            {
+                // OCR 是增强功能，写入失败时保留原图片记录并继续监听。
+                System.Diagnostics.Debug.WriteLine($"OCR 结果保存失败：{exception}");
+            }
+        });
+    }
+
+    private static void OcrService_RecognitionFailed(Exception exception)
+    {
+        // 单张图片识别失败不应影响剪切板监听；调试输出用于排查缺失语言包或损坏图片。
+        System.Diagnostics.Debug.WriteLine($"OCR 识别失败：{exception}");
     }
 
     private bool IsCaptureEnabled(ClipboardContentKind kind)
@@ -1177,7 +1218,7 @@ public sealed partial class MainWindow : Window
 
         EmptyText.Visibility = _displayItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         ClearHistoryButton.IsEnabled = _displayItems.Any(item => !item.Item.IsPinned);
-        CountText.Text = $"{_displayItems.Count} 条";
+        CountText.Text = AppLocalization.Format("ItemCount", _displayItems.Count);
         if (selectedId is { } id)
         {
             HistoryList.SelectedItem = _displayItems.FirstOrDefault(item => item.Item.Id == id);
@@ -1215,12 +1256,12 @@ public sealed partial class MainWindow : Window
             }
             else
             {
-                StatusText.Text = "内容已恢复，请在目标窗口手动粘贴";
+                StatusText.Text = AppLocalization.GetString("ContentRestoredManualPaste");
             }
         }
         catch (Exception)
         {
-            StatusText.Text = "无法恢复该条剪切板内容";
+            StatusText.Text = AppLocalization.GetString("ContentRestoreFailed");
         }
         finally
         {
@@ -1250,12 +1291,12 @@ public sealed partial class MainWindow : Window
             var content = await Task.Run(() => _repository.LoadContent(selected.Item.Id));
             var saved = await ClipboardPlayback.SaveAsFileAsync(selected.Item, content, targetWindow);
             StatusText.Text = saved
-                ? "已保存为文件"
-                : "请先切换到资源管理器文件夹视图";
+                ? AppLocalization.GetString("SavedAsFile")
+                : AppLocalization.GetString("OpenExplorerFolderFirst");
         }
         catch (Exception)
         {
-            StatusText.Text = "无法保存为文件";
+            StatusText.Text = AppLocalization.GetString("SaveAsFileFailed");
         }
         finally
         {
@@ -1372,10 +1413,10 @@ public sealed partial class MainWindow : Window
 
         var dialog = new ContentDialog
         {
-            Title = "清空当前列表？",
-            Content = $"将删除当前筛选结果中的 {visibleItems.Length} 条未置顶记录，置顶记录会保留。未显示的记录不会受到影响。此操作不可撤销。",
-            PrimaryButtonText = "清空",
-            CloseButtonText = "取消",
+            Title = AppLocalization.GetString("ClearCurrentListTitle"),
+            Content = AppLocalization.Format("ClearCurrentListMessage", visibleItems.Length),
+            PrimaryButtonText = AppLocalization.GetString("Clear"),
+            CloseButtonText = AppLocalization.GetString("Cancel"),
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = RootGrid.XamlRoot
         };
@@ -1405,11 +1446,11 @@ public sealed partial class MainWindow : Window
             }
 
             RefreshHistory();
-            StatusText.Text = $"已清空当前列表 · {ids.Length} 条，置顶记录已保留";
+            StatusText.Text = AppLocalization.Format("CurrentListCleared", ids.Length);
         }
         catch (Exception)
         {
-            StatusText.Text = "清空历史失败";
+            StatusText.Text = AppLocalization.GetString("ClearHistoryFailed");
         }
         finally
         {
@@ -1569,6 +1610,44 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private async void RecordPasteOcrTextButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetHistoryListItem(sender) is not HistoryListItem selected
+            || string.IsNullOrEmpty(selected.Item.OcrText))
+        {
+            return;
+        }
+
+        var pasteTarget = GetPasteTargetSnapshot();
+        _monitor.SuspendCapture();
+        try
+        {
+            HidePanel();
+            await Task.Delay(50);
+            var textItem = selected.Item with { Kind = ClipboardContentKind.Text };
+            var content = new ClipboardTextContent(selected.Item.OcrText, null, null).Serialize();
+            var pasted = await ClipboardPlayback.PlayAsync(
+                textItem,
+                content,
+                pasteTarget.TargetWindow,
+                () => TryRestoreAutomationFocus(pasteTarget),
+                plainTextOnly: true);
+            if (!pasted)
+            {
+                StatusText.Text = AppLocalization.GetString("ContentRestoredManualPaste");
+            }
+        }
+        catch (Exception)
+        {
+            StatusText.Text = AppLocalization.GetString("ContentRestoreFailed");
+        }
+        finally
+        {
+            await Task.Delay(150);
+            _monitor.ResumeCapture();
+        }
+    }
+
     private async Task ToggleContentPreviewAsync(HistoryListItem selected)
     {
         if (!TryGetCardPreviewElements(selected, out var card, out var preview, out var host))
@@ -1627,7 +1706,7 @@ public sealed partial class MainWindow : Window
         catch (Exception)
         {
             CloseContentPreview();
-            StatusText.Text = "无法预览该条记录";
+            StatusText.Text = AppLocalization.GetString("PreviewUnavailable");
         }
     }
 
@@ -1647,7 +1726,7 @@ public sealed partial class MainWindow : Window
         ScrollViewer.SetVerticalScrollBarVisibility(preview, ScrollBarVisibility.Auto);
         ScrollViewer.SetHorizontalScrollMode(preview, ScrollMode.Disabled);
         ScrollViewer.SetHorizontalScrollBarVisibility(preview, ScrollBarVisibility.Disabled);
-        AutomationProperties.SetName(preview, "富文本预览");
+        AutomationProperties.SetName(preview, AppLocalization.GetString("RichTextPreview"));
         return preview;
     }
 
@@ -1659,7 +1738,7 @@ public sealed partial class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             IsTextSelectionEnabled = true
         };
-        AutomationProperties.SetName(previewText, "文本预览");
+        AutomationProperties.SetName(previewText, AppLocalization.GetString("TextPreview"));
         return new ScrollViewer
         {
             VerticalScrollMode = ScrollMode.Auto,
@@ -1708,7 +1787,9 @@ public sealed partial class MainWindow : Window
 
         if (card.FindName("RecordPreviewButton") is Button button)
         {
-            var label = isExpanded ? "收起预览" : "预览内容";
+            var label = isExpanded
+                ? AppLocalization.GetString("CollapsePreview")
+                : AppLocalization.GetString("PreviewContent");
             ToolTipService.SetToolTip(button, label);
             AutomationProperties.SetName(button, label);
         }
@@ -1838,7 +1919,9 @@ public sealed partial class MainWindow : Window
         if (updated is not null)
         {
             _repository.SetPinned(updated.Id, updated.IsPinned);
-            StatusText.Text = updated.IsPinned ? "记录已置顶" : "已取消记录置顶";
+            StatusText.Text = updated.IsPinned
+                ? AppLocalization.GetString("ItemPinned")
+                : AppLocalization.GetString("ItemUnpinned");
             RefreshHistory();
         }
     }
@@ -1858,7 +1941,7 @@ public sealed partial class MainWindow : Window
         if (_history.Remove(selected.Item.Id))
         {
             _repository.Delete([selected.Item.Id]);
-            StatusText.Text = "记录已删除";
+            StatusText.Text = AppLocalization.GetString("ItemDeleted");
             RefreshHistory();
         }
     }
@@ -1976,7 +2059,7 @@ public sealed partial class MainWindow : Window
             {
             }
 
-            StatusText.Text = $"快捷键未应用：{hotKeyError}";
+            StatusText.Text = AppLocalization.Format("HotKeyNotApplied", hotKeyError);
             return;
         }
 
@@ -1986,7 +2069,7 @@ public sealed partial class MainWindow : Window
         ApplyViewSettings();
         CleanupHistory();
         RefreshHistory();
-        StatusText.Text = "设置已应用";
+        StatusText.Text = AppLocalization.GetString("SettingsApplied");
     }
 
     private static void NormalizePanelShortcuts(AppSettings settings)
@@ -2002,7 +2085,7 @@ public sealed partial class MainWindow : Window
 
     private void ApplyViewSettings()
     {
-        var styleKey = string.Equals(_settings.Density, "舒适", StringComparison.Ordinal)
+        var styleKey = string.Equals(_settings.Density, "Comfortable", StringComparison.Ordinal)
             ? "ComfortableHistoryItemStyle"
             : "CompactHistoryItemStyle";
         HistoryList.ItemContainerStyle = (Style)RootGrid.Resources[styleKey];
@@ -2012,8 +2095,8 @@ public sealed partial class MainWindow : Window
     {
         var theme = _settings.ThemeMode switch
         {
-            "深色" => ElementTheme.Dark,
-            "浅色" => ElementTheme.Light,
+            "Dark" => ElementTheme.Dark,
+            "Light" => ElementTheme.Light,
             _ => ElementTheme.Default
         };
         WindowSurface.RequestedTheme = theme;

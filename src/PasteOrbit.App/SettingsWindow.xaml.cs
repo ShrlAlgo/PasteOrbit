@@ -30,6 +30,7 @@ public sealed partial class SettingsWindow : Window
     private readonly AppSettingsStore _store;
     private readonly Func<string, Task> _exportBackup;
     private readonly Func<string, Task> _restoreBackup;
+    private string _appliedLanguage;
     private bool _isInitialized;
     private bool _isLoadingSettings;
     private bool _configured;
@@ -53,9 +54,19 @@ public sealed partial class SettingsWindow : Window
         Func<string, Task> restoreBackup)
     {
         InitializeComponent();
+        Title = AppLocalization.GetString("SettingsWindowTitle");
+        var shortcutPlaceholder = AppLocalization.GetString("ShortcutPlaceholder");
+        HotKeyTextBox.PlaceholderText = shortcutPlaceholder;
+        PasteShortcutTextBox.PlaceholderText = shortcutPlaceholder;
+        PlainTextPasteShortcutTextBox.PlaceholderText = shortcutPlaceholder;
+        PreviewShortcutTextBox.PlaceholderText = shortcutPlaceholder;
+        PinShortcutTextBox.PlaceholderText = shortcutPlaceholder;
+        DeleteShortcutTextBox.PlaceholderText = shortcutPlaceholder;
+        PasteAsFileShortcutTextBox.PlaceholderText = shortcutPlaceholder;
         _store = store;
         _exportBackup = exportBackup;
         _restoreBackup = restoreBackup;
+        _appliedLanguage = settings.Language;
         _currentPageTag = "General";
         _isInitialized = true;
         ApplyThemeSettings(settings.ThemeMode);
@@ -119,6 +130,7 @@ public sealed partial class SettingsWindow : Window
         AutoHideToggleSwitch.IsOn = settings.AutoHideOnDeactivate;
         MonitorTextToggleSwitch.IsOn = settings.MonitorText;
         MonitorImagesToggleSwitch.IsOn = settings.MonitorImages;
+        ImageOcrToggleSwitch.IsOn = settings.EnableImageOcr;
         MonitorFilesToggleSwitch.IsOn = settings.MonitorFiles;
         ExcludedApplicationsTextBox.Text = settings.ExcludedApplications;
         HotKeyTextBox.Text = GlobalHotKey.TryNormalizeShortcut(settings.GlobalHotKey, out var normalizedShortcut)
@@ -131,6 +143,7 @@ public sealed partial class SettingsWindow : Window
         PinShortcutTextBox.Text = PanelShortcut.NormalizeOrDefault(settings.PinShortcut, defaults.PinShortcut);
         DeleteShortcutTextBox.Text = PanelShortcut.NormalizeOrDefault(settings.DeleteShortcut, defaults.DeleteShortcut);
         PasteAsFileShortcutTextBox.Text = PanelShortcut.NormalizeOrDefault(settings.PasteAsFileShortcut, defaults.PasteAsFileShortcut);
+        SelectComboItem(LanguageComboBox, settings.Language);
         SelectComboItem(ThemeComboBox, settings.ThemeMode);
         SelectComboItem(DensityComboBox, settings.Density);
         SelectComboItem(RetentionDaysComboBox, settings.RetentionDays.ToString());
@@ -141,8 +154,8 @@ public sealed partial class SettingsWindow : Window
     {
         SettingsRoot.RequestedTheme = themeMode switch
         {
-            "深色" => ElementTheme.Dark,
-            "浅色" => ElementTheme.Light,
+            "Dark" => ElementTheme.Dark,
+            "Light" => ElementTheme.Light,
             _ => ElementTheme.Default
         };
 
@@ -175,13 +188,18 @@ public sealed partial class SettingsWindow : Window
     {
         comboBox.SelectedItem = comboBox.Items
             .OfType<ComboBoxItem>()
-            .FirstOrDefault(item => string.Equals(item.Content?.ToString(), value, StringComparison.Ordinal))
+            .FirstOrDefault(item => string.Equals(GetComboItemValue(item), value, StringComparison.Ordinal))
             ?? comboBox.Items[0];
     }
 
-    private static string GetSelectedText(ComboBox comboBox)
+    private static string GetSelectedValue(ComboBox comboBox)
     {
-        return (comboBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? string.Empty;
+        return comboBox.SelectedItem is ComboBoxItem item ? GetComboItemValue(item) : string.Empty;
+    }
+
+    private static string GetComboItemValue(ComboBoxItem item)
+    {
+        return item.Tag?.ToString() ?? item.Content?.ToString() ?? string.Empty;
     }
 
     private static IReadOnlyList<RunningProcessItem> GetRunningProcesses()
@@ -274,19 +292,21 @@ public sealed partial class SettingsWindow : Window
         }
         catch (Exception exception) when (exception is Win32Exception or InvalidOperationException or UnauthorizedAccessException)
         {
-            await ShowMessageAsync("无法读取进程", exception.Message);
+            await ShowMessageAsync(AppLocalization.GetString("ProcessReadFailed"), exception.Message);
             return;
         }
 
         if (processItems.Count == 0)
         {
-            await ShowMessageAsync("没有可选进程", "当前没有读取到正在运行的进程。");
+            await ShowMessageAsync(
+                AppLocalization.GetString("NoProcessesTitle"),
+                AppLocalization.GetString("NoProcessesMessage"));
             return;
         }
 
         var searchBox = new TextBox
         {
-            PlaceholderText = "搜索进程名或窗口标题",
+            PlaceholderText = AppLocalization.GetString("ProcessSearchPlaceholder"),
             MinWidth = 460
         };
         var processList = new ListView
@@ -299,7 +319,7 @@ public sealed partial class SettingsWindow : Window
         };
         var emptyResultText = new TextBlock
         {
-            Text = "没有匹配的进程",
+            Text = AppLocalization.GetString("NoMatchingProcesses"),
             HorizontalAlignment = HorizontalAlignment.Center,
             Margin = new Thickness(0, 24, 0, 16),
             Visibility = Visibility.Collapsed
@@ -314,10 +334,10 @@ public sealed partial class SettingsWindow : Window
 
         var dialog = new ContentDialog
         {
-            Title = "选择不记录的应用",
+            Title = AppLocalization.GetString("SelectExcludedAppsTitle"),
             Content = content,
-            PrimaryButtonText = "添加",
-            CloseButtonText = "取消",
+            PrimaryButtonText = AppLocalization.GetString("Add"),
+            CloseButtonText = AppLocalization.GetString("Cancel"),
             DefaultButton = ContentDialogButton.Primary,
             IsPrimaryButtonEnabled = false,
             XamlRoot = SettingsRoot.XamlRoot
@@ -329,8 +349,8 @@ public sealed partial class SettingsWindow : Window
         {
             dialog.IsPrimaryButtonEnabled = selectedProcessNames.Count > 0;
             dialog.PrimaryButtonText = selectedProcessNames.Count == 0
-                ? "添加"
-                : $"添加（{selectedProcessNames.Count}）";
+                ? AppLocalization.GetString("Add")
+                : AppLocalization.Format("AddSelectedCount", selectedProcessNames.Count);
         }
 
         processList.SelectionChanged += (_, args) =>
@@ -411,9 +431,11 @@ public sealed partial class SettingsWindow : Window
         AutoHideToggleSwitch.Toggled += SettingToggleSwitch_Changed;
         MonitorTextToggleSwitch.Toggled += SettingToggleSwitch_Changed;
         MonitorImagesToggleSwitch.Toggled += SettingToggleSwitch_Changed;
+        ImageOcrToggleSwitch.Toggled += SettingToggleSwitch_Changed;
         MonitorFilesToggleSwitch.Toggled += SettingToggleSwitch_Changed;
         ThemeComboBox.SelectionChanged += SettingComboBox_Changed;
         DensityComboBox.SelectionChanged += SettingComboBox_Changed;
+        LanguageComboBox.SelectionChanged += SettingComboBox_Changed;
         RetentionDaysComboBox.SelectionChanged += SettingComboBox_Changed;
         MaxEntriesComboBox.SelectionChanged += SettingComboBox_Changed;
         ExcludedApplicationsTextBox.LostFocus += SettingTextBox_LostFocus;
@@ -490,6 +512,7 @@ public sealed partial class SettingsWindow : Window
             AutoHideOnDeactivate = AutoHideToggleSwitch.IsOn,
             MonitorText = MonitorTextToggleSwitch.IsOn,
             MonitorImages = MonitorImagesToggleSwitch.IsOn,
+            EnableImageOcr = ImageOcrToggleSwitch.IsOn,
             MonitorFiles = MonitorFilesToggleSwitch.IsOn,
             ExcludedApplications = ExcludedApplicationsTextBox.Text.Trim(),
             GlobalHotKey = GetCurrentHotKey(),
@@ -499,10 +522,11 @@ public sealed partial class SettingsWindow : Window
             PinShortcut = PinShortcutTextBox.Text,
             DeleteShortcut = DeleteShortcutTextBox.Text,
             PasteAsFileShortcut = PasteAsFileShortcutTextBox.Text,
-            ThemeMode = GetSelectedText(ThemeComboBox),
-            Density = GetSelectedText(DensityComboBox),
-            RetentionDays = int.Parse(GetSelectedText(RetentionDaysComboBox)),
-            MaxHistoryEntries = int.Parse(GetSelectedText(MaxEntriesComboBox))
+            Language = GetSelectedValue(LanguageComboBox),
+            ThemeMode = GetSelectedValue(ThemeComboBox),
+            Density = GetSelectedValue(DensityComboBox),
+            RetentionDays = int.Parse(GetSelectedValue(RetentionDaysComboBox)),
+            MaxHistoryEntries = int.Parse(GetSelectedValue(MaxEntriesComboBox))
         };
     }
 
@@ -514,12 +538,21 @@ public sealed partial class SettingsWindow : Window
         }
 
         var newSettings = ReadCurrentSettings();
+        var languageChanged = !string.Equals(
+            newSettings.Language,
+            _appliedLanguage,
+            StringComparison.Ordinal);
         try
         {
             ApplyStartWithWindows(newSettings.StartWithWindows);
             _store.Save(newSettings);
             ApplyThemeSettings(newSettings.ThemeMode);
             SettingsChanged?.Invoke(newSettings);
+            _appliedLanguage = newSettings.Language;
+            if (languageChanged)
+            {
+                _ = ShowLanguageRestartRequiredAsync();
+            }
         }
         catch (IOException)
         {
@@ -580,7 +613,7 @@ public sealed partial class SettingsWindow : Window
             SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
             SuggestedFileName = $"PasteOrbit-{DateTime.Now:yyyyMMdd-HHmmss}"
         };
-        picker.FileTypeChoices.Add("PasteOrbit 加密备份", [".pobackup"]);
+        picker.FileTypeChoices.Add(AppLocalization.GetString("EncryptedBackupFileType"), [".pobackup"]);
         InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
         var file = await picker.PickSaveFileAsync();
         if (file is null)
@@ -591,11 +624,13 @@ public sealed partial class SettingsWindow : Window
         try
         {
             await _exportBackup(file.Path);
-            await ShowMessageAsync("备份已导出", "历史记录和设置已写入加密备份文件。");
+            await ShowMessageAsync(
+                AppLocalization.GetString("BackupExportedTitle"),
+                AppLocalization.GetString("BackupExportedMessage"));
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or CryptographicException)
         {
-            await ShowMessageAsync("导出失败", exception.Message);
+            await ShowMessageAsync(AppLocalization.GetString("BackupExportFailed"), exception.Message);
         }
     }
 
@@ -615,10 +650,10 @@ public sealed partial class SettingsWindow : Window
 
         var confirmation = new ContentDialog
         {
-            Title = "恢复本地备份？",
-            Content = "当前历史记录和设置将被备份内容替换，恢复前会自动保留一份本机副本。",
-            PrimaryButtonText = "恢复",
-            CloseButtonText = "取消",
+            Title = AppLocalization.GetString("RestoreBackupTitle"),
+            Content = AppLocalization.GetString("RestoreBackupMessage"),
+            PrimaryButtonText = AppLocalization.GetString("Restore"),
+            CloseButtonText = AppLocalization.GetString("Cancel"),
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = SettingsRoot.XamlRoot
         };
@@ -636,14 +671,16 @@ public sealed partial class SettingsWindow : Window
             LoadSettings(restoredSettings, includeSystemStartup: false);
             _isLoadingSettings = false;
             ApplyThemeSettings(restoredSettings.ThemeMode);
-            await ShowMessageAsync("恢复完成", "历史记录和设置已恢复。");
+            await ShowMessageAsync(
+                AppLocalization.GetString("RestoreCompletedTitle"),
+                AppLocalization.GetString("RestoreCompletedMessage"));
         }
         catch (Exception exception) when (exception is IOException
                                            or UnauthorizedAccessException
                                            or CryptographicException
                                            or InvalidDataException)
         {
-            await ShowMessageAsync("恢复失败", exception.Message);
+            await ShowMessageAsync(AppLocalization.GetString("RestoreFailed"), exception.Message);
         }
     }
 
@@ -653,7 +690,7 @@ public sealed partial class SettingsWindow : Window
         {
             Title = title,
             Content = message,
-            CloseButtonText = "确定",
+            CloseButtonText = AppLocalization.GetString("Ok"),
             XamlRoot = SettingsRoot.XamlRoot
         };
         await dialog.ShowAsync();
@@ -664,8 +701,20 @@ public sealed partial class SettingsWindow : Window
         var dialog = new ContentDialog
         {
             Title = "PasteOrbit",
-            Content = "设置应用失败，请稍后重试。",
-            CloseButtonText = "确定",
+            Content = AppLocalization.GetString("SettingsSaveFailed"),
+            CloseButtonText = AppLocalization.GetString("Ok"),
+            XamlRoot = SettingsRoot.XamlRoot
+        };
+        await dialog.ShowAsync();
+    }
+
+    private async Task ShowLanguageRestartRequiredAsync()
+    {
+        var dialog = new ContentDialog
+        {
+            Title = AppLocalization.GetString("LanguageRestartTitle"),
+            Content = AppLocalization.GetString("LanguageRestartMessage"),
+            CloseButtonText = AppLocalization.GetString("Ok"),
             XamlRoot = SettingsRoot.XamlRoot
         };
         await dialog.ShowAsync();
@@ -688,11 +737,11 @@ public sealed partial class SettingsWindow : Window
     private static void ApplyStartWithWindows(bool enabled)
     {
         using var key = Registry.CurrentUser.CreateSubKey(StartupRunKey, writable: true)
-            ?? throw new InvalidOperationException("无法打开 Windows 启动项。");
+            ?? throw new InvalidOperationException(AppLocalization.GetString("StartupRegistryOpenFailed"));
         if (enabled)
         {
             var processPath = Environment.ProcessPath
-                ?? throw new InvalidOperationException("无法定位 PasteOrbit 程序路径。");
+                ?? throw new InvalidOperationException(AppLocalization.GetString("ApplicationPathUnavailable"));
             key.SetValue(StartupValueName, $"\"{processPath}\"");
         }
         else

@@ -20,7 +20,7 @@ internal sealed class LocalBackupService(string databasePath, string settingsPat
         ArgumentException.ThrowIfNullOrWhiteSpace(destinationPath);
         if (!File.Exists(DatabasePath))
         {
-            throw new FileNotFoundException("找不到剪切板历史数据库。", DatabasePath);
+            throw new FileNotFoundException(AppLocalization.GetString("HistoryDatabaseNotFound"), DatabasePath);
         }
 
         var targetPath = Path.GetFullPath(destinationPath);
@@ -116,30 +116,30 @@ internal sealed class LocalBackupService(string databasePath, string settingsPat
             var magicLength = reader.ReadInt32();
             if (magicLength != Magic.Length || !reader.ReadBytes(magicLength).AsSpan().SequenceEqual(Magic))
             {
-                throw new InvalidDataException("不是有效的 PasteOrbit 备份文件。");
+                throw new InvalidDataException(AppLocalization.GetString("InvalidBackupFile"));
             }
 
             if (reader.ReadInt32() != FormatVersion)
             {
-                throw new InvalidDataException("不支持该备份文件版本。");
+                throw new InvalidDataException(AppLocalization.GetString("UnsupportedBackupVersion"));
             }
 
             var protectedKeyLength = reader.ReadInt32();
             if (protectedKeyLength is <= 0 or > 4096)
             {
-                throw new InvalidDataException("备份密钥信息无效。");
+                throw new InvalidDataException(AppLocalization.GetString("InvalidBackupKeyInfo"));
             }
 
             keyMaterial = UserDataProtector.Unprotect(reader.ReadBytes(protectedKeyLength));
             if (keyMaterial.Length != 64)
             {
-                throw new InvalidDataException("备份密钥长度无效。");
+                throw new InvalidDataException(AppLocalization.GetString("InvalidBackupKeyLength"));
             }
 
             var initializationVector = reader.ReadBytes(16);
             if (initializationVector.Length != 16)
             {
-                throw new InvalidDataException("备份初始化向量无效。");
+                throw new InvalidDataException(AppLocalization.GetString("InvalidBackupInitializationVector"));
             }
 
             var payloadOffset = input.Position;
@@ -147,7 +147,7 @@ internal sealed class LocalBackupService(string databasePath, string settingsPat
             var encryptedLength = authenticatedLength - payloadOffset;
             if (encryptedLength <= 0)
             {
-                throw new InvalidDataException("备份内容为空。");
+                throw new InvalidDataException(AppLocalization.GetString("BackupContentEmpty"));
             }
 
             input.Position = authenticatedLength;
@@ -155,7 +155,7 @@ internal sealed class LocalBackupService(string databasePath, string settingsPat
             var expectedTag = await ComputeAuthenticationTagAsync(backupPath, keyMaterial.AsSpan(32, 32).ToArray(), authenticatedLength);
             if (!CryptographicOperations.FixedTimeEquals(storedTag, expectedTag))
             {
-                throw new CryptographicException("备份文件已损坏或被修改。");
+                throw new CryptographicException(AppLocalization.GetString("BackupCorrupted"));
             }
 
             input.Position = payloadOffset;
@@ -194,7 +194,7 @@ internal sealed class LocalBackupService(string databasePath, string settingsPat
         var remainingLength = payload.Length - payload.Position;
         if (databaseLength <= 0 || settingsLength < 0 || databaseLength + settingsLength != remainingLength)
         {
-            throw new InvalidDataException("备份内容长度无效。");
+            throw new InvalidDataException(AppLocalization.GetString("InvalidBackupContentLength"));
         }
 
         await using (var database = new FileStream(databasePath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, true))
@@ -268,7 +268,7 @@ internal sealed class LocalBackupService(string databasePath, string settingsPat
                 var read = await source.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, count)));
                 if (read == 0)
                 {
-                    throw new EndOfStreamException("备份内容不完整。");
+                    throw new EndOfStreamException(AppLocalization.GetString("BackupContentIncomplete"));
                 }
 
                 await destination.WriteAsync(buffer.AsMemory(0, read));
@@ -293,7 +293,7 @@ internal sealed class LocalBackupService(string databasePath, string settingsPat
                 var read = await input.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, count)));
                 if (read == 0)
                 {
-                    throw new EndOfStreamException("备份文件不完整。");
+                    throw new EndOfStreamException(AppLocalization.GetString("BackupFileIncomplete"));
                 }
 
                 hmac.TransformBlock(buffer, 0, read, null, 0);

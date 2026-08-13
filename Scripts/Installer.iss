@@ -1,5 +1,7 @@
 ; 安装包版本。发布新版本时应与 Publish.ps1 的 -Version 参数保持一致。
+#ifndef AppVersion
 #define AppVersion "1.0.1"
+#endif
 ; 安装文件来源于 Publish.ps1 生成的完整 win-x64 发布目录。
 #define ReleaseDir "..\artifacts\PasteOrbit-win-x64"
 

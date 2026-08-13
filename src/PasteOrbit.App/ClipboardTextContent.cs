@@ -28,7 +28,7 @@ internal sealed record ClipboardTextContent(string Text, string? Html, string? R
 
         var payload = JsonSerializer.Deserialize<ClipboardTextContent>(content.AsSpan(PayloadPrefixBytes.Length));
         return payload is null || string.IsNullOrEmpty(payload.Text)
-            ? throw new InvalidDataException("富文本剪切板内容无效。")
+            ? throw new InvalidDataException(AppLocalization.GetString("RichTextClipboardInvalid"))
             : payload;
     }
 }

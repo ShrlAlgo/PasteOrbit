@@ -11,6 +11,7 @@ public sealed record ClipboardCapture(
 public sealed class ClipboardHistory
 {
     private readonly List<ClipboardHistoryEntry> _items = [];
+    private readonly Dictionary<Guid, PinyinSearchTerms?> _pinyinSearchCache = [];
     private readonly object _syncRoot = new();
 
     public ClipboardHistory(IEnumerable<ClipboardHistoryEntry>? items = null)
@@ -48,9 +49,7 @@ public sealed class ClipboardHistory
             var matches = _items.Where(item => kind is null || item.Kind == kind);
             if (!string.IsNullOrEmpty(term))
             {
-                matches = matches.Where(item =>
-                    item.SearchText.Contains(term, StringComparison.CurrentCultureIgnoreCase)
-                    || item.SourceApplication?.Contains(term, StringComparison.CurrentCultureIgnoreCase) == true);
+                matches = matches.Where(item => MatchesSearch(item, term));
             }
 
             return OrderItems(matches);
@@ -81,6 +80,7 @@ public sealed class ClipboardHistory
                     UpdatedAt = now
                 };
                 _items.RemoveAt(existingIndex);
+                _pinyinSearchCache.Remove(existing.Id);
             }
             else
             {
@@ -125,6 +125,11 @@ public sealed class ClipboardHistory
                 retainedCount++;
                 return false;
             });
+
+            foreach (var removedId in removedIds)
+            {
+                _pinyinSearchCache.Remove(removedId);
+            }
         }
 
         return removedIds;
@@ -146,12 +151,35 @@ public sealed class ClipboardHistory
         return updated;
     }
 
+    public ClipboardHistoryEntry? SetOcrText(Guid id, string ocrText)
+    {
+        ArgumentNullException.ThrowIfNull(ocrText);
+        ClipboardHistoryEntry? updated = null;
+        lock (_syncRoot)
+        {
+            var index = _items.FindIndex(item => item.Id == id);
+            if (index >= 0)
+            {
+                updated = _items[index] with { OcrText = ocrText };
+                _items[index] = updated;
+                // OCR 文字也参与普通搜索和拼音搜索，结果变化后必须丢弃旧索引。
+                _pinyinSearchCache.Remove(id);
+            }
+        }
+
+        return updated;
+    }
+
     public bool Remove(Guid id)
     {
         bool removed;
         lock (_syncRoot)
         {
             removed = _items.RemoveAll(item => item.Id == id) > 0;
+            if (removed)
+            {
+                _pinyinSearchCache.Remove(id);
+            }
         }
 
         return removed;
@@ -164,7 +192,29 @@ public sealed class ClipboardHistory
         {
             _items.Clear();
             _items.AddRange(items.OrderByDescending(item => item.UpdatedAt));
+            _pinyinSearchCache.Clear();
         }
+    }
+
+    private bool MatchesSearch(ClipboardHistoryEntry item, string term)
+    {
+        if (item.SearchText.Contains(term, StringComparison.CurrentCultureIgnoreCase)
+            || item.OcrText?.Contains(term, StringComparison.CurrentCultureIgnoreCase) == true
+            || item.SourceApplication?.Contains(term, StringComparison.CurrentCultureIgnoreCase) == true)
+        {
+            return true;
+        }
+
+        if (!_pinyinSearchCache.TryGetValue(item.Id, out var pinyinTerms))
+        {
+            var searchableText = string.IsNullOrEmpty(item.OcrText)
+                ? item.SearchText
+                : $"{item.SearchText}\n{item.OcrText}";
+            pinyinTerms = PinyinSearchTerms.Create(searchableText);
+            _pinyinSearchCache[item.Id] = pinyinTerms;
+        }
+
+        return pinyinTerms?.Matches(term) == true;
     }
 
     private static string ComputeHash(ClipboardContentKind kind, byte[] content)

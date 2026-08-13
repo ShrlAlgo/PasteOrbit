@@ -172,6 +172,7 @@
                     VerticalAlignment="Center"
                     Orientation="Horizontal">
                     <Image
+                        x:Uid="AppIcon"
                         Width="20"
                         Height="20"
                         Margin="0,0,8,0"
@@ -191,6 +192,7 @@
                     Orientation="Horizontal">
                     <Button
                         x:Name="SettingsButton"
+                        x:Uid="MainSettingsButton"
                         AutomationProperties.Name="打开设置"
                         Click="SettingsButton_Click"
                         Style="{StaticResource HeaderButtonStyle}"
@@ -204,6 +206,7 @@
                     </Button>
                     <ToggleButton
                         x:Name="WindowPinToggle"
+                        x:Uid="MainWindowPinToggle"
                         AutomationProperties.Name="窗口置顶"
                         Checked="WindowPinToggle_Changed"
                         Style="{StaticResource HeaderToggleButtonStyle}"
@@ -222,6 +225,7 @@
             <Grid Grid.Row="1" Margin="18,0,18,10">
                 <TextBox
                     x:Name="SearchBox"
+                    x:Uid="MainSearchBox"
                     HorizontalAlignment="Stretch"
                     VerticalAlignment="Center"
                     AutomationProperties.Name="搜索剪切板历史"
@@ -237,6 +241,7 @@
                 <StackPanel Grid.Column="0" Orientation="Horizontal">
                     <ToggleButton
                         x:Name="AllFilterButton"
+                        x:Uid="FilterAllButton"
                         AutomationProperties.Name="筛选全部"
                         Click="TypeFilter_Click"
                         IsChecked="True"
@@ -252,6 +257,7 @@
                     </ToggleButton>
                     <ToggleButton
                         x:Name="TextFilterButton"
+                        x:Uid="FilterTextButton"
                         AutomationProperties.Name="筛选文本"
                         Click="TypeFilter_Click"
                         Style="{StaticResource FilterButtonStyle}"
@@ -266,6 +272,7 @@
                     </ToggleButton>
                     <ToggleButton
                         x:Name="ImageFilterButton"
+                        x:Uid="FilterImageButton"
                         AutomationProperties.Name="筛选图片"
                         Click="TypeFilter_Click"
                         Style="{StaticResource FilterButtonStyle}"
@@ -280,6 +287,7 @@
                     </ToggleButton>
                     <ToggleButton
                         x:Name="FilesFilterButton"
+                        x:Uid="FilterFilesButton"
                         AutomationProperties.Name="筛选文件"
                         Click="TypeFilter_Click"
                         Style="{StaticResource FilterButtonStyle}"
@@ -295,6 +303,7 @@
                 </StackPanel>
                 <Button
                     x:Name="ClearHistoryButton"
+                    x:Uid="ClearHistoryButton"
                     Grid.Column="1"
                     AutomationProperties.Name="清空剪切板历史"
                     Click="ClearHistoryButton_Click"
@@ -312,6 +321,7 @@
             <Grid Grid.Row="3" Margin="18,0,4,0">
                 <ListView
                     x:Name="HistoryList"
+                    x:Uid="HistoryList"
                     Padding="0,0,14,0"
                     AutomationProperties.Name="剪切板历史记录"
                     IsItemClickEnabled="True"
@@ -385,6 +395,15 @@
                                                 Source="{Binding Thumbnail}"
                                                 Stretch="Uniform" />
                                             <TextBlock
+                                                Margin="0,4,0,0"
+                                                MaxLines="2"
+                                                FontSize="12"
+                                                Foreground="{ThemeResource TextSecondaryBrush}"
+                                                Text="{Binding OcrPreview}"
+                                                TextTrimming="CharacterEllipsis"
+                                                TextWrapping="Wrap"
+                                                Visibility="{Binding OcrTextVisibility}" />
+                                            <TextBlock
                                                 MaxLines="3"
                                                 Text="{Binding Preview}"
                                                 TextTrimming="CharacterEllipsis"
@@ -424,6 +443,7 @@
                                                 Orientation="Horizontal">
                                                 <Button
                                                 x:Name="RecordPreviewButton"
+                                                x:Uid="RecordPreviewButton"
                                                 AutomationProperties.Name="预览内容"
                                                 Click="RecordPreviewButton_Click"
                                                 Style="{StaticResource RowActionButtonStyle}"
@@ -448,6 +468,7 @@
                                                 </Viewbox>
                                                 </Button>
                                                 <Button
+                                                x:Uid="RecordMoreButton"
                                                 AutomationProperties.Name="更多操作"
                                                 Style="{StaticResource RowActionButtonStyle}"
                                                 ToolTipService.ToolTip="更多操作">
@@ -455,6 +476,7 @@
                                                 <Button.Flyout>
                                                     <MenuFlyout Placement="BottomEdgeAlignedRight">
                                                         <MenuFlyoutItem
+                                                            x:Uid="PastePlainTextMenuItem"
                                                             Click="RecordPlainTextPasteButton_Click"
                                                             Tag="{Binding}"
                                                             Text="粘贴为纯文本"
@@ -464,6 +486,17 @@
                                                             </MenuFlyoutItem.Icon>
                                                         </MenuFlyoutItem>
                                                         <MenuFlyoutItem
+                                                            x:Uid="PasteOcrTextMenuItem"
+                                                            Click="RecordPasteOcrTextButton_Click"
+                                                            Tag="{Binding}"
+                                                            Text="粘贴识别文字"
+                                                            Visibility="{Binding OcrTextVisibility}">
+                                                            <MenuFlyoutItem.Icon>
+                                                                <FontIcon Glyph="&#xE8C8;" />
+                                                            </MenuFlyoutItem.Icon>
+                                                        </MenuFlyoutItem>
+                                                        <MenuFlyoutItem
+                                                            x:Uid="PasteAsFileMenuItem"
                                                             Click="RecordPasteAsFileButton_Click"
                                                             Tag="{Binding}"
                                                             Text="粘贴为文件"
@@ -474,6 +507,7 @@
                                                         </MenuFlyoutItem>
                                                         <MenuFlyoutSeparator />
                                                         <MenuFlyoutItem
+                                                            x:Uid="DeleteRecordMenuItem"
                                                             Click="RecordDeleteButton_Click"
                                                             Foreground="{ThemeResource SystemFillColorCriticalBrush}"
                                                             Tag="{Binding}"
@@ -547,6 +581,7 @@
                 </ListView>
                 <TextBlock
                     x:Name="EmptyText"
+                    x:Uid="EmptyHistoryText"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"
                     Foreground="{ThemeResource TextSecondaryBrush}"

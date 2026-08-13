@@ -8,4 +8,5 @@ public sealed record ClipboardHistoryEntry(
     string? SourceApplication,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    bool IsPinned = false);
+    bool IsPinned = false,
+    string? OcrText = null);
