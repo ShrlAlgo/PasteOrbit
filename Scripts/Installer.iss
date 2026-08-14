@@ -37,8 +37,10 @@ VersionInfoDescription=PasteOrbit 安装程序
 VersionInfoProductName=PasteOrbit
 
 [Languages]
-; 默认提供简体中文和英文安装界面。
+; 简体中文语言文件属于可选的非官方翻译，CI 中可能未随 Inno Setup 安装。
+#ifexist AddBackslash(CompilerPath) + "Languages\ChineseSimplified.isl"
 Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+#endif
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
