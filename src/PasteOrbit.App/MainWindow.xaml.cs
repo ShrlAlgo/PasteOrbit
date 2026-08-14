@@ -226,6 +226,7 @@ public sealed partial class MainWindow : Window
         }
 
         _isExiting = true;
+        _settingsWindow?.Close();
         _trayIcon?.Dispose();
         _monitor.Dispose();
         _ocrService.Dispose();
@@ -2264,7 +2265,11 @@ public sealed partial class MainWindow : Window
         {
             _settingsWindow = null;
             _settingsWindowOpen = false;
-            Activate();
+            // 退出流程关闭设置窗口时，不重新激活主面板。
+            if (!_isExiting)
+            {
+                Activate();
+            }
         };
         settingsWindow.InitializeNative();
         ActivateSettingsWindow();
