@@ -211,7 +211,7 @@
                                               Margin="0,0,0,8"
                                               ContentAlignment="Right">
                             <ComboBox x:Name="LanguageComboBox" Width="180" Style="{StaticResource SettingsComboBoxStyle}">
-                                <ComboBoxItem x:Uid="LanguageSystemOption" Content="跟随系统" Tag="" />
+                                <ComboBoxItem x:Uid="LanguageSystemOption" Content="跟随系统" Tag="System" />
                                 <ComboBoxItem x:Uid="LanguageChineseOption" Content="简体中文" Tag="zh-CN" />
                                 <ComboBoxItem x:Uid="LanguageEnglishOption" Content="English" Tag="en-US" />
                             </ComboBox>

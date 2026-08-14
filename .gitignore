@@ -3,3 +3,4 @@ obj/
 artifacts/
 .vs/
 *.user
+/docs

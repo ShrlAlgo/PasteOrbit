@@ -522,12 +522,20 @@ public sealed partial class SettingsWindow : Window
             PinShortcut = PinShortcutTextBox.Text,
             DeleteShortcut = DeleteShortcutTextBox.Text,
             PasteAsFileShortcut = PasteAsFileShortcutTextBox.Text,
-            Language = GetSelectedValue(LanguageComboBox),
+            Language = GetSelectedLanguage(),
             ThemeMode = GetSelectedValue(ThemeComboBox),
             Density = GetSelectedValue(DensityComboBox),
             RetentionDays = int.Parse(GetSelectedValue(RetentionDaysComboBox)),
             MaxHistoryEntries = int.Parse(GetSelectedValue(MaxEntriesComboBox))
         };
+    }
+
+    private string GetSelectedLanguage()
+    {
+        var selectedLanguage = GetSelectedValue(LanguageComboBox);
+        return string.Equals(selectedLanguage, "System", StringComparison.Ordinal)
+            ? string.Empty
+            : selectedLanguage;
     }
 
     private void ApplyCurrentSettings()

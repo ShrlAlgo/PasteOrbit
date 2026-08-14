@@ -777,7 +777,8 @@ public sealed partial class MainWindow : Window
 
     private static bool IsInputControlType(int controlType)
     {
-        return controlType is 50003 or 50004 or 50030;
+        // Java/Swing 控件可能以 Text、Custom 或 Pane 类型暴露输入焦点。
+        return controlType is 50003 or 50004 or 50020 or 50025 or 50030 or 50033;
     }
 
     private static void ReleaseComObject(object? value)

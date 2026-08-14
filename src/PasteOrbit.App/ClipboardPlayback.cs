@@ -53,9 +53,10 @@ public static class ClipboardPlayback
         }
 
         await Task.Delay(80);
-        if (restoreInputFocus is null || !restoreInputFocus())
+        if (restoreInputFocus is not null)
         {
-            return false;
+            // UI Automation 不一定能操作 Java/Swing 等自绘输入控件。激活目标窗口后，系统通常会恢复其原有子控件焦点。
+            _ = restoreInputFocus();
         }
 
         await Task.Delay(100);
