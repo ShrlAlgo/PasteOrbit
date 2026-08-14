@@ -8,10 +8,6 @@
   <data name="ThemeSystemOption.Content" xml:space="preserve"><value>Use system setting</value></data>
   <data name="ThemeLightOption.Content" xml:space="preserve"><value>Light</value></data>
   <data name="ThemeDarkOption.Content" xml:space="preserve"><value>Dark</value></data>
-  <data name="SettingsDensityCard.Header" xml:space="preserve"><value>Interface density</value></data>
-  <data name="SettingsDensityCard.Description" xml:space="preserve"><value>Adjust spacing between history cards</value></data>
-  <data name="DensityCompactOption.Content" xml:space="preserve"><value>Compact</value></data>
-  <data name="DensityComfortableOption.Content" xml:space="preserve"><value>Comfortable</value></data>
   <data name="SettingsLanguageCard.Header" xml:space="preserve"><value>Display language</value></data>
   <data name="SettingsLanguageCard.Description" xml:space="preserve"><value>Changes take effect immediately</value></data>
   <data name="LanguageSystemOption.Content" xml:space="preserve"><value>Use system setting</value></data>
@@ -222,8 +218,6 @@
   <data name="SettingsMonitorFilesCardDescription" xml:space="preserve"><value>Record files copied to the clipboard</value></data>
   <data name="SettingsThemeCardHeader" xml:space="preserve"><value>Theme</value></data>
   <data name="SettingsThemeCardDescription" xml:space="preserve"><value>Choose light, dark, or system theme</value></data>
-  <data name="SettingsDensityCardHeader" xml:space="preserve"><value>Interface density</value></data>
-  <data name="SettingsDensityCardDescription" xml:space="preserve"><value>Adjust the spacing of history cards</value></data>
   <data name="SettingsLanguageCardHeader" xml:space="preserve"><value>Display language</value></data>
   <data name="SettingsLanguageCardDescription" xml:space="preserve"><value>Changes take effect immediately</value></data>
   <data name="SettingsGlobalHotKeyCardHeader" xml:space="preserve"><value>Open clipboard history</value></data>
@@ -245,8 +239,6 @@
   <data name="ThemeSystemOptionContent" xml:space="preserve"><value>Use system setting</value></data>
   <data name="ThemeLightOptionContent" xml:space="preserve"><value>Light</value></data>
   <data name="ThemeDarkOptionContent" xml:space="preserve"><value>Dark</value></data>
-  <data name="DensityCompactOptionContent" xml:space="preserve"><value>Compact</value></data>
-  <data name="DensityComfortableOptionContent" xml:space="preserve"><value>Comfortable</value></data>
   <data name="LanguageSystemOptionContent" xml:space="preserve"><value>Use system setting</value></data>
   <data name="LanguageChineseOptionContent" xml:space="preserve"><value>Simplified Chinese</value></data>
   <data name="LanguageEnglishOptionContent" xml:space="preserve"><value>English</value></data>

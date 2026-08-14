@@ -5,6 +5,7 @@ using System.Text.Json;
 
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Input;
 using Microsoft.UI.Text;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -35,6 +36,8 @@ public sealed partial class MainWindow : Window
     private const uint SwpFrameChanged = 0x0020;
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpShowWindow = 0x0040;
+    private const int SmCxdrag = 68;
+    private const int SmCydrag = 69;
     private const int VkLbutton = 0x01;
     private const int VkRbutton = 0x02;
     private const int VkMbutton = 0x04;
@@ -88,6 +91,13 @@ public sealed partial class MainWindow : Window
     private bool _isExiting;
     private bool _isListeningPaused;
     private IntPtr _panelTargetWindow;
+    private uint? _headerDragPointerId;
+    private int _headerDragStartScreenX;
+    private int _headerDragStartScreenY;
+    private int _headerDragStartWindowX;
+    private int _headerDragStartWindowY;
+    private bool _headerDragPending;
+    private bool _headerDragActive;
     private string? _startupError;
 
     public MainWindow()
@@ -118,7 +128,6 @@ public sealed partial class MainWindow : Window
         UpdateExcludedApplications();
 
         ApplyThemeSettings();
-        ApplyViewSettings();
         _repository = new ClipboardRepository(Path.Combine(dataDirectory, "history.db"));
         _backupService = new LocalBackupService(_repository.DatabasePath, _settingsStore.Path);
         _ocrService = new ImageOcrService(_repository.LoadContent);
@@ -255,7 +264,6 @@ public sealed partial class MainWindow : Window
         {
             _appWindow.SetIcon(iconPath);
         }
-        ApplyNativeTitleBarTheme();
     }
 
     private void ApplyToolWindowStyle()
@@ -409,6 +417,8 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        CancelHeaderDrag();
+
         // 非激活弹窗不会收到稳定的失焦事件，由定时器根据前台窗口变化负责隐藏。
         if (_panelShownWithoutActivation)
         {
@@ -423,6 +433,7 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Closed(object sender, WindowEventArgs args)
     {
+        CancelHeaderDrag();
         _panelMonitorTimer?.Stop();
         _trayIcon?.Dispose();
         _monitor.Dispose();
@@ -2077,6 +2088,157 @@ public sealed partial class MainWindow : Window
         SetWindowPos(_handle, _isTopmost ? HwndTopmost : HwndNotopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
     }
 
+    private void HeaderGrid_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (_handle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var pointerPoint = e.GetCurrentPoint(HeaderGrid);
+        if (!pointerPoint.Properties.IsLeftButtonPressed)
+        {
+            return;
+        }
+
+        if (e.OriginalSource is not DependencyObject source)
+        {
+            return;
+        }
+
+        if (IsInteractiveHeaderElement(source))
+        {
+            CancelHeaderDrag();
+            return;
+        }
+
+        if (_appWindow is null || !GetCursorPos(out var cursorPosition))
+        {
+            return;
+        }
+
+        var windowPosition = _appWindow.Position;
+        _headerDragPointerId = pointerPoint.PointerId;
+        _headerDragStartScreenX = cursorPosition.X;
+        _headerDragStartScreenY = cursorPosition.Y;
+        _headerDragStartWindowX = windowPosition.X;
+        _headerDragStartWindowY = windowPosition.Y;
+        _headerDragActive = false;
+        _headerDragPending = HeaderGrid.CapturePointer(e.Pointer);
+        if (!_headerDragPending)
+        {
+            _headerDragPointerId = null;
+        }
+
+        e.Handled = _headerDragPending;
+    }
+
+    private void HeaderGrid_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if ((!_headerDragPending && !_headerDragActive)
+            || _headerDragPointerId != e.Pointer.PointerId)
+        {
+            return;
+        }
+
+        var pointerPoint = e.GetCurrentPoint(HeaderGrid);
+        if (!pointerPoint.Properties.IsLeftButtonPressed)
+        {
+            CancelHeaderDrag();
+            return;
+        }
+
+        if (!GetCursorPos(out var cursorPosition))
+        {
+            CancelHeaderDrag();
+            return;
+        }
+
+        var deltaX = cursorPosition.X - _headerDragStartScreenX;
+        var deltaY = cursorPosition.Y - _headerDragStartScreenY;
+        if (_headerDragPending)
+        {
+            var horizontalThreshold = Math.Max(1, GetSystemMetrics(SmCxdrag));
+            var verticalThreshold = Math.Max(1, GetSystemMetrics(SmCydrag));
+            if (Math.Abs(deltaX) < horizontalThreshold
+                && Math.Abs(deltaY) < verticalThreshold)
+            {
+                e.Handled = true;
+                return;
+            }
+
+            _headerDragPending = false;
+            _headerDragActive = true;
+            if (_panelShownWithoutActivation)
+            {
+                ShowPanel(activatePanel: true);
+            }
+        }
+
+        _appWindow?.Move(new PointInt32(
+            _headerDragStartWindowX + deltaX,
+            _headerDragStartWindowY + deltaY));
+        e.Handled = true;
+    }
+
+    private void HeaderGrid_PointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if ((!_headerDragPending && !_headerDragActive)
+            || _headerDragPointerId != e.Pointer.PointerId)
+        {
+            return;
+        }
+
+        CancelHeaderDrag(e.Pointer);
+        e.Handled = true;
+    }
+
+    private void HeaderGrid_PointerCanceled(object sender, PointerRoutedEventArgs e)
+    {
+        if (_headerDragPointerId == e.Pointer.PointerId)
+        {
+            CancelHeaderDrag(e.Pointer);
+        }
+    }
+
+    private void HeaderGrid_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
+    {
+        if (_headerDragPointerId == e.Pointer.PointerId)
+        {
+            CancelHeaderDrag();
+        }
+    }
+
+    private void CancelHeaderDrag(Pointer? pointer = null)
+    {
+        _headerDragPending = false;
+        _headerDragActive = false;
+        _headerDragPointerId = null;
+        if (pointer is null)
+        {
+            HeaderGrid.ReleasePointerCaptures();
+            return;
+        }
+
+        HeaderGrid.ReleasePointerCapture(pointer);
+    }
+
+    private static bool IsInteractiveHeaderElement(DependencyObject source)
+    {
+        var current = source;
+        while (current is not null)
+        {
+            if (current is ButtonBase)
+            {
+                return true;
+            }
+
+            current = VisualTreeHelper.GetParent(current);
+        }
+
+        return false;
+    }
+
     private void SettingsButton_Click(object sender, RoutedEventArgs e)
     {
         OpenSettings();
@@ -2193,7 +2355,6 @@ public sealed partial class MainWindow : Window
         _settings = settings;
         UpdateExcludedApplications();
         ApplyThemeSettings();
-        ApplyViewSettings();
         CleanupHistory();
         if (languageChanged)
         {
@@ -2218,14 +2379,6 @@ public sealed partial class MainWindow : Window
         settings.PasteAsFileShortcut = PanelShortcut.NormalizeOrDefault(settings.PasteAsFileShortcut, defaults.PasteAsFileShortcut);
     }
 
-    private void ApplyViewSettings()
-    {
-        var styleKey = string.Equals(_settings.Density, "Comfortable", StringComparison.Ordinal)
-            ? "ComfortableHistoryItemStyle"
-            : "CompactHistoryItemStyle";
-        HistoryList.ItemContainerStyle = (Style)RootGrid.Resources[styleKey];
-    }
-
     private void ApplyThemeSettings()
     {
         var theme = _settings.ThemeMode switch
@@ -2237,29 +2390,6 @@ public sealed partial class MainWindow : Window
         WindowSurface.RequestedTheme = theme;
         _trayIcon?.SetTheme(theme);
 
-    }
-
-    // 原生标题栏不继承应用内容区的主题，需要同步设置按钮和文字颜色。
-    private void ApplyNativeTitleBarTheme()
-    {
-        if (_appWindow is null)
-        {
-            return;
-        }
-
-        var titleBar = _appWindow.TitleBar;
-        titleBar.BackgroundColor = null;
-        titleBar.InactiveBackgroundColor = null;
-        titleBar.ForegroundColor = null;
-        titleBar.InactiveForegroundColor = null;
-        titleBar.ButtonBackgroundColor = Colors.Transparent;
-        titleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
-        titleBar.ButtonForegroundColor = null;
-        titleBar.ButtonInactiveForegroundColor = null;
-        titleBar.ButtonHoverBackgroundColor = null;
-        titleBar.ButtonHoverForegroundColor = null;
-        titleBar.ButtonPressedBackgroundColor = null;
-        titleBar.ButtonPressedForegroundColor = null;
     }
 
     private void ShowPanel(bool activatePanel)
@@ -2471,6 +2601,9 @@ public sealed partial class MainWindow : Window
 
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int index);
 
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hwnd, nint insertAfter, int x, int y, int width, int height, uint flags);

@@ -12,8 +12,6 @@
             <StaticResource x:Key="TextSecondaryBrush" ResourceKey="TextFillColorSecondaryBrush" />
             <StaticResource x:Key="TextMutedBrush" ResourceKey="TextFillColorTertiaryBrush" />
             <StaticResource x:Key="BorderBrush" ResourceKey="CardStrokeColorDefaultBrush" />
-            <StaticResource x:Key="BorderPointerOverBrush" ResourceKey="ControlStrokeColorDefaultBrush" />
-            <StaticResource x:Key="BorderPressedBrush" ResourceKey="ControlStrokeColorSecondaryBrush" />
             <StaticResource x:Key="AccentBrush" ResourceKey="AccentFillColorDefaultBrush" />
             <StaticResource x:Key="AccentPointerOverBrush" ResourceKey="AccentFillColorSecondaryBrush" />
             <StaticResource x:Key="AccentPressedBrush" ResourceKey="AccentFillColorTertiaryBrush" />
@@ -32,8 +30,6 @@
             <StaticResource x:Key="TextSecondaryBrush" ResourceKey="TextFillColorSecondaryBrush" />
             <StaticResource x:Key="TextMutedBrush" ResourceKey="TextFillColorTertiaryBrush" />
             <StaticResource x:Key="BorderBrush" ResourceKey="CardStrokeColorDefaultBrush" />
-            <StaticResource x:Key="BorderPointerOverBrush" ResourceKey="ControlStrokeColorDefaultBrush" />
-            <StaticResource x:Key="BorderPressedBrush" ResourceKey="ControlStrokeColorSecondaryBrush" />
             <StaticResource x:Key="AccentBrush" ResourceKey="AccentFillColorDefaultBrush" />
             <StaticResource x:Key="AccentPointerOverBrush" ResourceKey="AccentFillColorSecondaryBrush" />
             <StaticResource x:Key="AccentPressedBrush" ResourceKey="AccentFillColorTertiaryBrush" />
@@ -52,8 +48,6 @@
             <StaticResource x:Key="TextSecondaryBrush" ResourceKey="TextFillColorSecondaryBrush" />
             <StaticResource x:Key="TextMutedBrush" ResourceKey="TextFillColorTertiaryBrush" />
             <StaticResource x:Key="BorderBrush" ResourceKey="CardStrokeColorDefaultBrush" />
-            <StaticResource x:Key="BorderPointerOverBrush" ResourceKey="ControlStrokeColorDefaultBrush" />
-            <StaticResource x:Key="BorderPressedBrush" ResourceKey="ControlStrokeColorSecondaryBrush" />
             <StaticResource x:Key="AccentBrush" ResourceKey="AccentFillColorDefaultBrush" />
             <StaticResource x:Key="AccentPointerOverBrush" ResourceKey="AccentFillColorSecondaryBrush" />
             <StaticResource x:Key="AccentPressedBrush" ResourceKey="AccentFillColorTertiaryBrush" />

@@ -2,7 +2,6 @@
     x:Class="PasteOrbit.App.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:local="using:PasteOrbit.App"
     Title="PasteOrbit">
     <Grid x:Name="WindowSurface" Background="{ThemeResource PageBackgroundBrush}">
         <Grid x:Name="RootGrid" Background="Transparent">
@@ -136,16 +135,10 @@
                         </Setter.Value>
                     </Setter>
                 </Style>
-                <Style x:Key="CompactHistoryItemStyle" TargetType="ListViewItem">
+                <Style x:Key="HistoryItemStyle" TargetType="ListViewItem">
                     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                     <Setter Property="Padding" Value="0" />
                     <Setter Property="Margin" Value="0,0,0,6" />
-                    <Setter Property="UseSystemFocusVisuals" Value="False" />
-                </Style>
-                <Style x:Key="ComfortableHistoryItemStyle" TargetType="ListViewItem">
-                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                    <Setter Property="Padding" Value="0" />
-                    <Setter Property="Margin" Value="0,0,0,10" />
                     <Setter Property="UseSystemFocusVisuals" Value="False" />
                 </Style>
             </Grid.Resources>
@@ -161,7 +154,12 @@
                 x:Name="HeaderGrid"
                 Grid.Row="0"
                 Margin="12,0,12,0"
-                Background="{ThemeResource PageBackgroundBrush}">
+                Background="{ThemeResource PageBackgroundBrush}"
+                PointerCanceled="HeaderGrid_PointerCanceled"
+                PointerCaptureLost="HeaderGrid_PointerCaptureLost"
+                PointerPressed="HeaderGrid_PointerPressed"
+                PointerMoved="HeaderGrid_PointerMoved"
+                PointerReleased="HeaderGrid_PointerReleased">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
@@ -328,7 +326,7 @@
                     AutomationProperties.Name="剪切板历史记录"
                     IsItemClickEnabled="True"
                     ItemClick="HistoryList_ItemClick"
-                    ItemContainerStyle="{StaticResource CompactHistoryItemStyle}"
+                    ItemContainerStyle="{StaticResource HistoryItemStyle}"
                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                     ScrollViewer.HorizontalScrollMode="Disabled"
                     ScrollViewer.VerticalScrollBarVisibility="Auto"

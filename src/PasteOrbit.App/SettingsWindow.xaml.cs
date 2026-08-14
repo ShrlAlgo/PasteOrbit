@@ -37,6 +37,8 @@ public sealed partial class SettingsWindow : Window
     private bool _isRefreshingLocalization;
     private bool _configured;
     private AppWindow? _appWindow;
+    private Button? _capturingShortcutButton;
+    private string? _capturingShortcutValue;
     // 设置页使用轻量页面历史栈，让标题栏返回与 NavigationView 的页面切换保持一致。
     private readonly Stack<string> _navigationHistory = [];
     private string? _currentPageTag;
@@ -57,14 +59,6 @@ public sealed partial class SettingsWindow : Window
     {
         InitializeComponent();
         Title = AppLocalization.GetString("SettingsWindowTitle");
-        var shortcutPlaceholder = AppLocalization.GetString("ShortcutPlaceholder");
-        HotKeyTextBox.PlaceholderText = shortcutPlaceholder;
-        PasteShortcutTextBox.PlaceholderText = shortcutPlaceholder;
-        PlainTextPasteShortcutTextBox.PlaceholderText = shortcutPlaceholder;
-        PreviewShortcutTextBox.PlaceholderText = shortcutPlaceholder;
-        PinShortcutTextBox.PlaceholderText = shortcutPlaceholder;
-        DeleteShortcutTextBox.PlaceholderText = shortcutPlaceholder;
-        PasteAsFileShortcutTextBox.PlaceholderText = shortcutPlaceholder;
         _store = store;
         _exportBackup = exportBackup;
         _restoreBackup = restoreBackup;
@@ -128,6 +122,7 @@ public sealed partial class SettingsWindow : Window
 
     private void LoadSettings(AppSettings settings, bool includeSystemStartup = true)
     {
+        CancelShortcutCapture();
         StartWithWindowsToggleSwitch.IsOn = settings.StartWithWindows
             || (includeSystemStartup && IsStartWithWindowsEnabled());
         AutoHideToggleSwitch.IsOn = settings.AutoHideOnDeactivate;
@@ -136,19 +131,18 @@ public sealed partial class SettingsWindow : Window
         ImageOcrToggleSwitch.IsOn = settings.EnableImageOcr;
         MonitorFilesToggleSwitch.IsOn = settings.MonitorFiles;
         ExcludedApplicationsTextBox.Text = settings.ExcludedApplications;
-        HotKeyTextBox.Text = GlobalHotKey.TryNormalizeShortcut(settings.GlobalHotKey, out var normalizedShortcut)
+        HotKeyButton.Content = GlobalHotKey.TryNormalizeShortcut(settings.GlobalHotKey, out var normalizedShortcut)
             ? normalizedShortcut
             : new AppSettings().GlobalHotKey;
         var defaults = new AppSettings();
-        PasteShortcutTextBox.Text = PanelShortcut.NormalizeOrDefault(settings.PasteShortcut, defaults.PasteShortcut);
-        PlainTextPasteShortcutTextBox.Text = PanelShortcut.NormalizeOrDefault(settings.PlainTextPasteShortcut, defaults.PlainTextPasteShortcut);
-        PreviewShortcutTextBox.Text = PanelShortcut.NormalizeOrDefault(settings.PreviewShortcut, defaults.PreviewShortcut);
-        PinShortcutTextBox.Text = PanelShortcut.NormalizeOrDefault(settings.PinShortcut, defaults.PinShortcut);
-        DeleteShortcutTextBox.Text = PanelShortcut.NormalizeOrDefault(settings.DeleteShortcut, defaults.DeleteShortcut);
-        PasteAsFileShortcutTextBox.Text = PanelShortcut.NormalizeOrDefault(settings.PasteAsFileShortcut, defaults.PasteAsFileShortcut);
+        PasteShortcutButton.Content = PanelShortcut.NormalizeOrDefault(settings.PasteShortcut, defaults.PasteShortcut);
+        PlainTextPasteShortcutButton.Content = PanelShortcut.NormalizeOrDefault(settings.PlainTextPasteShortcut, defaults.PlainTextPasteShortcut);
+        PreviewShortcutButton.Content = PanelShortcut.NormalizeOrDefault(settings.PreviewShortcut, defaults.PreviewShortcut);
+        PinShortcutButton.Content = PanelShortcut.NormalizeOrDefault(settings.PinShortcut, defaults.PinShortcut);
+        DeleteShortcutButton.Content = PanelShortcut.NormalizeOrDefault(settings.DeleteShortcut, defaults.DeleteShortcut);
+        PasteAsFileShortcutButton.Content = PanelShortcut.NormalizeOrDefault(settings.PasteAsFileShortcut, defaults.PasteAsFileShortcut);
         SelectComboItem(LanguageComboBox, settings.Language);
         SelectComboItem(ThemeComboBox, settings.ThemeMode);
-        SelectComboItem(DensityComboBox, settings.Density);
         SelectComboItem(RetentionDaysComboBox, settings.RetentionDays.ToString());
         SelectComboItem(MaxEntriesComboBox, settings.MaxHistoryEntries.ToString());
     }
@@ -449,7 +443,6 @@ public sealed partial class SettingsWindow : Window
         ImageOcrToggleSwitch.Toggled += SettingToggleSwitch_Changed;
         MonitorFilesToggleSwitch.Toggled += SettingToggleSwitch_Changed;
         ThemeComboBox.SelectionChanged += SettingComboBox_Changed;
-        DensityComboBox.SelectionChanged += SettingComboBox_Changed;
         LanguageComboBox.SelectionChanged += SettingComboBox_Changed;
         RetentionDaysComboBox.SelectionChanged += SettingComboBox_Changed;
         MaxEntriesComboBox.SelectionChanged += SettingComboBox_Changed;
@@ -476,47 +469,112 @@ public sealed partial class SettingsWindow : Window
         ApplyCurrentSettings();
     }
 
-    private void HotKeyTextBox_KeyDown(object sender, KeyRoutedEventArgs e)
+    private void ShortcutButton_Click(object sender, RoutedEventArgs e)
     {
-        e.Handled = true;
-        if (!GlobalHotKey.TryFormatShortcut(
-                (uint)e.Key,
-                IsVirtualKeyDown(VirtualKeyControl),
-                IsVirtualKeyDown(VirtualKeyAlt),
-                IsVirtualKeyDown(VirtualKeyShift),
-                IsVirtualKeyDown(VirtualKeyLeftWindows) || IsVirtualKeyDown(VirtualKeyRightWindows),
-                out var shortcut))
+        if (sender is not Button button)
         {
             return;
         }
 
-        HotKeyTextBox.Text = shortcut;
+        BeginShortcutCapture(button);
+    }
+
+    private void ShortcutButton_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (ReferenceEquals(_capturingShortcutButton, sender))
+        {
+            CancelShortcutCapture();
+        }
+    }
+
+    private void ShortcutButton_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (sender is not Button button)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        if (e.Key == Windows.System.VirtualKey.Escape)
+        {
+            CancelShortcutCapture();
+            return;
+        }
+
+        string shortcut;
+        if (ReferenceEquals(button, HotKeyButton))
+        {
+            if (!GlobalHotKey.TryFormatShortcut(
+                    (uint)e.Key,
+                    IsVirtualKeyDown(VirtualKeyControl),
+                    IsVirtualKeyDown(VirtualKeyAlt),
+                    IsVirtualKeyDown(VirtualKeyShift),
+                    IsVirtualKeyDown(VirtualKeyLeftWindows) || IsVirtualKeyDown(VirtualKeyRightWindows),
+                    out shortcut))
+            {
+                return;
+            }
+        }
+        else if (!PanelShortcut.TryFormat(
+                     e.Key,
+                     IsVirtualKeyDown(VirtualKeyControl),
+                     IsVirtualKeyDown(VirtualKeyAlt),
+                     IsVirtualKeyDown(VirtualKeyShift),
+                     out shortcut))
+        {
+            return;
+        }
+
+        button.Content = shortcut;
+        _capturingShortcutButton = null;
+        _capturingShortcutValue = null;
         ApplyCurrentSettings();
+    }
+
+    private void BeginShortcutCapture(Button button)
+    {
+        if (ReferenceEquals(_capturingShortcutButton, button))
+        {
+            button.Focus(FocusState.Programmatic);
+            return;
+        }
+
+        if (_capturingShortcutButton is not null
+            && !ReferenceEquals(_capturingShortcutButton, button))
+        {
+            CancelShortcutCapture();
+        }
+
+        _capturingShortcutButton = button;
+        _capturingShortcutValue = button.Content?.ToString() ?? string.Empty;
+        button.Content = AppLocalization.GetString("ShortcutPlaceholder");
+        button.Focus(FocusState.Programmatic);
+    }
+
+    private void CancelShortcutCapture()
+    {
+        if (_capturingShortcutButton is null)
+        {
+            return;
+        }
+
+        _capturingShortcutButton.Content = _capturingShortcutValue ?? string.Empty;
+        _capturingShortcutButton = null;
+        _capturingShortcutValue = null;
+    }
+
+    private string GetShortcutValue(Button button)
+    {
+        return ReferenceEquals(_capturingShortcutButton, button)
+            ? _capturingShortcutValue ?? string.Empty
+            : button.Content?.ToString() ?? string.Empty;
     }
 
     private string GetCurrentHotKey()
     {
-        return GlobalHotKey.TryNormalizeShortcut(HotKeyTextBox.Text, out var normalizedShortcut)
+        return GlobalHotKey.TryNormalizeShortcut(GetShortcutValue(HotKeyButton), out var normalizedShortcut)
             ? normalizedShortcut
             : new AppSettings().GlobalHotKey;
-    }
-
-    private void PanelShortcutTextBox_KeyDown(object sender, KeyRoutedEventArgs e)
-    {
-        e.Handled = true;
-        if (sender is not TextBox textBox
-            || !PanelShortcut.TryFormat(
-                e.Key,
-                IsVirtualKeyDown(VirtualKeyControl),
-                IsVirtualKeyDown(VirtualKeyAlt),
-                IsVirtualKeyDown(VirtualKeyShift),
-                out var shortcut))
-        {
-            return;
-        }
-
-        textBox.Text = shortcut;
-        ApplyCurrentSettings();
     }
 
     private static bool IsVirtualKeyDown(int virtualKey)
@@ -536,15 +594,14 @@ public sealed partial class SettingsWindow : Window
             MonitorFiles = MonitorFilesToggleSwitch.IsOn,
             ExcludedApplications = ExcludedApplicationsTextBox.Text.Trim(),
             GlobalHotKey = GetCurrentHotKey(),
-            PasteShortcut = PasteShortcutTextBox.Text,
-            PlainTextPasteShortcut = PlainTextPasteShortcutTextBox.Text,
-            PreviewShortcut = PreviewShortcutTextBox.Text,
-            PinShortcut = PinShortcutTextBox.Text,
-            DeleteShortcut = DeleteShortcutTextBox.Text,
-            PasteAsFileShortcut = PasteAsFileShortcutTextBox.Text,
+            PasteShortcut = GetShortcutValue(PasteShortcutButton),
+            PlainTextPasteShortcut = GetShortcutValue(PlainTextPasteShortcutButton),
+            PreviewShortcut = GetShortcutValue(PreviewShortcutButton),
+            PinShortcut = GetShortcutValue(PinShortcutButton),
+            DeleteShortcut = GetShortcutValue(DeleteShortcutButton),
+            PasteAsFileShortcut = GetShortcutValue(PasteAsFileShortcutButton),
             Language = GetSelectedLanguage(),
             ThemeMode = GetSelectedValue(ThemeComboBox),
-            Density = GetSelectedValue(DensityComboBox),
             RetentionDays = int.Parse(GetSelectedValue(RetentionDaysComboBox)),
             MaxHistoryEntries = int.Parse(GetSelectedValue(MaxEntriesComboBox))
         };
@@ -561,7 +618,6 @@ public sealed partial class SettingsWindow : Window
     internal void RefreshLocalization()
     {
         var themeValue = GetSelectedValue(ThemeComboBox);
-        var densityValue = GetSelectedValue(DensityComboBox);
         var languageValue = GetSelectedValue(LanguageComboBox);
 
         Title = AppLocalization.GetString("SettingsWindowTitle");
@@ -589,7 +645,6 @@ public sealed partial class SettingsWindow : Window
         SetCard(ImageOcrCard, "SettingsImageOcrCardHeader", "SettingsImageOcrCardDescription");
         SetCard(MonitorFilesCard, "SettingsMonitorFilesCardHeader", "SettingsMonitorFilesCardDescription");
         SetCard(ThemeCard, "SettingsThemeCardHeader", "SettingsThemeCardDescription");
-        SetCard(DensityCard, "SettingsDensityCardHeader", "SettingsDensityCardDescription");
         SetCard(LanguageCard, "SettingsLanguageCardHeader", "SettingsLanguageCardDescription");
         SetCard(GlobalHotKeyCard, "SettingsGlobalHotKeyCardHeader", "SettingsGlobalHotKeyCardDescription");
         SetCard(PasteShortcutCard, "SettingsPasteShortcutCardHeader");
@@ -606,20 +661,14 @@ public sealed partial class SettingsWindow : Window
         ThemeSystemOption.Content = AppLocalization.GetString("ThemeSystemOptionContent");
         ThemeLightOption.Content = AppLocalization.GetString("ThemeLightOptionContent");
         ThemeDarkOption.Content = AppLocalization.GetString("ThemeDarkOptionContent");
-        DensityCompactOption.Content = AppLocalization.GetString("DensityCompactOptionContent");
-        DensityComfortableOption.Content = AppLocalization.GetString("DensityComfortableOptionContent");
         LanguageSystemOption.Content = AppLocalization.GetString("LanguageSystemOptionContent");
         LanguageChineseOption.Content = AppLocalization.GetString("LanguageChineseOptionContent");
         LanguageEnglishOption.Content = AppLocalization.GetString("LanguageEnglishOptionContent");
 
-        var shortcutPlaceholder = AppLocalization.GetString("ShortcutPlaceholder");
-        HotKeyTextBox.PlaceholderText = shortcutPlaceholder;
-        PasteShortcutTextBox.PlaceholderText = shortcutPlaceholder;
-        PlainTextPasteShortcutTextBox.PlaceholderText = shortcutPlaceholder;
-        PreviewShortcutTextBox.PlaceholderText = shortcutPlaceholder;
-        PinShortcutTextBox.PlaceholderText = shortcutPlaceholder;
-        DeleteShortcutTextBox.PlaceholderText = shortcutPlaceholder;
-        PasteAsFileShortcutTextBox.PlaceholderText = shortcutPlaceholder;
+        if (_capturingShortcutButton is not null)
+        {
+            _capturingShortcutButton.Content = AppLocalization.GetString("ShortcutPlaceholder");
+        }
         ShortcutHintText.Text = AppLocalization.GetString("SettingsShortcutHintText");
         PinnedRetentionHintText.Text = AppLocalization.GetString("SettingsPinnedRetentionHintText");
         ExcludedApplicationsTextBox.PlaceholderText = AppLocalization.GetString("ExcludedApplicationsTextBoxPlaceholder");
@@ -643,10 +692,8 @@ public sealed partial class SettingsWindow : Window
         try
         {
             SelectComboItem(ThemeComboBox, themeValue);
-            SelectComboItem(DensityComboBox, densityValue);
             SelectComboItem(LanguageComboBox, languageValue);
             RefreshComboBoxSelection(ThemeComboBox);
-            RefreshComboBoxSelection(DensityComboBox);
             RefreshComboBoxSelection(LanguageComboBox);
         }
         finally

@@ -36,8 +36,6 @@ public sealed class AppSettings
 
     public string ThemeMode { get; set; } = "System";
 
-    public string Density { get; set; } = "Compact";
-
     public int RetentionDays { get; set; } = 30;
 
     public int MaxHistoryEntries { get; set; } = 5000;
@@ -67,12 +65,6 @@ public sealed class AppSettingsStore
                 "浅色" => "Light",
                 "深色" => "Dark",
                 _ => settings.ThemeMode
-            };
-            settings.Density = settings.Density switch
-            {
-                "紧凑" => "Compact",
-                "舒适" => "Comfortable",
-                _ => settings.Density
             };
             settings.Language = settings.Language is "zh-CN" or "en-US"
                 ? settings.Language
