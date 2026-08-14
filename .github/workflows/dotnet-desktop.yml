@@ -78,7 +78,17 @@ jobs:
             }
           }
 
-          & $iscc "/DAppVersion=$env:PACKAGE_VERSION" .\Scripts\Installer.iss
+          $innoArguments = @("/DAppVersion=$env:PACKAGE_VERSION")
+          $chineseLanguageFile = Join-Path (Split-Path -Parent $iscc) 'Languages\ChineseSimplified.isl'
+          if (Test-Path -LiteralPath $chineseLanguageFile -PathType Leaf) {
+            $innoArguments += '/DIncludeChinese'
+          }
+          else {
+            Write-Warning "未找到 ChineseSimplified.isl，将生成英文安装程序。"
+          }
+
+          $innoArguments += '.\Scripts\Installer.iss'
+          & $iscc @innoArguments
           if ($LASTEXITCODE -ne 0) {
             throw "Inno Setup 编译失败，退出代码：$LASTEXITCODE"
           }
