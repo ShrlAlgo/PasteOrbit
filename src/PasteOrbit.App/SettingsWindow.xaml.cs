@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.Win32;
@@ -33,6 +34,7 @@ public sealed partial class SettingsWindow : Window
     private string _appliedLanguage;
     private bool _isInitialized;
     private bool _isLoadingSettings;
+    private bool _isRefreshingLocalization;
     private bool _configured;
     private AppWindow? _appWindow;
     // 设置页使用轻量页面历史栈，让标题栏返回与 NavigationView 的页面切换保持一致。
@@ -73,6 +75,7 @@ public sealed partial class SettingsWindow : Window
         _isLoadingSettings = true;
         LoadSettings(settings);
         _isLoadingSettings = false;
+        RefreshLocalization();
         AttachSettingHandlers();
         SettingsNavigation.BackRequested += SettingsNavigation_BackRequested;
         Activated += SettingsWindow_Activated;
@@ -200,6 +203,18 @@ public sealed partial class SettingsWindow : Window
     private static string GetComboItemValue(ComboBoxItem item)
     {
         return item.Tag?.ToString() ?? item.Content?.ToString() ?? string.Empty;
+    }
+
+    // 语言切换后重新绑定选中项，让 ComboBox 的内容呈现器立即使用新的本地化文本。
+    private static void RefreshComboBoxSelection(ComboBox comboBox)
+    {
+        if (comboBox.SelectedItem is not { } selectedItem)
+        {
+            return;
+        }
+
+        comboBox.SelectedItem = null;
+        comboBox.SelectedItem = selectedItem;
     }
 
     private static IReadOnlyList<RunningProcessItem> GetRunningProcesses()
@@ -448,6 +463,11 @@ public sealed partial class SettingsWindow : Window
 
     private void SettingComboBox_Changed(object sender, SelectionChangedEventArgs e)
     {
+        if (_isRefreshingLocalization)
+        {
+            return;
+        }
+
         ApplyCurrentSettings();
     }
 
@@ -538,6 +558,118 @@ public sealed partial class SettingsWindow : Window
             : selectedLanguage;
     }
 
+    internal void RefreshLocalization()
+    {
+        var themeValue = GetSelectedValue(ThemeComboBox);
+        var densityValue = GetSelectedValue(DensityComboBox);
+        var languageValue = GetSelectedValue(LanguageComboBox);
+
+        Title = AppLocalization.GetString("SettingsWindowTitle");
+        SettingsTitleBar.Title = AppLocalization.GetString("SettingsTitleBarTitle");
+        AutomationProperties.SetName(
+            SettingsTitleBar,
+            AppLocalization.GetString("SettingsTitleBarAutomationName"));
+
+        GeneralNavigationItem.Content = AppLocalization.GetString("SettingsGeneralNavigationContent");
+        HotKeyNavigationItem.Content = AppLocalization.GetString("SettingsHotKeyNavigationContent");
+        HistoryNavigationItem.Content = AppLocalization.GetString("SettingsHistoryNavigationContent");
+        PrivacyNavigationItem.Content = AppLocalization.GetString("SettingsPrivacyNavigationContent");
+
+        StartupSectionText.Text = AppLocalization.GetString("SettingsStartupSectionText");
+        MonitoringSectionText.Text = AppLocalization.GetString("SettingsMonitoringSectionText");
+        AppearanceSectionText.Text = AppLocalization.GetString("SettingsAppearanceSectionText");
+        HotKeySectionText.Text = AppLocalization.GetString("SettingsHotKeySectionText");
+        HistorySectionText.Text = AppLocalization.GetString("SettingsHistorySectionText");
+        PrivacySectionText.Text = AppLocalization.GetString("SettingsPrivacySectionText");
+
+        SetCard(StartupCard, "SettingsStartupCardHeader", "SettingsStartupCardDescription");
+        SetCard(AutoHideCard, "SettingsAutoHideCardHeader", "SettingsAutoHideCardDescription");
+        SetCard(MonitorTextCard, "SettingsMonitorTextCardHeader", "SettingsMonitorTextCardDescription");
+        SetCard(MonitorImagesCard, "SettingsMonitorImagesCardHeader", "SettingsMonitorImagesCardDescription");
+        SetCard(ImageOcrCard, "SettingsImageOcrCardHeader", "SettingsImageOcrCardDescription");
+        SetCard(MonitorFilesCard, "SettingsMonitorFilesCardHeader", "SettingsMonitorFilesCardDescription");
+        SetCard(ThemeCard, "SettingsThemeCardHeader", "SettingsThemeCardDescription");
+        SetCard(DensityCard, "SettingsDensityCardHeader", "SettingsDensityCardDescription");
+        SetCard(LanguageCard, "SettingsLanguageCardHeader", "SettingsLanguageCardDescription");
+        SetCard(GlobalHotKeyCard, "SettingsGlobalHotKeyCardHeader", "SettingsGlobalHotKeyCardDescription");
+        SetCard(PasteShortcutCard, "SettingsPasteShortcutCardHeader");
+        SetCard(PlainTextShortcutCard, "SettingsPlainTextShortcutCardHeader");
+        SetCard(PreviewShortcutCard, "SettingsPreviewShortcutCardHeader");
+        SetCard(PinShortcutCard, "SettingsPinShortcutCardHeader");
+        SetCard(DeleteShortcutCard, "SettingsDeleteShortcutCardHeader");
+        SetCard(PasteAsFileShortcutCard, "SettingsPasteAsFileShortcutCardHeader");
+        SetCard(RetentionCard, "SettingsRetentionCardHeader", "SettingsRetentionCardDescription");
+        SetCard(MaxEntriesCard, "SettingsMaxEntriesCardHeader", "SettingsMaxEntriesCardDescription");
+        SetCard(ExcludedAppsCard, "SettingsExcludedAppsCardHeader", "SettingsExcludedAppsCardDescription");
+        SetCard(BackupCard, "SettingsBackupCardHeader", "SettingsBackupCardDescription");
+
+        ThemeSystemOption.Content = AppLocalization.GetString("ThemeSystemOptionContent");
+        ThemeLightOption.Content = AppLocalization.GetString("ThemeLightOptionContent");
+        ThemeDarkOption.Content = AppLocalization.GetString("ThemeDarkOptionContent");
+        DensityCompactOption.Content = AppLocalization.GetString("DensityCompactOptionContent");
+        DensityComfortableOption.Content = AppLocalization.GetString("DensityComfortableOptionContent");
+        LanguageSystemOption.Content = AppLocalization.GetString("LanguageSystemOptionContent");
+        LanguageChineseOption.Content = AppLocalization.GetString("LanguageChineseOptionContent");
+        LanguageEnglishOption.Content = AppLocalization.GetString("LanguageEnglishOptionContent");
+
+        var shortcutPlaceholder = AppLocalization.GetString("ShortcutPlaceholder");
+        HotKeyTextBox.PlaceholderText = shortcutPlaceholder;
+        PasteShortcutTextBox.PlaceholderText = shortcutPlaceholder;
+        PlainTextPasteShortcutTextBox.PlaceholderText = shortcutPlaceholder;
+        PreviewShortcutTextBox.PlaceholderText = shortcutPlaceholder;
+        PinShortcutTextBox.PlaceholderText = shortcutPlaceholder;
+        DeleteShortcutTextBox.PlaceholderText = shortcutPlaceholder;
+        PasteAsFileShortcutTextBox.PlaceholderText = shortcutPlaceholder;
+        ShortcutHintText.Text = AppLocalization.GetString("SettingsShortcutHintText");
+        PinnedRetentionHintText.Text = AppLocalization.GetString("SettingsPinnedRetentionHintText");
+        ExcludedApplicationsTextBox.PlaceholderText = AppLocalization.GetString("ExcludedApplicationsTextBoxPlaceholder");
+        SelectProcessButton.Content = AppLocalization.GetString("SelectProcessButtonContent");
+        ExportBackupButton.Content = AppLocalization.GetString("ExportBackupButtonContent");
+        RestoreBackupButton.Content = AppLocalization.GetString("RestoreBackupButtonContent");
+        ProtectionTitleText.Text = AppLocalization.GetString("SettingsProtectionTitleText");
+        ProtectionDescriptionText.Text = AppLocalization.GetString("SettingsProtectionDescriptionText");
+        RestoreDefaultsButton.Content = AppLocalization.GetString("RestoreDefaultsButtonContent");
+
+        var toggleOnContent = AppLocalization.GetString("ToggleOnContent");
+        var toggleOffContent = AppLocalization.GetString("ToggleOffContent");
+        SetToggleContent(StartWithWindowsToggleSwitch, toggleOnContent, toggleOffContent);
+        SetToggleContent(AutoHideToggleSwitch, toggleOnContent, toggleOffContent);
+        SetToggleContent(MonitorTextToggleSwitch, toggleOnContent, toggleOffContent);
+        SetToggleContent(MonitorImagesToggleSwitch, toggleOnContent, toggleOffContent);
+        SetToggleContent(ImageOcrToggleSwitch, toggleOnContent, toggleOffContent);
+        SetToggleContent(MonitorFilesToggleSwitch, toggleOnContent, toggleOffContent);
+
+        _isRefreshingLocalization = true;
+        try
+        {
+            SelectComboItem(ThemeComboBox, themeValue);
+            SelectComboItem(DensityComboBox, densityValue);
+            SelectComboItem(LanguageComboBox, languageValue);
+            RefreshComboBoxSelection(ThemeComboBox);
+            RefreshComboBoxSelection(DensityComboBox);
+            RefreshComboBoxSelection(LanguageComboBox);
+        }
+        finally
+        {
+            _isRefreshingLocalization = false;
+        }
+    }
+
+    private static void SetCard(SettingsCard card, string headerKey, string? descriptionKey = null)
+    {
+        card.Header = AppLocalization.GetString(headerKey);
+        card.Description = descriptionKey is null
+            ? string.Empty
+            : AppLocalization.GetString(descriptionKey);
+    }
+
+    // 显式设置开关文案，语言切换时同步更新。
+    private static void SetToggleContent(ToggleSwitch toggleSwitch, string onContent, string offContent)
+    {
+        toggleSwitch.OnContent = onContent;
+        toggleSwitch.OffContent = offContent;
+    }
+
     private void ApplyCurrentSettings()
     {
         if (_isLoadingSettings)
@@ -554,12 +686,17 @@ public sealed partial class SettingsWindow : Window
         {
             ApplyStartWithWindows(newSettings.StartWithWindows);
             _store.Save(newSettings);
+            if (languageChanged)
+            {
+                AppLocalization.SetLanguage(newSettings.Language);
+            }
+
             ApplyThemeSettings(newSettings.ThemeMode);
             SettingsChanged?.Invoke(newSettings);
             _appliedLanguage = newSettings.Language;
             if (languageChanged)
             {
-                _ = ShowLanguageRestartRequiredAsync();
+                RefreshLocalization();
             }
         }
         catch (IOException)
@@ -710,18 +847,6 @@ public sealed partial class SettingsWindow : Window
         {
             Title = "PasteOrbit",
             Content = AppLocalization.GetString("SettingsSaveFailed"),
-            CloseButtonText = AppLocalization.GetString("Ok"),
-            XamlRoot = SettingsRoot.XamlRoot
-        };
-        await dialog.ShowAsync();
-    }
-
-    private async Task ShowLanguageRestartRequiredAsync()
-    {
-        var dialog = new ContentDialog
-        {
-            Title = AppLocalization.GetString("LanguageRestartTitle"),
-            Content = AppLocalization.GetString("LanguageRestartMessage"),
             CloseButtonText = AppLocalization.GetString("Ok"),
             XamlRoot = SettingsRoot.XamlRoot
         };

@@ -30,12 +30,6 @@ public sealed partial class MainWindow : Window
     private const int SwHide = 0;
     private const int SwShownoactivate = 4;
     private const int SwShow = 5;
-    private const uint WmNcHitTest = 0x0084;
-    private const uint WmNcMouseLeave = 0x02A2;
-    private const int HtClose = 20;
-    private const uint RdwInvalidate = 0x0001;
-    private const uint RdwFrame = 0x0400;
-    private const uint RdwUpdateNow = 0x0100;
     private const uint SwpNoSize = 0x0001;
     private const uint SwpNoMove = 0x0002;
     private const uint SwpFrameChanged = 0x0020;
@@ -252,9 +246,9 @@ public sealed partial class MainWindow : Window
         presenter.IsResizable = false;
         presenter.IsMaximizable = false;
         presenter.IsMinimizable = false;
-        presenter.SetBorderAndTitleBar(true, true);
-        ExtendsContentIntoTitleBar = true;
-        SetTitleBar(HeaderGrid);
+        // 主面板使用无原生标题栏的弹出式窗口，避免系统标题栏按钮残留 hover 状态。
+        presenter.SetBorderAndTitleBar(true, false);
+        ExtendsContentIntoTitleBar = false;
         _appWindow.SetPresenter(presenter);
         var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "PasteOrbit.ico");
         if (File.Exists(iconPath))
@@ -447,7 +441,10 @@ public sealed partial class MainWindow : Window
 
         // 主窗口是托盘应用的常驻面板，点击系统关闭按钮只隐藏面板，不结束监听和托盘进程。
         args.Cancel = true;
-        HidePanel();
+        if (_dispatcherQueue is null || !_dispatcherQueue.TryEnqueue(HidePanel))
+        {
+            HidePanel();
+        }
     }
 
     private bool MessageBridge_CloseRequested()
@@ -1169,12 +1166,22 @@ public sealed partial class MainWindow : Window
         _repository.Delete(removedIds);
     }
 
-    private void RefreshHistory()
+    private void RefreshHistory(bool recreateDisplayItems = false)
     {
         CloseContentPreview();
         _hoveredHistoryItem = null;
         var selectedId = (HistoryList.SelectedItem as HistoryListItem)?.Item.Id;
-        var reusableItems = _displayItems.ToDictionary(displayItem => displayItem.Item.Id);
+        Dictionary<Guid, HistoryListItem> reusableItems = recreateDisplayItems
+            ? []
+            : _displayItems.ToDictionary(displayItem => displayItem.Item.Id);
+        if (recreateDisplayItems)
+        {
+            foreach (var displayItem in _displayItems)
+            {
+                displayItem.Dispose();
+            }
+        }
+
         _displayItems.Clear();
         foreach (var item in _history.Search(SearchBox?.Text, _selectedKind))
         {
@@ -1224,6 +1231,111 @@ public sealed partial class MainWindow : Window
         {
             HistoryList.SelectedItem = _displayItems.FirstOrDefault(item => item.Item.Id == id);
         }
+
+        if (recreateDisplayItems)
+        {
+            _dispatcherQueue?.TryEnqueue(RefreshHistoryCardLocalization);
+        }
+    }
+
+    private void RefreshHistoryCardLocalization()
+    {
+        foreach (var displayItem in _displayItems)
+        {
+            if (HistoryList.ContainerFromItem(displayItem) is not ListViewItem container
+                || container.ContentTemplateRoot is not FrameworkElement card)
+            {
+                continue;
+            }
+
+            ApplyCardLocalization(card);
+        }
+    }
+
+    private static void ApplyCardLocalization(FrameworkElement card)
+    {
+        SetCardPreviewButtonState(card, isExpanded: false);
+        if (card.FindName("RecordMoreButton") is Button moreButton)
+        {
+            var label = AppLocalization.GetString("RecordMoreButtonTooltip");
+            ToolTipService.SetToolTip(moreButton, label);
+            AutomationProperties.SetName(moreButton, label);
+        }
+
+        if (card.FindName("PastePlainTextMenuItem") is MenuFlyoutItem plainTextItem)
+        {
+            plainTextItem.Text = AppLocalization.GetString("PastePlainTextMenuItemText");
+        }
+
+        if (card.FindName("PasteOcrTextMenuItem") is MenuFlyoutItem ocrItem)
+        {
+            ocrItem.Text = AppLocalization.GetString("PasteOcrTextMenuItemText");
+        }
+
+        if (card.FindName("PasteAsFileMenuItem") is MenuFlyoutItem fileItem)
+        {
+            fileItem.Text = AppLocalization.GetString("PasteAsFileMenuItemText");
+        }
+
+        if (card.FindName("DeleteRecordMenuItem") is MenuFlyoutItem deleteItem)
+        {
+            deleteItem.Text = AppLocalization.GetString("DeleteRecordMenuItemText");
+        }
+    }
+
+    internal void RefreshLocalization()
+    {
+        AutomationProperties.SetName(
+            AppIconImage,
+            AppLocalization.GetString("AppIconAutomationName"));
+        AutomationProperties.SetName(
+            SettingsButton,
+            AppLocalization.GetString("MainSettingsButtonAutomationName"));
+        ToolTipService.SetToolTip(
+            SettingsButton,
+            AppLocalization.GetString("MainSettingsButtonTooltip"));
+        AutomationProperties.SetName(
+            WindowPinToggle,
+            AppLocalization.GetString("MainWindowPinToggleAutomationName"));
+        ToolTipService.SetToolTip(
+            WindowPinToggle,
+            AppLocalization.GetString("MainWindowPinToggleTooltip"));
+        AutomationProperties.SetName(
+            SearchBox,
+            AppLocalization.GetString("MainSearchBoxAutomationName"));
+        SearchBox.PlaceholderText = AppLocalization.GetString("MainSearchBoxPlaceholder");
+        SetFilterLocalization(AllFilterButton, "FilterAllButton");
+        SetFilterLocalization(TextFilterButton, "FilterTextButton");
+        SetFilterLocalization(ImageFilterButton, "FilterImageButton");
+        SetFilterLocalization(FilesFilterButton, "FilterFilesButton");
+        AutomationProperties.SetName(
+            ClearHistoryButton,
+            AppLocalization.GetString("ClearHistoryButtonAutomationName"));
+        ToolTipService.SetToolTip(
+            ClearHistoryButton,
+            AppLocalization.GetString("ClearHistoryButtonTooltip"));
+        AutomationProperties.SetName(
+            HistoryList,
+            AppLocalization.GetString("HistoryListAutomationName"));
+        EmptyText.Text = AppLocalization.GetString("MainEmptyHistoryText");
+        CountText.Text = AppLocalization.Format("ItemCount", _displayItems.Count);
+        StatusText.Text = !_storageAvailable
+            ? AppLocalization.GetString("StorageInitializationFailed")
+            : _isListeningPaused
+                ? AppLocalization.GetString("MonitoringPaused")
+                : AppLocalization.Format("ListeningStatus", _history.Count);
+        RefreshHistory(recreateDisplayItems: true);
+        _trayIcon?.RefreshLocalization();
+    }
+
+    private static void SetFilterLocalization(ToggleButton button, string resourcePrefix)
+    {
+        AutomationProperties.SetName(
+            button,
+            AppLocalization.GetString($"{resourcePrefix}AutomationName"));
+        ToolTipService.SetToolTip(
+            button,
+            AppLocalization.GetString($"{resourcePrefix}Tooltip"));
     }
 
     private void DisposeDisplayItems()
@@ -1578,9 +1690,13 @@ public sealed partial class MainWindow : Window
 
     private async void HistoryCard_Loaded(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.DataContext is HistoryListItem item)
+        if (sender is FrameworkElement card)
         {
-            await item.EnsurePreviewLoadedAsync(_repository.LoadContent);
+            ApplyCardLocalization(card);
+            if (card.DataContext is HistoryListItem item)
+            {
+                await item.EnsurePreviewLoadedAsync(_repository.LoadContent);
+            }
         }
     }
 
@@ -1588,6 +1704,7 @@ public sealed partial class MainWindow : Window
     {
         if (args.NewValue is HistoryListItem item)
         {
+            ApplyCardLocalization(sender);
             await item.EnsurePreviewLoadedAsync(_repository.LoadContent);
         }
     }
@@ -2043,6 +2160,15 @@ public sealed partial class MainWindow : Window
 
     private void SettingsWindow_SettingsChanged(AppSettings settings)
     {
+        var languageChanged = !string.Equals(
+            settings.Language,
+            _settings.Language,
+            StringComparison.Ordinal);
+        if (languageChanged)
+        {
+            AppLocalization.SetLanguage(settings.Language);
+        }
+
         NormalizePanelShortcuts(settings);
         if (_messageBridge is not null
             && _storageAvailable
@@ -2069,7 +2195,15 @@ public sealed partial class MainWindow : Window
         ApplyThemeSettings();
         ApplyViewSettings();
         CleanupHistory();
-        RefreshHistory();
+        if (languageChanged)
+        {
+            RefreshLocalization();
+        }
+        else
+        {
+            RefreshHistory();
+        }
+
         StatusText.Text = AppLocalization.GetString("SettingsApplied");
     }
 
@@ -2148,7 +2282,6 @@ public sealed partial class MainWindow : Window
             Activate();
             SetForegroundWindow(_handle);
             HistoryList.Focus(FocusState.Programmatic);
-            RefreshNativeTitleBarHoverState();
             return;
         }
 
@@ -2181,37 +2314,6 @@ public sealed partial class MainWindow : Window
                 SetWindowPos(_handle, HwndNotopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
             }
         }
-    }
-
-    private static IntPtr MakeMouseLParam(int x, int y)
-    {
-        var packedPoint = (uint)(ushort)x | ((uint)(ushort)y << 16);
-        return new IntPtr(unchecked((int)packedPoint));
-    }
-
-    private void RefreshNativeTitleBarHoverState()
-    {
-        if (_handle == IntPtr.Zero || !GetCursorPos(out var cursorPoint))
-        {
-            return;
-        }
-
-        var hitTest = SendMessage(
-            _handle,
-            WmNcHitTest,
-            IntPtr.Zero,
-            MakeMouseLParam(cursorPoint.X, cursorPoint.Y));
-        if (hitTest.ToInt64() == HtClose)
-        {
-            return;
-        }
-
-        SendMessage(_handle, WmNcMouseLeave, IntPtr.Zero, IntPtr.Zero);
-        RedrawWindow(
-            _handle,
-            IntPtr.Zero,
-            IntPtr.Zero,
-            RdwInvalidate | RdwFrame | RdwUpdateNow);
     }
 
     private void PanelMonitorTimer_Tick(DispatcherQueueTimer sender, object args)
@@ -2372,12 +2474,6 @@ public sealed partial class MainWindow : Window
 
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hwnd, nint insertAfter, int x, int y, int width, int height, uint flags);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr SendMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
-
-    [DllImport("user32.dll")]
-    private static extern bool RedrawWindow(IntPtr hwnd, IntPtr updateRect, IntPtr updateRegion, uint flags);
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
     private static extern nint GetWindowLongPtr(IntPtr hwnd, int index);

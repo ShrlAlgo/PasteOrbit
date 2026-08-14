@@ -10,6 +10,8 @@ public partial class App : Application
     private const string SingleInstanceMutexName = @"Local\PasteOrbit.SingleInstance";
     private static readonly IntPtr HwndBroadcast = new(-1);
     internal static readonly uint ShowExistingInstanceMessage = RegisterWindowMessage("PasteOrbit.ShowExistingInstance");
+    // 在应用覆盖语言前记录系统首选语言，运行时切回“跟随系统”时仍能恢复到正确资源。
+    internal static readonly string SystemLanguage = ResolveSystemLanguage();
 
     private MainWindow? _mainWindow;
     private Mutex? _singleInstanceMutex;
@@ -80,6 +82,24 @@ public partial class App : Application
 
         _singleInstanceMutex.Dispose();
         _singleInstanceMutex = null;
+    }
+
+    private static string ResolveSystemLanguage()
+    {
+        foreach (var language in ApplicationLanguages.Languages)
+        {
+            if (language.StartsWith("en", StringComparison.OrdinalIgnoreCase))
+            {
+                return "en-US";
+            }
+
+            if (language.StartsWith("zh", StringComparison.OrdinalIgnoreCase))
+            {
+                return "zh-CN";
+            }
+        }
+
+        return "zh-CN";
     }
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]

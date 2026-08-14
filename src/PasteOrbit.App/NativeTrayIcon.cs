@@ -13,6 +13,7 @@ public sealed class NativeTrayIcon : IDisposable
     private const uint NifIcon = 0x00000002;
     private const uint NifTip = 0x00000004;
     private const uint NimAdd = 0x00000000;
+    private const uint NimModify = 0x00000001;
     private const uint NimDelete = 0x00000002;
     private const uint NimSetVersion = 0x00000004;
     private const uint WmTrayCallback = 0x8001;
@@ -114,6 +115,17 @@ public sealed class NativeTrayIcon : IDisposable
     public void SetTheme(ElementTheme theme)
     {
         _winUiMenuHost?.SetTheme(theme);
+    }
+
+    public void RefreshLocalization()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _notifyIconData.SetTip(AppLocalization.GetString("TrayToolTip"));
+        ShellNotifyIcon(NimModify, ref _notifyIconData);
     }
 
     private void ShowNativeContextMenu(int screenX, int screenY)

@@ -160,7 +160,7 @@
             <Grid
                 x:Name="HeaderGrid"
                 Grid.Row="0"
-                Margin="12,0,140,0"
+                Margin="12,0,12,0"
                 Background="{ThemeResource PageBackgroundBrush}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
@@ -172,6 +172,7 @@
                     VerticalAlignment="Center"
                     Orientation="Horizontal">
                     <Image
+                        x:Name="AppIconImage"
                         x:Uid="AppIcon"
                         Width="20"
                         Height="20"
@@ -179,6 +180,7 @@
                         AutomationProperties.Name="PasteOrbit 应用图标"
                         Source="ms-appx:///Assets/PasteOrbit.ico" />
                     <TextBlock
+                        x:Name="AppTitleText"
                         VerticalAlignment="Center"
                         FontSize="17"
                         FontWeight="SemiBold"
@@ -468,6 +470,7 @@
                                                 </Viewbox>
                                                 </Button>
                                                 <Button
+                                                x:Name="RecordMoreButton"
                                                 x:Uid="RecordMoreButton"
                                                 AutomationProperties.Name="更多操作"
                                                 Style="{StaticResource RowActionButtonStyle}"
@@ -476,6 +479,7 @@
                                                 <Button.Flyout>
                                                     <MenuFlyout Placement="BottomEdgeAlignedRight">
                                                         <MenuFlyoutItem
+                                                            x:Name="PastePlainTextMenuItem"
                                                             x:Uid="PastePlainTextMenuItem"
                                                             Click="RecordPlainTextPasteButton_Click"
                                                             Tag="{Binding}"
@@ -486,6 +490,7 @@
                                                             </MenuFlyoutItem.Icon>
                                                         </MenuFlyoutItem>
                                                         <MenuFlyoutItem
+                                                            x:Name="PasteOcrTextMenuItem"
                                                             x:Uid="PasteOcrTextMenuItem"
                                                             Click="RecordPasteOcrTextButton_Click"
                                                             Tag="{Binding}"
@@ -496,6 +501,7 @@
                                                             </MenuFlyoutItem.Icon>
                                                         </MenuFlyoutItem>
                                                         <MenuFlyoutItem
+                                                            x:Name="PasteAsFileMenuItem"
                                                             x:Uid="PasteAsFileMenuItem"
                                                             Click="RecordPasteAsFileButton_Click"
                                                             Tag="{Binding}"
@@ -507,6 +513,7 @@
                                                         </MenuFlyoutItem>
                                                         <MenuFlyoutSeparator />
                                                         <MenuFlyoutItem
+                                                            x:Name="DeleteRecordMenuItem"
                                                             x:Uid="DeleteRecordMenuItem"
                                                             Click="RecordDeleteButton_Click"
                                                             Foreground="{ThemeResource SystemFillColorCriticalBrush}"

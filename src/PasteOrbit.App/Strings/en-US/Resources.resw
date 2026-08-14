@@ -13,7 +13,7 @@
   <data name="DensityCompactOption.Content" xml:space="preserve"><value>Compact</value></data>
   <data name="DensityComfortableOption.Content" xml:space="preserve"><value>Comfortable</value></data>
   <data name="SettingsLanguageCard.Header" xml:space="preserve"><value>Display language</value></data>
-  <data name="SettingsLanguageCard.Description" xml:space="preserve"><value>Changes take effect after PasteOrbit restarts</value></data>
+  <data name="SettingsLanguageCard.Description" xml:space="preserve"><value>Changes take effect immediately</value></data>
   <data name="LanguageSystemOption.Content" xml:space="preserve"><value>Use system setting</value></data>
   <data name="LanguageChineseOption.Content" xml:space="preserve"><value>Simplified Chinese</value></data>
   <data name="LanguageEnglishOption.Content" xml:space="preserve"><value>English</value></data>
@@ -196,4 +196,93 @@
   <data name="ApplicationPathUnavailable" xml:space="preserve"><value>The PasteOrbit application path could not be located.</value></data>
   <data name="LanguageRestartTitle" xml:space="preserve"><value>Restart required</value></data>
   <data name="LanguageRestartMessage" xml:space="preserve"><value>Restart PasteOrbit to apply the new display language.</value></data>
+  <data name="SettingsTitleBarTitle" xml:space="preserve"><value>PasteOrbit Settings</value></data>
+  <data name="SettingsTitleBarAutomationName" xml:space="preserve"><value>PasteOrbit settings title bar</value></data>
+  <data name="SettingsGeneralNavigationContent" xml:space="preserve"><value>General</value></data>
+  <data name="SettingsHotKeyNavigationContent" xml:space="preserve"><value>Shortcuts</value></data>
+  <data name="SettingsHistoryNavigationContent" xml:space="preserve"><value>History</value></data>
+  <data name="SettingsPrivacyNavigationContent" xml:space="preserve"><value>Privacy &amp; security</value></data>
+  <data name="SettingsStartupSectionText" xml:space="preserve"><value>Startup and window</value></data>
+  <data name="SettingsMonitoringSectionText" xml:space="preserve"><value>Clipboard monitoring</value></data>
+  <data name="SettingsAppearanceSectionText" xml:space="preserve"><value>Appearance</value></data>
+  <data name="SettingsHotKeySectionText" xml:space="preserve"><value>Shortcuts</value></data>
+  <data name="SettingsHistorySectionText" xml:space="preserve"><value>History</value></data>
+  <data name="SettingsPrivacySectionText" xml:space="preserve"><value>Privacy &amp; security</value></data>
+  <data name="SettingsStartupCardHeader" xml:space="preserve"><value>Start with Windows</value></data>
+  <data name="SettingsStartupCardDescription" xml:space="preserve"><value>Run PasteOrbit automatically after signing in to Windows</value></data>
+  <data name="SettingsAutoHideCardHeader" xml:space="preserve"><value>Hide when focus is lost</value></data>
+  <data name="SettingsAutoHideCardDescription" xml:space="preserve"><value>Collapse the history panel after it loses focus</value></data>
+  <data name="SettingsMonitorTextCardHeader" xml:space="preserve"><value>Monitor text</value></data>
+  <data name="SettingsMonitorTextCardDescription" xml:space="preserve"><value>Record text copied to the clipboard</value></data>
+  <data name="SettingsMonitorImagesCardHeader" xml:space="preserve"><value>Monitor images</value></data>
+  <data name="SettingsMonitorImagesCardDescription" xml:space="preserve"><value>Record images copied to the clipboard</value></data>
+  <data name="SettingsImageOcrCardHeader" xml:space="preserve"><value>Recognize image text automatically</value></data>
+  <data name="SettingsImageOcrCardDescription" xml:space="preserve"><value>Use Windows OCR to extract text from copied images for search</value></data>
+  <data name="SettingsMonitorFilesCardHeader" xml:space="preserve"><value>Monitor files</value></data>
+  <data name="SettingsMonitorFilesCardDescription" xml:space="preserve"><value>Record files copied to the clipboard</value></data>
+  <data name="SettingsThemeCardHeader" xml:space="preserve"><value>Theme</value></data>
+  <data name="SettingsThemeCardDescription" xml:space="preserve"><value>Choose light, dark, or system theme</value></data>
+  <data name="SettingsDensityCardHeader" xml:space="preserve"><value>Interface density</value></data>
+  <data name="SettingsDensityCardDescription" xml:space="preserve"><value>Adjust the spacing of history cards</value></data>
+  <data name="SettingsLanguageCardHeader" xml:space="preserve"><value>Display language</value></data>
+  <data name="SettingsLanguageCardDescription" xml:space="preserve"><value>Changes take effect immediately</value></data>
+  <data name="SettingsGlobalHotKeyCardHeader" xml:space="preserve"><value>Open clipboard history</value></data>
+  <data name="SettingsGlobalHotKeyCardDescription" xml:space="preserve"><value>Global shortcut; must include a modifier key</value></data>
+  <data name="SettingsPasteShortcutCardHeader" xml:space="preserve"><value>Paste selected item</value></data>
+  <data name="SettingsPlainTextShortcutCardHeader" xml:space="preserve"><value>Paste as plain text</value></data>
+  <data name="SettingsPreviewShortcutCardHeader" xml:space="preserve"><value>Expand or collapse preview</value></data>
+  <data name="SettingsPinShortcutCardHeader" xml:space="preserve"><value>Pin or unpin item</value></data>
+  <data name="SettingsDeleteShortcutCardHeader" xml:space="preserve"><value>Delete selected item</value></data>
+  <data name="SettingsPasteAsFileShortcutCardHeader" xml:space="preserve"><value>Paste as file</value></data>
+  <data name="SettingsRetentionCardHeader" xml:space="preserve"><value>Retention days</value></data>
+  <data name="SettingsRetentionCardDescription" xml:space="preserve"><value>Automatically clean up unpinned items older than this</value></data>
+  <data name="SettingsMaxEntriesCardHeader" xml:space="preserve"><value>Maximum entries</value></data>
+  <data name="SettingsMaxEntriesCardDescription" xml:space="preserve"><value>Clean up unpinned items first when the limit is reached</value></data>
+  <data name="SettingsExcludedAppsCardHeader" xml:space="preserve"><value>Exclude applications</value></data>
+  <data name="SettingsExcludedAppsCardDescription" xml:space="preserve"><value>Enter process names or choose running processes; separate multiple names with semicolons</value></data>
+  <data name="SettingsBackupCardHeader" xml:space="preserve"><value>Encrypted local backup</value></data>
+  <data name="SettingsBackupCardDescription" xml:space="preserve"><value>Export or restore a backup protected by the current Windows user credentials</value></data>
+  <data name="ThemeSystemOptionContent" xml:space="preserve"><value>Use system setting</value></data>
+  <data name="ThemeLightOptionContent" xml:space="preserve"><value>Light</value></data>
+  <data name="ThemeDarkOptionContent" xml:space="preserve"><value>Dark</value></data>
+  <data name="DensityCompactOptionContent" xml:space="preserve"><value>Compact</value></data>
+  <data name="DensityComfortableOptionContent" xml:space="preserve"><value>Comfortable</value></data>
+  <data name="LanguageSystemOptionContent" xml:space="preserve"><value>Use system setting</value></data>
+  <data name="LanguageChineseOptionContent" xml:space="preserve"><value>Simplified Chinese</value></data>
+  <data name="LanguageEnglishOptionContent" xml:space="preserve"><value>English</value></data>
+  <data name="ToggleOnContent" xml:space="preserve"><value>On</value></data>
+  <data name="ToggleOffContent" xml:space="preserve"><value>Off</value></data>
+  <data name="SettingsShortcutHintText" xml:space="preserve"><value>Esc hides the panel, and arrow keys navigate the list. These system actions stay fixed.</value></data>
+  <data name="SettingsPinnedRetentionHintText" xml:space="preserve"><value>Pinned items are excluded from automatic expiration and count cleanup.</value></data>
+  <data name="ExcludedApplicationsTextBoxPlaceholder" xml:space="preserve"><value>Process names, separated by semicolons</value></data>
+  <data name="SelectProcessButtonContent" xml:space="preserve"><value>Choose processes</value></data>
+  <data name="ExportBackupButtonContent" xml:space="preserve"><value>Export backup</value></data>
+  <data name="RestoreBackupButtonContent" xml:space="preserve"><value>Restore backup</value></data>
+  <data name="SettingsProtectionTitleText" xml:space="preserve"><value>Local data protection is enabled</value></data>
+  <data name="SettingsProtectionDescriptionText" xml:space="preserve"><value>Clipboard content is encrypted with the current Windows user credentials and cannot be read directly by other users.</value></data>
+  <data name="RestoreDefaultsButtonContent" xml:space="preserve"><value>Restore defaults</value></data>
+  <data name="AppIconAutomationName" xml:space="preserve"><value>PasteOrbit app icon</value></data>
+  <data name="MainSettingsButtonAutomationName" xml:space="preserve"><value>Open settings</value></data>
+  <data name="MainSettingsButtonTooltip" xml:space="preserve"><value>Settings</value></data>
+  <data name="MainWindowPinToggleAutomationName" xml:space="preserve"><value>Keep window on top</value></data>
+  <data name="MainWindowPinToggleTooltip" xml:space="preserve"><value>Keep window on top</value></data>
+  <data name="MainSearchBoxAutomationName" xml:space="preserve"><value>Search clipboard history</value></data>
+  <data name="MainSearchBoxPlaceholder" xml:space="preserve"><value>Search clipboard history</value></data>
+  <data name="FilterAllButtonAutomationName" xml:space="preserve"><value>Filter all</value></data>
+  <data name="FilterAllButtonTooltip" xml:space="preserve"><value>All</value></data>
+  <data name="FilterTextButtonAutomationName" xml:space="preserve"><value>Filter text</value></data>
+  <data name="FilterTextButtonTooltip" xml:space="preserve"><value>Text</value></data>
+  <data name="FilterImageButtonAutomationName" xml:space="preserve"><value>Filter images</value></data>
+  <data name="FilterImageButtonTooltip" xml:space="preserve"><value>Images</value></data>
+  <data name="FilterFilesButtonAutomationName" xml:space="preserve"><value>Filter files</value></data>
+  <data name="FilterFilesButtonTooltip" xml:space="preserve"><value>Files</value></data>
+  <data name="ClearHistoryButtonAutomationName" xml:space="preserve"><value>Clear clipboard history</value></data>
+  <data name="ClearHistoryButtonTooltip" xml:space="preserve"><value>Clear clipboard history</value></data>
+  <data name="HistoryListAutomationName" xml:space="preserve"><value>Clipboard history</value></data>
+  <data name="MainEmptyHistoryText" xml:space="preserve"><value>No clipboard history</value></data>
+  <data name="RecordMoreButtonTooltip" xml:space="preserve"><value>More actions</value></data>
+  <data name="PastePlainTextMenuItemText" xml:space="preserve"><value>Paste as plain text</value></data>
+  <data name="PasteOcrTextMenuItemText" xml:space="preserve"><value>Paste recognized text</value></data>
+  <data name="PasteAsFileMenuItemText" xml:space="preserve"><value>Paste as file</value></data>
+  <data name="DeleteRecordMenuItemText" xml:space="preserve"><value>Delete item</value></data>
 </root>
