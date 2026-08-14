@@ -1,5 +1,5 @@
 # PasteOrbit
-<img width="465" height="574" alt="image" src="https://github.com/user-attachments/assets/fde19a58-e953-4a9d-a24c-7ea256de89d4" />
+<img width="465" height="573" alt="image" src="https://github.com/user-attachments/assets/b7b531c8-d7e5-42eb-a77e-9312c4c9c6ee" />
 
 PasteOrbit 是一款基于 WinUI 3 的 Windows 本地剪切板历史工具。
 
