@@ -78,17 +78,20 @@ jobs:
             }
           }
 
-          $innoArguments = @("/DAppVersion=$env:PACKAGE_VERSION")
-          $chineseLanguageFile = Join-Path (Split-Path -Parent $iscc) 'Languages\ChineseSimplified.isl'
-          if (Test-Path -LiteralPath $chineseLanguageFile -PathType Leaf) {
-            $innoArguments += '/DIncludeChinese'
-          }
-          else {
-            Write-Warning "未找到 ChineseSimplified.isl，将生成英文安装程序。"
+          $languageDirectory = Join-Path $PWD 'Scripts\Languages'
+          $chineseLanguageFile = Join-Path $languageDirectory 'ChineseSimplified.isl'
+          New-Item -ItemType Directory -Force -Path $languageDirectory | Out-Null
+          if (-not (Test-Path -LiteralPath $chineseLanguageFile -PathType Leaf)) {
+            Invoke-WebRequest `
+              -Uri 'https://raw.githubusercontent.com/jrsoftware/issrc/is-6_7_1/Files/Languages/Unofficial/ChineseSimplified.isl' `
+              -OutFile $chineseLanguageFile
           }
 
-          $innoArguments += '.\Scripts\Installer.iss'
-          & $iscc @innoArguments
+          if (-not (Test-Path -LiteralPath $chineseLanguageFile -PathType Leaf)) {
+            throw "未找到 Inno Setup 中文语言文件：$chineseLanguageFile"
+          }
+
+          & $iscc "/DAppVersion=$env:PACKAGE_VERSION" '.\Scripts\Installer.iss'
           if ($LASTEXITCODE -ne 0) {
             throw "Inno Setup 编译失败，退出代码：$LASTEXITCODE"
           }

@@ -37,11 +37,9 @@ VersionInfoDescription=PasteOrbit 安装程序
 VersionInfoProductName=PasteOrbit
 
 [Languages]
-; 简体中文语言文件属于可选的非官方翻译，由构建脚本检测后通过 IncludeChinese 开关启用。
-#ifdef IncludeChinese
-Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
-#endif
 Name: "english"; MessagesFile: "compiler:Default.isl"
+; 中文语言文件随安装脚本提供，不依赖 Inno Setup 安装目录中的可选翻译。
+Name: "chinesesimp"; MessagesFile: "Languages\ChineseSimplified.isl"
 
 [Tasks]
 ; 两个选项均默认不勾选，由用户在安装时决定。
