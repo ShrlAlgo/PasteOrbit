@@ -2416,6 +2416,7 @@ public sealed partial class MainWindow : Window
             ShowWindow(_handle, SwShow);
             Activate();
             SetForegroundWindow(_handle);
+            ResetHistoryScrollPosition();
             HistoryList.Focus(FocusState.Programmatic);
             return;
         }
@@ -2428,6 +2429,24 @@ public sealed partial class MainWindow : Window
         _panelMonitorTimer?.Start();
         SetPanelActivationMode(preventActivation: true);
         SetWindowPos(_handle, HwndTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate | SwpShowWindow);
+        ResetHistoryScrollPosition();
+    }
+
+    private void ResetHistoryScrollPosition()
+    {
+        if (_displayItems.Count == 0)
+        {
+            return;
+        }
+
+        // ListView 会复用内部 ScrollViewer，面板重新显示时显式定位到第一条记录。
+        _dispatcherQueue?.TryEnqueue(() =>
+        {
+            if (_displayItems.Count > 0)
+            {
+                HistoryList.ScrollIntoView(_displayItems[0], ScrollIntoViewAlignment.Leading);
+            }
+        });
     }
 
     private void HidePanel()
