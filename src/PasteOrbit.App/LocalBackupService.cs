@@ -5,6 +5,9 @@ using PasteOrbit.Core;
 
 namespace PasteOrbit.App;
 
+/// <summary>
+/// 导出和恢复本机数据库、设置及其完整性校验信息。
+/// </summary>
 internal sealed class LocalBackupService(string databasePath, string settingsPath)
 {
     private const int FormatVersion = 1;
@@ -31,6 +34,7 @@ internal sealed class LocalBackupService(string databasePath, string settingsPat
 
         try
         {
+            // 备份内容使用随机 AES 密钥加密，并用独立 HMAC 校验完整性。
             Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
             await using (var output = new FileStream(
                              temporaryPath,
@@ -111,6 +115,7 @@ internal sealed class LocalBackupService(string databasePath, string settingsPat
 
         try
         {
+            // 先验证文件头、密钥长度和 HMAC，再解密到临时文件。
             await using var input = new FileStream(backupPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true);
             using var reader = new BinaryReader(input, Encoding.UTF8, leaveOpen: true);
             var magicLength = reader.ReadInt32();
@@ -211,6 +216,7 @@ internal sealed class LocalBackupService(string databasePath, string settingsPat
 
     private void ReplaceLocalData(string temporaryDatabase, string temporarySettings)
     {
+        // 替换前保留恢复前副本，替换失败时回滚数据库和设置文件。
         var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
         var databaseRecovery = $"{DatabasePath}.before-restore-{stamp}";
         var settingsRecovery = $"{SettingsPath}.before-restore-{stamp}";
@@ -260,6 +266,7 @@ internal sealed class LocalBackupService(string databasePath, string settingsPat
 
     private static async Task CopyExactlyAsync(Stream source, Stream destination, long count)
     {
+        // 按声明长度复制，短读直接视为备份损坏。
         var buffer = ArrayPool<byte>.Shared.Rent(81920);
         try
         {

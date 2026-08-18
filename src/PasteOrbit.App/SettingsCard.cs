@@ -3,6 +3,9 @@ using Microsoft.UI.Xaml.Controls;
 
 namespace PasteOrbit.App;
 
+/// <summary>
+/// 设置页使用的标题、描述和右侧内容布局容器。
+/// </summary>
 public sealed class SettingsCard : ContentControl
 {
     public static readonly DependencyProperty HeaderProperty = DependencyProperty.Register(

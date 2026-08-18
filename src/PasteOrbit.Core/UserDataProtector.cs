@@ -3,6 +3,9 @@ using System.Text;
 
 namespace PasteOrbit.Core;
 
+/// <summary>
+/// 使用当前 Windows 用户的 DPAPI 保护本地剪贴板数据。
+/// </summary>
 public static class UserDataProtector
 {
     public static byte[] Protect(byte[] value)

@@ -5,6 +5,9 @@ using Microsoft.UI.Xaml;
 
 namespace PasteOrbit.App;
 
+/// <summary>
+/// 应用生命周期入口，负责语言覆盖、单实例唤醒和主窗口释放。
+/// </summary>
 public partial class App : Application
 {
     private const string SingleInstanceMutexName = @"Local\PasteOrbit.SingleInstance";
@@ -37,6 +40,7 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        // 非主实例只发送唤醒消息，不重复创建托盘、监听器和窗口。
         if (!_isPrimaryInstance)
         {
             // 第二个实例只负责唤醒首个实例，随后立即退出，不创建窗口和后台服务。
@@ -56,6 +60,7 @@ public partial class App : Application
 
     internal void ExitApplication()
     {
+        // 统一关闭主窗口及其后台资源，保证单实例互斥体最终释放。
         if (_isExiting)
         {
             return;
@@ -86,6 +91,7 @@ public partial class App : Application
 
     private static string ResolveSystemLanguage()
     {
+        // 只映射应用提供的语言，其他系统语言使用中文资源。
         foreach (var language in ApplicationLanguages.Languages)
         {
             if (language.StartsWith("en", StringComparison.OrdinalIgnoreCase))

@@ -6,6 +6,9 @@ using Windows.System;
 
 namespace PasteOrbit.App;
 
+/// <summary>
+/// 历史面板内部快捷键的解析、格式化和按键状态匹配器。
+/// </summary>
 internal readonly record struct PanelShortcut(VirtualKey Key, bool Control, bool Alt, bool Shift)
 {
     private const int VirtualKeyLeftShift = 0xA0;
@@ -83,6 +86,7 @@ internal readonly record struct PanelShortcut(VirtualKey Key, bool Control, bool
 
     private static bool TryParse(string? shortcut, out PanelShortcut definition)
     {
+        // 最后一个 token 是主键，其余 token 必须是唯一修饰键。
         definition = default;
         if (string.IsNullOrWhiteSpace(shortcut))
         {

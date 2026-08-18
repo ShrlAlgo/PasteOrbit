@@ -27,10 +27,12 @@ using VirtualKey = Windows.System.VirtualKey;
 
 namespace PasteOrbit.App;
 
+/// <summary>
+/// 剪贴板历史面板主窗口，协调监听、持久化、粘贴、托盘和设置窗口。
+/// </summary>
 public sealed partial class MainWindow : Window
 {
     private const int SwHide = 0;
-    private const int SwShownoactivate = 4;
     private const int SwShow = 5;
     private const uint SwpNoSize = 0x0001;
     private const uint SwpNoMove = 0x0002;
@@ -163,6 +165,7 @@ public sealed partial class MainWindow : Window
         }
 
         _nativeInitialized = true;
+        // 原生句柄和托盘先于首次显示初始化，避免面板短暂出现在默认位置。
         _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
         _panelMonitorTimer = _dispatcherQueue.CreateTimer();
         _panelMonitorTimer.Interval = TimeSpan.FromMilliseconds(100);
@@ -1083,6 +1086,7 @@ public sealed partial class MainWindow : Window
     {
         EnqueueOnUi(() =>
         {
+            // 剪贴板回调可能来自后台线程，所有历史和界面更新统一切回 UI 队列。
             if (!_storageAvailable
                 || !IsCaptureEnabled(capture.Kind)
                 || IsApplicationExcluded(capture.SourceApplication))
@@ -1190,6 +1194,7 @@ public sealed partial class MainWindow : Window
 
     private void RefreshHistory(bool recreateDisplayItems = false)
     {
+        // 复用仍然存在的卡片对象，释放过滤结果中已离开的预览资源。
         CloseContentPreview();
         _hoveredHistoryItem = null;
         var selectedId = (HistoryList.SelectedItem as HistoryListItem)?.Item.Id;
@@ -1372,6 +1377,7 @@ public sealed partial class MainWindow : Window
 
     private async Task PlayAsync(HistoryListItem selected, bool plainTextOnly = false)
     {
+        // 先保存目标输入窗口，再隐藏面板，避免面板自身成为粘贴目标。
         var pasteTarget = GetPasteTargetSnapshot();
         _monitor.SuspendCapture();
         try
@@ -1790,6 +1796,7 @@ public sealed partial class MainWindow : Window
 
     private async Task ToggleContentPreviewAsync(HistoryListItem selected)
     {
+        // 同时只展开一条记录，切换时释放上一条记录的图片流和预览控件。
         if (!TryGetCardPreviewElements(selected, out var card, out var preview, out var host))
         {
             return;

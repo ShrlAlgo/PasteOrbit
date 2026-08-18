@@ -10,6 +10,9 @@ using Windows.Storage.Streams;
 
 namespace PasteOrbit.App;
 
+/// <summary>
+/// 监听 Windows 剪贴板变化，并将 WinRT 数据转换为应用内部记录。
+/// </summary>
 public sealed class ClipboardMonitor : IDisposable
 {
     private const uint WmClipboardUpdate = 0x031D;
@@ -28,6 +31,7 @@ public sealed class ClipboardMonitor : IDisposable
 
     public void SuspendCapture()
     {
+        // 使用计数而不是布尔值，允许粘贴和文件保存流程嵌套暂停监听。
         Interlocked.Increment(ref _captureSuspended);
     }
 
@@ -120,6 +124,7 @@ public sealed class ClipboardMonitor : IDisposable
 
     private void RequestCapture()
     {
+        // 同一时间只允许一个捕获任务，任务结束后再检查是否有更新遗漏。
         if (Volatile.Read(ref _captureSuspended) != 0
             || Interlocked.Exchange(ref _capturePending, 1) != 0)
         {
@@ -141,6 +146,7 @@ public sealed class ClipboardMonitor : IDisposable
 
     private async Task CaptureWithRetryAsync()
     {
+        // 以序列号为边界读取剪贴板，避免读取期间的新内容被旧序列号覆盖。
         var checkForNewerContent = true;
         try
         {
@@ -201,6 +207,7 @@ public sealed class ClipboardMonitor : IDisposable
 
     private static async Task<ClipboardCapture?> ReadClipboardAsync()
     {
+        // 按文件、图片、富文本、纯文本的优先级读取，保留原始格式信息。
         var sourceApplication = GetSourceProcessName();
         try
         {

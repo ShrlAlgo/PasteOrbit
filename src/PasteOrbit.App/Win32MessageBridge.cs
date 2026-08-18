@@ -59,6 +59,7 @@ public sealed class Win32MessageBridge : IDisposable
         {
             try
             {
+                // 先处理应用级关闭和订阅消息，再把未处理消息交还系统窗口过程。
                 // 原生 WndProc 不能承载托管异常；否则任一消息订阅者异常都会直接终止进程。
                 if (message == WmClose && CloseRequested?.Invoke() == true)
                 {

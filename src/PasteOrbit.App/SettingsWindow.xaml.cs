@@ -20,6 +20,9 @@ using WinRT.Interop;
 
 namespace PasteOrbit.App;
 
+/// <summary>
+/// 设置窗口及其导航、配置持久化和快捷键捕获逻辑。
+/// </summary>
 public sealed partial class SettingsWindow : Window
 {
     private const int VirtualKeyControl = 0x11;
@@ -221,6 +224,7 @@ public sealed partial class SettingsWindow : Window
 
     private static IReadOnlyList<RunningProcessItem> GetRunningProcesses()
     {
+        // 进程列表去重后按有窗口的应用优先排序，便于选择排除规则。
         var processItems = new Dictionary<string, RunningProcessItem>(StringComparer.OrdinalIgnoreCase);
         foreach (var process in Process.GetProcesses())
         {
@@ -302,6 +306,7 @@ public sealed partial class SettingsWindow : Window
 
     private async void SelectExcludedApplicationButton_Click(object sender, RoutedEventArgs e)
     {
+        // 进程枚举放到后台线程，避免进程较多时阻塞设置窗口。
         IReadOnlyList<RunningProcessItem> processItems;
         try
         {
@@ -415,6 +420,7 @@ public sealed partial class SettingsWindow : Window
 
     private void AddExcludedApplications(IEnumerable<string> processNames)
     {
+        // 合并手动输入和选择结果，并统一去掉 .exe 后缀。
         var values = new List<string>();
         var knownProcessNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var configuredValues = ExcludedApplicationsTextBox.Text.Split(
@@ -741,6 +747,7 @@ public sealed partial class SettingsWindow : Window
             StringComparison.Ordinal);
         try
         {
+            // 先保存规范化后的设置，再通知主窗口应用运行时变化。
             ApplyStartWithWindows(newSettings.StartWithWindows);
             _store.Save(newSettings);
             if (languageChanged)
@@ -790,6 +797,7 @@ public sealed partial class SettingsWindow : Window
             && _currentPageTag is not null
             && !string.Equals(_currentPageTag, selected, StringComparison.Ordinal))
         {
+            // 只记录用户主动切换的页面，返回操作不会再次压入历史。
             _navigationHistory.Push(_currentPageTag);
         }
 
@@ -1082,6 +1090,7 @@ public sealed partial class SettingsWindow : Window
 
     private void NavigateBack()
     {
+        // 常规页是导航根页面，返回根页面时直接关闭设置窗口。
         if (_navigationHistory.Count == 0)
         {
             Close();

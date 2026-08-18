@@ -12,6 +12,9 @@ using WinRT.Interop;
 
 namespace PasteOrbit.App;
 
+/// <summary>
+/// 托盘菜单的 WinUI 宿主窗口，负责定位菜单、转发命令并在失焦时收起。
+/// </summary>
 internal sealed class WinUiTrayMenuHost : IDisposable
 {
     private const int GwlStyle = -16;
@@ -92,6 +95,7 @@ internal sealed class WinUiTrayMenuHost : IDisposable
         _menuShowing = true;
         try
         {
+            // 菜单窗口保持无边框并贴近托盘图标矩形，避免出现在主窗口后方。
             var menu = CreateMenu(isListeningPaused);
             _currentMenu = menu;
             _root.ContextFlyout = menu;
@@ -213,6 +217,7 @@ internal sealed class WinUiTrayMenuHost : IDisposable
         _currentMenu = null;
         ShowWindow(_windowHandle, SwHide);
         _menuShowing = false;
+        // 命令在菜单关闭后触发，避免托盘菜单仍处于打开状态时重入主窗口逻辑。
         var command = _pendingCommand;
         _pendingCommand = null;
         if (command is TrayMenuCommand selectedCommand)

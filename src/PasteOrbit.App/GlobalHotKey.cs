@@ -3,6 +3,9 @@ using System.Runtime.InteropServices;
 
 namespace PasteOrbit.App;
 
+/// <summary>
+/// 注册并维护打开历史面板的系统级快捷键。
+/// </summary>
 public sealed class GlobalHotKey : IDisposable
 {
     private const int HotKeyId = 0x4356;
@@ -31,6 +34,7 @@ public sealed class GlobalHotKey : IDisposable
             throw new ArgumentException(parseError, nameof(shortcut));
         }
 
+        // 只有注册成功后才保存桥接对象，失败时允许调用方继续使用旧配置。
         Register(bridge, definition);
         _bridge = bridge;
         _definition = definition;
@@ -72,6 +76,7 @@ public sealed class GlobalHotKey : IDisposable
         }
 
         var previousDefinition = _definition;
+        // 先注销旧组合键，注册失败时立即恢复旧组合键。
         UnregisterHotKey(_bridge.Handle, HotKeyId);
         if (RegisterHotKey(_bridge.Handle, HotKeyId, definition.Modifiers | ModNoRepeat, definition.VirtualKey))
         {
@@ -184,6 +189,7 @@ public sealed class GlobalHotKey : IDisposable
         }
 
         uint modifiers = 0;
+        // 修饰键必须位于最后一个主键之前，且不能重复。
         foreach (var part in parts[..^1])
         {
             var modifier = NormalizeToken(part);

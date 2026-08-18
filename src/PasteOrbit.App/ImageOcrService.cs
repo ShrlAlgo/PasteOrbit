@@ -35,6 +35,7 @@ internal sealed class ImageOcrService : IDisposable
 
     public void Enqueue(Guid id)
     {
+        // 同一记录在队列中只保留一个任务，避免重复 OCR。
         lock (_pendingSyncRoot)
         {
             if (_disposed || !_pendingIds.Add(id))
@@ -73,6 +74,7 @@ internal sealed class ImageOcrService : IDisposable
     {
         try
         {
+            // OCR 引擎和读取循环只运行一个消费者，控制图片解码的并发度。
             var engine = OcrEngine.TryCreateFromUserProfileLanguages();
             if (engine is null)
             {
@@ -122,6 +124,7 @@ internal sealed class ImageOcrService : IDisposable
 
     private static async Task<string> RecognizeAsync(OcrEngine engine, byte[] content)
     {
+        // 先按 OCR 最大尺寸缩放，再把结果转换为屏幕阅读顺序。
         using var stream = new InMemoryRandomAccessStream();
         using (var output = stream.GetOutputStreamAt(0))
         using (var writer = new DataWriter(output))

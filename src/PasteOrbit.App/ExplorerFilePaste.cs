@@ -14,6 +14,9 @@ using Windows.Storage.Streams;
 
 namespace PasteOrbit.App;
 
+/// <summary>
+/// 在当前资源管理器目录中生成文本或图片文件。
+/// </summary>
 internal static class ExplorerFilePaste
 {
     private const int ShcneUpdatedir = 0x00001000;
@@ -47,6 +50,7 @@ internal static class ExplorerFilePaste
         var filePath = CreateUniqueFilePath(folderPath, extension);
         try
         {
+            // 文件写入成功后通知资源管理器刷新目录视图。
             if (item.Kind == ClipboardContentKind.Text)
             {
                 var text = ClipboardTextContent.Deserialize(content).Text;
@@ -81,6 +85,7 @@ internal static class ExplorerFilePaste
 
     private static string? TryGetCurrentFolderPath(IntPtr targetWindow)
     {
+        // 通过 Shell.Application 获取目标资源管理器窗口对应的文件夹路径。
         if (!IsExplorerWindow(targetWindow))
         {
             return null;
@@ -203,6 +208,7 @@ internal static class ExplorerFilePaste
 
     private static string CreateUniqueFilePath(string folderPath, string extension)
     {
+        // 同名时追加序号，避免覆盖用户已有文件。
         var baseName = $"PasteOrbit_{DateTime.Now:yyyyMMdd_HHmmss}";
         var filePath = Path.Combine(folderPath, baseName + extension);
         var suffix = 1;

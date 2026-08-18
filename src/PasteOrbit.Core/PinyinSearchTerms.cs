@@ -25,6 +25,7 @@ internal sealed record PinyinSearchTerms(string FullPinyin, string Initials)
         var initials = new StringBuilder(length);
         var hasChinese = false;
 
+        // 同时构建全拼和首字母，支持两种搜索习惯。
         for (var index = 0; index < length; index++)
         {
             var character = text[index];

@@ -3,6 +3,9 @@ using Microsoft.Windows.Globalization;
 
 namespace PasteOrbit.App;
 
+/// <summary>
+/// 统一读取和刷新 WinUI 资源语言。
+/// </summary>
 internal static class AppLocalization
 {
     private static ResourceLoader _resourceLoader = new();

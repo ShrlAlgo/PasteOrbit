@@ -1,5 +1,6 @@
 using PasteOrbit.Core;
 
+// 覆盖历史记录去重、搜索、置顶和 OCR 索引失效场景。
 var now = DateTimeOffset.UtcNow;
 var item = new ClipboardHistoryEntry(
     Guid.NewGuid(),
@@ -66,6 +67,7 @@ var testDirectory = Path.Combine(Path.GetTempPath(), "PasteOrbit.Tests", Guid.Ne
 var databasePath = Path.Combine(testDirectory, "history.db");
 try
 {
+    // 使用临时数据库验证加密持久化、迁移、清理和损坏恢复。
     var repository = new ClipboardRepository(databasePath);
     repository.Initialize();
     repository.Upsert(second, sameContent);

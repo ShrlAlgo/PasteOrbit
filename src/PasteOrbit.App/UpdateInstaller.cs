@@ -4,6 +4,9 @@ using System.Text;
 
 namespace PasteOrbit.App;
 
+/// <summary>
+/// 启动独立 PowerShell 更新器，等待主进程退出后完成安装和重启。
+/// </summary>
 internal static class UpdateInstaller
 {
     private const string UpdaterScript = """

@@ -9,6 +9,9 @@ using Windows.Storage.Streams;
 
 namespace PasteOrbit.App;
 
+/// <summary>
+/// 将历史记录恢复到系统剪贴板，并把 Ctrl+V 发送到原输入窗口。
+/// </summary>
 public static class ClipboardPlayback
 {
     private const int RetryCount = 3;
@@ -29,6 +32,7 @@ public static class ClipboardPlayback
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(content);
 
+        // 剪贴板写入可能被其他进程短暂占用，按递增间隔重试。
         for (var attempt = 0; ; attempt++)
         {
             try
@@ -60,6 +64,7 @@ public static class ClipboardPlayback
         }
 
         await Task.Delay(100);
+        // 使用 SendInput 模拟用户粘贴，目标窗口不需要接入应用内部消息循环。
         var inputs = new[]
         {
             CreateKeyInput(KeyControl, false),
@@ -92,6 +97,7 @@ public static class ClipboardPlayback
         byte[] content,
         bool plainTextOnly)
     {
+        // 图片数据通过长期持有的内存流提供给 DataPackage，避免异步粘贴时流已释放。
         if (item.Kind != ClipboardContentKind.Image)
         {
             _clipboardStream?.Dispose();
@@ -165,6 +171,7 @@ public static class ClipboardPlayback
 
     private static bool ActivateTargetWindow(IntPtr targetWindow)
     {
+        // 临时接入目标线程输入队列，绕过 Windows 前台窗口切换限制。
         if (targetWindow == IntPtr.Zero || !IsWindow(targetWindow))
         {
             return false;
@@ -282,9 +289,6 @@ public static class ClipboardPlayback
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetForegroundWindow(IntPtr hwnd);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr SetFocus(IntPtr hwnd);
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint SendInput(uint inputCount, Input[] inputs, int inputSize);

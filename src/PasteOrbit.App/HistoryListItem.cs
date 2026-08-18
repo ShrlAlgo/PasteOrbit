@@ -11,6 +11,9 @@ using Windows.Storage.Streams;
 
 namespace PasteOrbit.App;
 
+/// <summary>
+/// 历史记录卡片的数据适配器，负责延迟加载预览和通知界面刷新。
+/// </summary>
 public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
 {
     private IRandomAccessStream? _thumbnailStream;
@@ -141,6 +144,7 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
     public Task EnsurePreviewLoadedAsync(Func<Guid, byte[]> loadContent)
     {
         ArgumentNullException.ThrowIfNull(loadContent);
+        // 列表滚动会反复触发加载请求，缓存任务避免同一记录并发读取。
         _previewRequested = true;
         if (_disposed)
         {
@@ -189,6 +193,7 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
     {
         try
         {
+            // 文本、文件和图片使用不同的预览路径，图片仅在真正需要时解码。
             if (Item.Kind == ClipboardContentKind.Text)
             {
                 var textContent = await Task.Run(() => ClipboardTextContent.Deserialize(loadContent(Item.Id)));

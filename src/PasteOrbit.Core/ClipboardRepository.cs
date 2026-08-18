@@ -4,6 +4,9 @@ using Microsoft.Data.Sqlite;
 
 namespace PasteOrbit.Core;
 
+/// <summary>
+/// 负责剪贴板历史记录及其加密内容的 SQLite 持久化。
+/// </summary>
 public sealed class ClipboardRepository
 {
     private readonly string _connectionString;
@@ -26,6 +29,7 @@ public sealed class ClipboardRepository
 
     public IReadOnlyList<ClipboardHistoryEntry> InitializeAndLoadEntries()
     {
+        // 初始化失败时先隔离损坏数据库，再创建可用的空数据库。
         return InitializeAndLoad(LoadEntries, static () => Array.Empty<ClipboardHistoryEntry>());
     }
 
@@ -89,6 +93,7 @@ public sealed class ClipboardRepository
 
         using var reader = command.ExecuteReader();
         var entries = new List<ClipboardHistoryEntry>();
+        // 只加载元数据，记录内容在预览或粘贴时按 ID 读取。
         while (reader.Read())
         {
             entries.Add(new ClipboardHistoryEntry(
@@ -149,7 +154,7 @@ public sealed class ClipboardRepository
         bool isPinned,
         string? ocrText)
     {
-
+        // 使用内容哈希冲突更新，避免重复记录不断占用历史空间。
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
         command.CommandText = """
@@ -217,6 +222,7 @@ public sealed class ClipboardRepository
 
         using var connection = OpenConnection();
         using var transaction = connection.BeginTransaction();
+        // 批量删除使用单个事务，保证清空操作的原子性。
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = "DELETE FROM clipboard_items WHERE id = $id;";
@@ -241,6 +247,7 @@ public sealed class ClipboardRepository
 
     private static void EnsureOcrTextColumn(SqliteConnection connection)
     {
+        // 兼容早期数据库，在首次打开时补齐 OCR 字段。
         using var schemaCommand = connection.CreateCommand();
         schemaCommand.CommandText = "PRAGMA table_info(clipboard_items);";
         using var reader = schemaCommand.ExecuteReader();

@@ -5,11 +5,13 @@ using System.Text.Json.Serialization;
 
 namespace PasteOrbit.App;
 
+/// <summary>
+/// 查询 GitHub 最新 Release，并下载经过校验的安装包。
+/// </summary>
 public sealed record UpdateCheckResult(
     Version CurrentVersion,
     Version LatestVersion,
     string ReleaseTag,
-    string ReleaseTitle,
     string ReleaseNotes,
     Uri ReleaseUri,
     Uri? InstallerUri,
@@ -21,6 +23,9 @@ public sealed record UpdateCheckResult(
     public bool CanAutoUpdate => InstallerUri is not null;
 }
 
+/// <summary>
+/// 查询 GitHub 最新版本并按 Release 资产下载更新安装包。
+/// </summary>
 public sealed class UpdateCheckService : IDisposable
 {
     private static readonly Uri LatestReleaseEndpoint = new(
@@ -72,7 +77,6 @@ public sealed class UpdateCheckService : IDisposable
             CurrentVersion,
             latestVersion,
             release.TagName!,
-            string.IsNullOrWhiteSpace(release.Name) ? release.TagName! : release.Name,
             release.Body?.Trim() ?? string.Empty,
             releaseUri,
             installer?.Uri,
@@ -287,7 +291,6 @@ public sealed class UpdateCheckService : IDisposable
 
     private sealed record GitHubReleasePayload(
         [property: JsonPropertyName("tag_name")] string? TagName,
-        [property: JsonPropertyName("name")] string? Name,
         [property: JsonPropertyName("body")] string? Body,
         [property: JsonPropertyName("html_url")] string? HtmlUrl,
         [property: JsonPropertyName("assets")] GitHubReleaseAssetPayload[]? Assets);
