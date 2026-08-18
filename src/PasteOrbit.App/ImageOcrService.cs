@@ -161,6 +161,7 @@ internal sealed class ImageOcrService : IDisposable
 
     private static string BuildTextInVisualOrder(OcrResult result)
     {
+        // Windows OCR 返回的是识别顺序，这里按画面坐标固定为先上后下、同高度先左后右。
         var lines = result.Lines
             .Select(line => new
             {
@@ -168,7 +169,6 @@ internal sealed class ImageOcrService : IDisposable
                 Top = line.Words.Count > 0 ? line.Words.Min(word => word.BoundingRect.Y) : double.MaxValue,
                 Left = line.Words.Count > 0 ? line.Words.Min(word => word.BoundingRect.X) : double.MaxValue
             })
-            // Windows OCR 返回的是识别顺序；这里根据画面坐标固定为先上后下、同高度先左后右。
             .OrderBy(item => item.Top)
             .ThenBy(item => item.Left);
         var orderedText = string.Join(

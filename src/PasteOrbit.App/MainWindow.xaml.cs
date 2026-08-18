@@ -19,6 +19,7 @@ using PasteOrbit.Core;
 
 using Windows.Graphics;
 using Windows.Storage.Streams;
+using Launcher = Windows.System.Launcher;
 
 using WinRT.Interop;
 
@@ -66,6 +67,7 @@ public sealed partial class MainWindow : Window
     private readonly ClipboardRepository _repository;
     private readonly ImageOcrService _ocrService;
     private readonly LocalBackupService _backupService;
+    private readonly UpdateCheckService _updateCheckService = new();
     private readonly HashSet<string> _excludedApplications = new(StringComparer.OrdinalIgnoreCase);
     private AppSettings _settings;
     private ClipboardContentKind? _selectedKind;
@@ -83,6 +85,7 @@ public sealed partial class MainWindow : Window
     private DispatcherQueueTimer? _listeningPauseTimer;
     private SettingsWindow? _settingsWindow;
     private bool _settingsWindowOpen;
+    private bool _automaticUpdateCheckStarted;
     private bool _storageAvailable = true;
     private bool _nativeInitialized;
     private bool _hasPasteInputBounds;
@@ -230,6 +233,7 @@ public sealed partial class MainWindow : Window
         _trayIcon?.Dispose();
         _monitor.Dispose();
         _ocrService.Dispose();
+        _updateCheckService.Dispose();
         _hotKey.Dispose();
         _messageBridge?.Dispose();
         Close();
@@ -405,6 +409,12 @@ public sealed partial class MainWindow : Window
     {
         if (args.WindowActivationState != WindowActivationState.Deactivated)
         {
+            if (!_automaticUpdateCheckStarted && _nativeInitialized)
+            {
+                _automaticUpdateCheckStarted = true;
+                _ = CheckForUpdatesOnStartupAsync();
+            }
+
             if (_panelShownWithoutActivation)
             {
                 _panelShownWithoutActivation = false;
@@ -2258,7 +2268,9 @@ public sealed partial class MainWindow : Window
             _settings,
             _settingsStore,
             ExportBackupAsync,
-            RestoreBackupAsync);
+            RestoreBackupAsync,
+            CheckForUpdatesAsync,
+            StartUpdateAsync);
         _settingsWindow = settingsWindow;
         settingsWindow.SettingsChanged += SettingsWindow_SettingsChanged;
         settingsWindow.Closed += (_, _) =>
@@ -2322,6 +2334,202 @@ public sealed partial class MainWindow : Window
         finally
         {
             _monitor.ResumeCapture();
+        }
+    }
+
+    private async Task<UpdateCheckResult?> CheckForUpdatesAsync()
+    {
+        return await _updateCheckService.CheckAsync();
+    }
+
+    private async Task CheckForUpdatesOnStartupAsync()
+    {
+        try
+        {
+            // 首次激活后后台检查一次，网络异常不影响剪切板监听。
+            var result = await CheckForUpdatesAsync();
+            if (result?.IsUpdateAvailable == true)
+            {
+                await ShowUpdateDialogAsync(result);
+            }
+        }
+        catch (Exception exception)
+        {
+            // 自动检查失败不影响主窗口和剪切板监听。
+            System.Diagnostics.Debug.WriteLine($"自动检查更新失败：{exception}");
+        }
+    }
+
+    private async Task ShowUpdateDialogAsync(UpdateCheckResult result)
+    {
+        if (RootGrid.XamlRoot is not { } xamlRoot)
+        {
+            return;
+        }
+
+        var content = new StackPanel
+        {
+            Spacing = 8
+        };
+        content.Children.Add(new TextBlock
+        {
+            Text = AppLocalization.Format(
+                "UpdateAvailableMessage",
+                result.LatestVersion,
+                result.CurrentVersion),
+            TextWrapping = TextWrapping.Wrap
+        });
+        if (!string.IsNullOrWhiteSpace(result.ReleaseNotes))
+        {
+            content.Children.Add(new TextBlock
+            {
+                Text = AppLocalization.GetString("UpdateReleaseNotesLabel"),
+                Margin = new Thickness(0, 8, 0, 0)
+            });
+            content.Children.Add(new ScrollViewer
+            {
+                Content = new TextBlock
+                {
+                    Text = result.ReleaseNotes,
+                    TextWrapping = TextWrapping.Wrap
+                },
+                MaxHeight = 260,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+            });
+        }
+
+        // 有安装包时优先提供自动更新，Release 页面始终保留为回退入口。
+        var dialog = new ContentDialog
+        {
+            Title = AppLocalization.GetString("UpdateAvailableTitle"),
+            Content = content,
+            PrimaryButtonText = result.CanAutoUpdate
+                ? AppLocalization.GetString("DownloadUpdateButton")
+                : AppLocalization.GetString("OpenReleasePageButton"),
+            SecondaryButtonText = result.CanAutoUpdate
+                ? AppLocalization.GetString("OpenReleasePageButton")
+                : string.Empty,
+            CloseButtonText = AppLocalization.GetString("Later"),
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = xamlRoot
+        };
+        var dialogResult = await dialog.ShowAsync();
+        if (dialogResult == ContentDialogResult.Primary && result.CanAutoUpdate)
+        {
+            await StartUpdateAsync(result, xamlRoot);
+            return;
+        }
+
+        if ((dialogResult == ContentDialogResult.Primary && !result.CanAutoUpdate)
+            || dialogResult == ContentDialogResult.Secondary)
+        {
+            if (!await Launcher.LaunchUriAsync(result.ReleaseUri))
+            {
+                System.Diagnostics.Debug.WriteLine("无法打开更新下载页面。");
+            }
+        }
+    }
+
+    private async Task StartUpdateAsync(UpdateCheckResult result, XamlRoot xamlRoot)
+    {
+        if (!result.CanAutoUpdate)
+        {
+            if (!await Launcher.LaunchUriAsync(result.ReleaseUri))
+            {
+                System.Diagnostics.Debug.WriteLine("无法打开更新下载页面。");
+            }
+
+            return;
+        }
+
+        var progressBar = new ProgressBar
+        {
+            IsIndeterminate = true,
+            Minimum = 0,
+            Maximum = 100,
+            Width = 280
+        };
+        var statusText = new TextBlock
+        {
+            Text = AppLocalization.GetString("UpdateDownloadingMessage"),
+            TextWrapping = TextWrapping.Wrap
+        };
+        var progressContent = new StackPanel
+        {
+            Spacing = 12
+        };
+        progressContent.Children.Add(progressBar);
+        progressContent.Children.Add(statusText);
+
+        var progressDialog = new ContentDialog
+        {
+            Title = AppLocalization.GetString("UpdateDownloadingTitle"),
+            Content = progressContent,
+            XamlRoot = xamlRoot
+        };
+
+        Task<ContentDialogResult>? progressDialogTask = null;
+        try
+        {
+            // 下载期间显示进度，完成后交给独立更新器处理退出和重启。
+            progressDialogTask = progressDialog.ShowAsync().AsTask();
+            var progress = new Progress<double>(value =>
+            {
+                progressBar.IsIndeterminate = value < 0;
+                if (value >= 0)
+                {
+                    progressBar.Value = value * 100;
+                }
+            });
+            var installerPath = await _updateCheckService.DownloadInstallerAsync(result, progress);
+
+            progressDialog.Hide();
+            await progressDialogTask;
+            var applicationPath = Environment.ProcessPath;
+            if (string.IsNullOrWhiteSpace(applicationPath)
+                || !UpdateInstaller.TryStart(installerPath, Environment.ProcessId, applicationPath))
+            {
+                throw new InvalidOperationException("更新程序启动失败。");
+            }
+
+            // 更新器已接管安装流程，主程序可以安全退出。
+            ExitApplication();
+        }
+        catch (Exception exception)
+        {
+            // 下载、校验或启动更新器失败时保留当前程序。
+            System.Diagnostics.Debug.WriteLine($"启动自动更新失败：{exception}");
+            try
+            {
+                progressDialog.Hide();
+                if (progressDialogTask is not null)
+                {
+                    await progressDialogTask;
+                }
+            }
+            catch (Exception dialogException)
+            {
+                System.Diagnostics.Debug.WriteLine($"关闭更新进度窗口失败：{dialogException}");
+            }
+
+            if (!_isExiting)
+            {
+                var errorDialog = new ContentDialog
+                {
+                    Title = AppLocalization.GetString("UpdateDownloadFailedTitle"),
+                    Content = AppLocalization.GetString("UpdateDownloadFailedMessage"),
+                    CloseButtonText = AppLocalization.GetString("Ok"),
+                    XamlRoot = xamlRoot
+                };
+                try
+                {
+                    await errorDialog.ShowAsync();
+                }
+                catch (Exception dialogException)
+                {
+                    System.Diagnostics.Debug.WriteLine($"显示更新失败提示失败：{dialogException}");
+                }
+            }
         }
     }
 

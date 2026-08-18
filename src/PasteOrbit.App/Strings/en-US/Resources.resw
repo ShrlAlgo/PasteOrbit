@@ -10,6 +10,9 @@
   <data name="ThemeDarkOption.Content" xml:space="preserve"><value>Dark</value></data>
   <data name="SettingsLanguageCard.Header" xml:space="preserve"><value>Display language</value></data>
   <data name="SettingsLanguageCard.Description" xml:space="preserve"><value>Changes take effect immediately</value></data>
+  <data name="SettingsUpdateCard.Header" xml:space="preserve"><value>Updates</value></data>
+  <data name="SettingsUpdateCard.Description" xml:space="preserve"><value>Check whether a newer version of PasteOrbit is available</value></data>
+  <data name="CheckForUpdatesButton.Content" xml:space="preserve"><value>Check for updates</value></data>
   <data name="LanguageSystemOption.Content" xml:space="preserve"><value>Use system setting</value></data>
   <data name="LanguageChineseOption.Content" xml:space="preserve"><value>Simplified Chinese</value></data>
   <data name="LanguageEnglishOption.Content" xml:space="preserve"><value>English</value></data>
@@ -162,6 +165,22 @@
   <data name="RestoreFailed" xml:space="preserve"><value>Restore failed</value></data>
   <data name="Ok" xml:space="preserve"><value>OK</value></data>
   <data name="SettingsSaveFailed" xml:space="preserve"><value>Settings could not be applied. Try again later.</value></data>
+  <data name="UpdateAvailableTitle" xml:space="preserve"><value>Update available</value></data>
+  <data name="UpdateAvailableMessage" xml:space="preserve"><value>Version {0} is available. You are using version {1}.</value></data>
+  <data name="UpdateReleaseNotesLabel" xml:space="preserve"><value>Release notes</value></data>
+  <data name="DownloadUpdateButton" xml:space="preserve"><value>Update now</value></data>
+  <data name="OpenReleasePageButton" xml:space="preserve"><value>Open release page</value></data>
+  <data name="Later" xml:space="preserve"><value>Later</value></data>
+  <data name="UpdateDownloadingTitle" xml:space="preserve"><value>Updating PasteOrbit</value></data>
+  <data name="UpdateDownloadingMessage" xml:space="preserve"><value>Downloading the installer. PasteOrbit will restart automatically when it is ready.</value></data>
+  <data name="UpdateDownloadFailedTitle" xml:space="preserve"><value>Update failed</value></data>
+  <data name="UpdateDownloadFailedMessage" xml:space="preserve"><value>The installer could not be downloaded or started. Please try again later.</value></data>
+  <data name="UpdateNoUpdateTitle" xml:space="preserve"><value>No updates</value></data>
+  <data name="UpdateNoUpdateMessage" xml:space="preserve"><value>You are using the latest version ({0}).</value></data>
+  <data name="UpdateCheckFailedTitle" xml:space="preserve"><value>Update check failed</value></data>
+  <data name="UpdateCheckFailedMessage" xml:space="preserve"><value>Could not check for updates. Please try again later.</value></data>
+  <data name="UpdateOpenFailedTitle" xml:space="preserve"><value>Could not open download page</value></data>
+  <data name="UpdateOpenFailedMessage" xml:space="preserve"><value>The release page could not be opened.</value></data>
   <data name="ClipboardMonitorAlreadyStarted" xml:space="preserve"><value>Clipboard monitoring has already started.</value></data>
   <data name="ClipboardMonitorRegistrationFailed" xml:space="preserve"><value>Clipboard monitoring could not be registered.</value></data>
   <data name="RichTextClipboardInvalid" xml:space="preserve"><value>The rich text clipboard content is invalid.</value></data>
@@ -220,6 +239,9 @@
   <data name="SettingsThemeCardDescription" xml:space="preserve"><value>Choose light, dark, or system theme</value></data>
   <data name="SettingsLanguageCardHeader" xml:space="preserve"><value>Display language</value></data>
   <data name="SettingsLanguageCardDescription" xml:space="preserve"><value>Changes take effect immediately</value></data>
+  <data name="SettingsUpdateCardHeader" xml:space="preserve"><value>Updates</value></data>
+  <data name="SettingsUpdateCardDescription" xml:space="preserve"><value>Check whether a newer version of PasteOrbit is available</value></data>
+  <data name="CheckForUpdatesButtonContent" xml:space="preserve"><value>Check for updates</value></data>
   <data name="SettingsGlobalHotKeyCardHeader" xml:space="preserve"><value>Open clipboard history</value></data>
   <data name="SettingsGlobalHotKeyCardDescription" xml:space="preserve"><value>Global shortcut; must include a modifier key</value></data>
   <data name="SettingsPasteShortcutCardHeader" xml:space="preserve"><value>Paste selected item</value></data>

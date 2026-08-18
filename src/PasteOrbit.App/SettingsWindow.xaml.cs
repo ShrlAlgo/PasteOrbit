@@ -14,6 +14,7 @@ using Microsoft.Win32;
 
 using Windows.Graphics;
 using Windows.Storage.Pickers;
+using Windows.System;
 
 using WinRT.Interop;
 
@@ -31,11 +32,14 @@ public sealed partial class SettingsWindow : Window
     private readonly AppSettingsStore _store;
     private readonly Func<string, Task> _exportBackup;
     private readonly Func<string, Task> _restoreBackup;
+    private readonly Func<Task<UpdateCheckResult?>> _checkForUpdates;
+    private readonly Func<UpdateCheckResult, XamlRoot, Task> _applyUpdate;
     private string _appliedLanguage;
     private bool _isInitialized;
     private bool _isLoadingSettings;
     private bool _isRefreshingLocalization;
     private bool _configured;
+    private bool _isCheckingForUpdates;
     private AppWindow? _appWindow;
     private Button? _capturingShortcutButton;
     private string? _capturingShortcutValue;
@@ -55,13 +59,17 @@ public sealed partial class SettingsWindow : Window
         AppSettings settings,
         AppSettingsStore store,
         Func<string, Task> exportBackup,
-        Func<string, Task> restoreBackup)
+        Func<string, Task> restoreBackup,
+        Func<Task<UpdateCheckResult?>> checkForUpdates,
+        Func<UpdateCheckResult, XamlRoot, Task> applyUpdate)
     {
         InitializeComponent();
         Title = AppLocalization.GetString("SettingsWindowTitle");
         _store = store;
         _exportBackup = exportBackup;
         _restoreBackup = restoreBackup;
+        _checkForUpdates = checkForUpdates;
+        _applyUpdate = applyUpdate;
         _appliedLanguage = settings.Language;
         _currentPageTag = "General";
         _isInitialized = true;
@@ -646,6 +654,7 @@ public sealed partial class SettingsWindow : Window
         SetCard(MonitorFilesCard, "SettingsMonitorFilesCardHeader", "SettingsMonitorFilesCardDescription");
         SetCard(ThemeCard, "SettingsThemeCardHeader", "SettingsThemeCardDescription");
         SetCard(LanguageCard, "SettingsLanguageCardHeader", "SettingsLanguageCardDescription");
+        SetCard(UpdateCard, "SettingsUpdateCardHeader", "SettingsUpdateCardDescription");
         SetCard(GlobalHotKeyCard, "SettingsGlobalHotKeyCardHeader", "SettingsGlobalHotKeyCardDescription");
         SetCard(PasteShortcutCard, "SettingsPasteShortcutCardHeader");
         SetCard(PlainTextShortcutCard, "SettingsPlainTextShortcutCardHeader");
@@ -673,6 +682,7 @@ public sealed partial class SettingsWindow : Window
         PinnedRetentionHintText.Text = AppLocalization.GetString("SettingsPinnedRetentionHintText");
         ExcludedApplicationsTextBox.PlaceholderText = AppLocalization.GetString("ExcludedApplicationsTextBoxPlaceholder");
         SelectProcessButton.Content = AppLocalization.GetString("SelectProcessButtonContent");
+        CheckForUpdatesButton.Content = AppLocalization.GetString("CheckForUpdatesButtonContent");
         ExportBackupButton.Content = AppLocalization.GetString("ExportBackupButtonContent");
         RestoreBackupButton.Content = AppLocalization.GetString("RestoreBackupButtonContent");
         ProtectionTitleText.Text = AppLocalization.GetString("SettingsProtectionTitleText");
@@ -796,6 +806,131 @@ public sealed partial class SettingsWindow : Window
         LoadSettings(new AppSettings(), includeSystemStartup: false);
         _isLoadingSettings = false;
         ApplyCurrentSettings();
+    }
+
+    private async void CheckForUpdatesButton_Click(object sender, RoutedEventArgs e)
+    {
+        // 禁止重复请求，避免同时下载多个更新包。
+        if (_isCheckingForUpdates)
+        {
+            return;
+        }
+
+        _isCheckingForUpdates = true;
+        CheckForUpdatesButton.IsEnabled = false;
+        try
+        {
+            var result = await _checkForUpdates();
+            await ShowUpdateResultAsync(result);
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine($"检查更新失败：{exception}");
+            try
+            {
+                if (SettingsRoot.XamlRoot is not null)
+                {
+                    await ShowMessageAsync(
+                        AppLocalization.GetString("UpdateCheckFailedTitle"),
+                        AppLocalization.GetString("UpdateCheckFailedMessage"));
+                }
+            }
+            catch (Exception dialogException)
+            {
+                Debug.WriteLine($"显示更新检查失败提示失败：{dialogException}");
+            }
+        }
+        finally
+        {
+            _isCheckingForUpdates = false;
+            CheckForUpdatesButton.IsEnabled = true;
+        }
+    }
+
+    private async Task ShowUpdateResultAsync(UpdateCheckResult? result)
+    {
+        if (result is null)
+        {
+            await ShowMessageAsync(
+                AppLocalization.GetString("UpdateCheckFailedTitle"),
+                AppLocalization.GetString("UpdateCheckFailedMessage"));
+            return;
+        }
+
+        if (!result.IsUpdateAvailable)
+        {
+            await ShowMessageAsync(
+                AppLocalization.GetString("UpdateNoUpdateTitle"),
+                AppLocalization.Format("UpdateNoUpdateMessage", result.CurrentVersion));
+            return;
+        }
+
+        var content = new StackPanel
+        {
+            Spacing = 8
+        };
+        content.Children.Add(new TextBlock
+        {
+            Text = AppLocalization.Format(
+                "UpdateAvailableMessage",
+                result.LatestVersion,
+                result.CurrentVersion),
+            TextWrapping = TextWrapping.Wrap
+        });
+        if (!string.IsNullOrWhiteSpace(result.ReleaseNotes))
+        {
+            content.Children.Add(new TextBlock
+            {
+                Text = AppLocalization.GetString("UpdateReleaseNotesLabel"),
+                Margin = new Thickness(0, 8, 0, 0)
+            });
+            content.Children.Add(new ScrollViewer
+            {
+                Content = new TextBlock
+                {
+                    Text = result.ReleaseNotes,
+                    TextWrapping = TextWrapping.Wrap
+                },
+                MaxHeight = 260,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+            });
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = AppLocalization.GetString("UpdateAvailableTitle"),
+            Content = content,
+            PrimaryButtonText = result.CanAutoUpdate
+                ? AppLocalization.GetString("DownloadUpdateButton")
+                : AppLocalization.GetString("OpenReleasePageButton"),
+            SecondaryButtonText = result.CanAutoUpdate
+                ? AppLocalization.GetString("OpenReleasePageButton")
+                : string.Empty,
+            CloseButtonText = AppLocalization.GetString("Later"),
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = SettingsRoot.XamlRoot
+        };
+        var dialogResult = await dialog.ShowAsync();
+        if (dialogResult == ContentDialogResult.Primary && result.CanAutoUpdate)
+        {
+            if (SettingsRoot.XamlRoot is { } xamlRoot)
+            {
+                await _applyUpdate(result, xamlRoot);
+            }
+
+            return;
+        }
+
+        if ((dialogResult == ContentDialogResult.Primary && !result.CanAutoUpdate)
+            || dialogResult == ContentDialogResult.Secondary)
+        {
+            if (!await Launcher.LaunchUriAsync(result.ReleaseUri))
+            {
+                await ShowMessageAsync(
+                    AppLocalization.GetString("UpdateOpenFailedTitle"),
+                    AppLocalization.GetString("UpdateOpenFailedMessage"));
+            }
+        }
     }
 
     private async void ExportBackupButton_Click(object sender, RoutedEventArgs e)

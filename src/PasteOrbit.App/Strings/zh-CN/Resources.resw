@@ -10,6 +10,9 @@
   <data name="ThemeDarkOption.Content" xml:space="preserve"><value>深色</value></data>
   <data name="SettingsLanguageCard.Header" xml:space="preserve"><value>显示语言</value></data>
   <data name="SettingsLanguageCard.Description" xml:space="preserve"><value>更改会立即生效</value></data>
+  <data name="SettingsUpdateCard.Header" xml:space="preserve"><value>软件更新</value></data>
+  <data name="SettingsUpdateCard.Description" xml:space="preserve"><value>检查 PasteOrbit 是否有新版本</value></data>
+  <data name="CheckForUpdatesButton.Content" xml:space="preserve"><value>检查更新</value></data>
   <data name="LanguageSystemOption.Content" xml:space="preserve"><value>跟随系统</value></data>
   <data name="LanguageChineseOption.Content" xml:space="preserve"><value>简体中文</value></data>
   <data name="LanguageEnglishOption.Content" xml:space="preserve"><value>English</value></data>
@@ -162,6 +165,22 @@
   <data name="RestoreFailed" xml:space="preserve"><value>恢复失败</value></data>
   <data name="Ok" xml:space="preserve"><value>确定</value></data>
   <data name="SettingsSaveFailed" xml:space="preserve"><value>设置应用失败，请稍后重试。</value></data>
+  <data name="UpdateAvailableTitle" xml:space="preserve"><value>发现新版本</value></data>
+  <data name="UpdateAvailableMessage" xml:space="preserve"><value>发现版本 {0}，当前版本为 {1}。</value></data>
+  <data name="UpdateReleaseNotesLabel" xml:space="preserve"><value>更新说明</value></data>
+  <data name="DownloadUpdateButton" xml:space="preserve"><value>立即更新</value></data>
+  <data name="OpenReleasePageButton" xml:space="preserve"><value>打开 Release 页面</value></data>
+  <data name="Later" xml:space="preserve"><value>稍后</value></data>
+  <data name="UpdateDownloadingTitle" xml:space="preserve"><value>正在更新 PasteOrbit</value></data>
+  <data name="UpdateDownloadingMessage" xml:space="preserve"><value>正在下载安装包，准备完成后 PasteOrbit 将自动重启。</value></data>
+  <data name="UpdateDownloadFailedTitle" xml:space="preserve"><value>更新失败</value></data>
+  <data name="UpdateDownloadFailedMessage" xml:space="preserve"><value>无法下载或启动安装程序，请稍后重试。</value></data>
+  <data name="UpdateNoUpdateTitle" xml:space="preserve"><value>已是最新版本</value></data>
+  <data name="UpdateNoUpdateMessage" xml:space="preserve"><value>当前已是最新版本（{0}）。</value></data>
+  <data name="UpdateCheckFailedTitle" xml:space="preserve"><value>检查更新失败</value></data>
+  <data name="UpdateCheckFailedMessage" xml:space="preserve"><value>无法检查更新，请稍后重试。</value></data>
+  <data name="UpdateOpenFailedTitle" xml:space="preserve"><value>无法打开下载页面</value></data>
+  <data name="UpdateOpenFailedMessage" xml:space="preserve"><value>无法打开 Release 页面。</value></data>
   <data name="ClipboardMonitorAlreadyStarted" xml:space="preserve"><value>剪切板监听已启动。</value></data>
   <data name="ClipboardMonitorRegistrationFailed" xml:space="preserve"><value>无法注册剪切板监听。</value></data>
   <data name="RichTextClipboardInvalid" xml:space="preserve"><value>富文本剪切板内容无效。</value></data>
@@ -220,6 +239,9 @@
   <data name="SettingsThemeCardDescription" xml:space="preserve"><value>选择浅色、深色或跟随系统</value></data>
   <data name="SettingsLanguageCardHeader" xml:space="preserve"><value>显示语言</value></data>
   <data name="SettingsLanguageCardDescription" xml:space="preserve"><value>更改会立即生效</value></data>
+  <data name="SettingsUpdateCardHeader" xml:space="preserve"><value>软件更新</value></data>
+  <data name="SettingsUpdateCardDescription" xml:space="preserve"><value>检查 PasteOrbit 是否有新版本</value></data>
+  <data name="CheckForUpdatesButtonContent" xml:space="preserve"><value>检查更新</value></data>
   <data name="SettingsGlobalHotKeyCardHeader" xml:space="preserve"><value>打开剪切板历史</value></data>
   <data name="SettingsGlobalHotKeyCardDescription" xml:space="preserve"><value>全局快捷键，必须包含修饰键</value></data>
   <data name="SettingsPasteShortcutCardHeader" xml:space="preserve"><value>粘贴选中记录</value></data>

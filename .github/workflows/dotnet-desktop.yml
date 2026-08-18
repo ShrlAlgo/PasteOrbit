@@ -1,15 +1,7 @@
 name: Package PasteOrbit
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: Release version, for example 1.2.0
-        required: true
-        type: string
   push:
-    branches:
-      - master
     tags:
       - "v*"
 
@@ -34,55 +26,18 @@ jobs:
       - name: Publish
         id: publish
         shell: pwsh
-        env:
-          REQUESTED_VERSION: ${{ inputs.version }}
         run: |
-          $isTagBuild = $env:GITHUB_REF_TYPE -eq 'tag'
-          $isManualBuild = $env:GITHUB_EVENT_NAME -eq 'workflow_dispatch'
-          $publishRelease = $false
-
-          if ($isTagBuild) {
-            $releaseTag = $env:GITHUB_REF_NAME
-            if ($releaseTag -notmatch '^v\d+\.\d+\.\d+$') {
-              throw '发布标签必须使用 v<主版本>.<次版本>.<补丁版本> 格式。'
-            }
-
-            git merge-base --is-ancestor $env:GITHUB_SHA origin/master
-            if ($LASTEXITCODE -ne 0) {
-              throw '发布标签必须指向 master 分支上的提交。'
-            }
-
-            $version = $releaseTag.Substring(1)
-            $publishRelease = $true
-          }
-          elseif ($isManualBuild) {
-            $version = $env:REQUESTED_VERSION.Trim()
-            if ([string]::IsNullOrWhiteSpace($version)) {
-              throw '手动发布必须填写版本号。'
-            }
-
-            $version = $version.TrimStart('v', 'V')
-            if ($version -notmatch '^\d+\.\d+\.\d+$') {
-              throw '版本号必须使用 <主版本>.<次版本>.<补丁版本> 格式。'
-            }
-
-            $releaseTag = "v$version"
-            $publishRelease = $true
-          }
-          else {
-            # master 推送没有标签时，沿用最近的版本标签；首次构建使用运行号生成 CI 版本。
-            $latestTag = git tag --merged $env:GITHUB_SHA --list 'v[0-9]*' --sort=-version:refname |
-              Select-Object -First 1
-            if ([string]::IsNullOrWhiteSpace($latestTag)) {
-              $version = "0.0.$env:GITHUB_RUN_NUMBER"
-            }
-            else {
-              $version = $latestTag.Substring(1)
-            }
-
-            $releaseTag = ''
+          $releaseTag = $env:GITHUB_REF_NAME
+          if ($releaseTag -notmatch '^v\d+\.\d+\.\d+$') {
+            throw '发布标签必须使用 v<主版本>.<次版本>.<补丁版本> 格式。'
           }
 
+          git merge-base --is-ancestor $env:GITHUB_SHA origin/master
+          if ($LASTEXITCODE -ne 0) {
+            throw '发布标签必须指向 master 分支上的提交。'
+          }
+
+          $version = $releaseTag.Substring(1)
           .\Scripts\Publish.ps1 -Version $version
 
           $archive = Get-ChildItem -LiteralPath .\artifacts -Filter 'PasteOrbit-*.zip' -File |
@@ -94,7 +49,6 @@ jobs:
           "archive=$($archive.FullName)" >> $env:GITHUB_OUTPUT
           "package_version=$version" >> $env:GITHUB_OUTPUT
           "release_tag=$releaseTag" >> $env:GITHUB_OUTPUT
-          "publish_release=$($publishRelease.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 
       - name: Build installer
         id: installer
@@ -147,7 +101,6 @@ jobs:
           retention-days: 14
 
       - name: Publish GitHub release
-        if: steps.publish.outputs.publish_release == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -155,6 +108,11 @@ jobs:
           ARCHIVE_PATH: ${{ steps.publish.outputs.archive }}
           INSTALLER_PATH: ${{ steps.installer.outputs.installer }}
         run: |
+          $commitLog = (git log -1 --pretty=%B $env:GITHUB_SHA | Out-String).Trim()
+          if ([string]::IsNullOrWhiteSpace($commitLog)) {
+            $commitLog = "Release $env:RELEASE_TAG"
+          }
+
           $arguments = @(
             'release'
             'create'
@@ -165,15 +123,12 @@ jobs:
             $env:GITHUB_REPOSITORY
             '--title'
             $env:RELEASE_TAG
+            '--notes'
+            $commitLog
             '--generate-notes'
           )
 
-          if ($env:GITHUB_REF_TYPE -eq 'tag') {
-            $arguments += '--verify-tag'
-          }
-          else {
-            $arguments += @('--target', $env:GITHUB_SHA)
-          }
+          $arguments += '--verify-tag'
 
           & gh @arguments
           if ($LASTEXITCODE -ne 0) {

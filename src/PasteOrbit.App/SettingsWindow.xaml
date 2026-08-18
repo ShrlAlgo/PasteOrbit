@@ -274,6 +274,19 @@
                                         Tag="en-US" />
                                 </ComboBox>
                             </toolkit:SettingsCard>
+                            <toolkit:SettingsCard
+                                x:Name="UpdateCard"
+                                x:Uid="SettingsUpdateCard"
+                                Margin="0,0,0,8"
+                                ContentAlignment="Right"
+                                Description="检查 PasteOrbit 是否有新版本"
+                                Header="软件更新">
+                                <Button
+                                    x:Name="CheckForUpdatesButton"
+                                    x:Uid="CheckForUpdatesButton"
+                                    Click="CheckForUpdatesButton_Click"
+                                    Content="检查更新" />
+                            </toolkit:SettingsCard>
                         </StackPanel>
 
                         <StackPanel x:Name="HotKeyPanel" Visibility="Collapsed">

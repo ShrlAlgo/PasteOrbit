@@ -1,0 +1,34 @@
+name: Build PasteOrbit
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore dependencies
+        run: dotnet restore .\PasteOrbit.sln
+
+      - name: Build Release
+        run: dotnet build .\PasteOrbit.sln --configuration Release --no-restore
+
+      - name: Run tests
+        run: dotnet test .\PasteOrbit.sln --configuration Release --no-build --no-restore
