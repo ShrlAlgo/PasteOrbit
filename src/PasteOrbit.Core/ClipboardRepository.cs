@@ -59,6 +59,34 @@ public sealed class ClipboardRepository
         return Count(new ClipboardHistoryQuery());
     }
 
+    public static bool IsCurrentSchema(string databasePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(databasePath);
+        var fullPath = Path.GetFullPath(databasePath);
+        if (!File.Exists(fullPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            // 备份导入使用只读连接校验结构，校验失败不得创建或修改数据库文件。
+            var connectionString = new SqliteConnectionStringBuilder
+            {
+                DataSource = fullPath,
+                Mode = SqliteOpenMode.ReadOnly,
+                Pooling = false
+            }.ToString();
+            using var connection = new SqliteConnection(connectionString);
+            connection.Open();
+            return HasCurrentSchema(connection);
+        }
+        catch (Exception exception) when (exception is SqliteException or FormatException)
+        {
+            return false;
+        }
+    }
+
     public int Count(ClipboardHistoryQuery query)
     {
         ArgumentNullException.ThrowIfNull(query);
@@ -372,6 +400,11 @@ public sealed class ClipboardRepository
     private bool HasCurrentSchema()
     {
         using var connection = OpenConnection();
+        return HasCurrentSchema(connection);
+    }
+
+    private static bool HasCurrentSchema(SqliteConnection connection)
+    {
         using (var versionCommand = connection.CreateCommand())
         {
             versionCommand.CommandText = "PRAGMA user_version;";

@@ -175,6 +175,11 @@ internal sealed class LocalBackupService(string databasePath, string settingsPat
             }
 
             await ExtractPayloadAsync(temporaryPayload, temporaryDatabase, temporarySettings);
+            if (!ClipboardRepository.IsCurrentSchema(temporaryDatabase))
+            {
+                throw new InvalidDataException(AppLocalization.GetString("UnsupportedBackupDatabaseVersion"));
+            }
+
             ReplaceLocalData(temporaryDatabase, temporarySettings);
         }
         finally

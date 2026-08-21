@@ -200,6 +200,7 @@
   <data name="HistoryDatabaseNotFound" xml:space="preserve"><value>找不到剪切板历史数据库。</value></data>
   <data name="InvalidBackupFile" xml:space="preserve"><value>不是有效的 PasteOrbit 备份文件。</value></data>
   <data name="UnsupportedBackupVersion" xml:space="preserve"><value>不支持该备份文件版本。</value></data>
+  <data name="UnsupportedBackupDatabaseVersion" xml:space="preserve"><value>该备份使用旧版数据结构，无法导入。当前数据未发生更改。</value></data>
   <data name="InvalidBackupKeyInfo" xml:space="preserve"><value>备份密钥信息无效。</value></data>
   <data name="InvalidBackupKeyLength" xml:space="preserve"><value>备份密钥长度无效。</value></data>
   <data name="InvalidBackupInitializationVector" xml:space="preserve"><value>备份初始化向量无效。</value></data>

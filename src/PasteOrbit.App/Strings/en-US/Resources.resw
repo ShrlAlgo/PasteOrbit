@@ -200,6 +200,7 @@
   <data name="HistoryDatabaseNotFound" xml:space="preserve"><value>The clipboard history database was not found.</value></data>
   <data name="InvalidBackupFile" xml:space="preserve"><value>This is not a valid PasteOrbit backup file.</value></data>
   <data name="UnsupportedBackupVersion" xml:space="preserve"><value>This backup file version is not supported.</value></data>
+  <data name="UnsupportedBackupDatabaseVersion" xml:space="preserve"><value>This backup uses an older database schema and cannot be imported. Your current data was not changed.</value></data>
   <data name="InvalidBackupKeyInfo" xml:space="preserve"><value>The backup key information is invalid.</value></data>
   <data name="InvalidBackupKeyLength" xml:space="preserve"><value>The backup key length is invalid.</value></data>
   <data name="InvalidBackupInitializationVector" xml:space="preserve"><value>The backup initialization vector is invalid.</value></data>

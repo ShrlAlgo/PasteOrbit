@@ -40,8 +40,11 @@ static void VerifyLegacyDatabaseReset(string databasePath)
         command.ExecuteNonQuery();
     }
 
+    Assert(!ClipboardRepository.IsCurrentSchema(databasePath), "旧数据库不应通过当前结构校验");
+    Assert(File.Exists(databasePath), "结构校验不应删除旧数据库");
     var repository = new ClipboardRepository(databasePath);
     repository.Initialize();
+    Assert(ClipboardRepository.IsCurrentSchema(databasePath), "初始化后的数据库应通过当前结构校验");
     Assert(repository.Count() == 0, "旧数据库应直接删除并创建空的新结构");
     using var currentConnection = new SqliteConnection(connectionString);
     currentConnection.Open();
@@ -181,6 +184,8 @@ static void VerifyIncompleteDatabaseReset(string databasePath)
         command.ExecuteNonQuery();
     }
 
+    Assert(!ClipboardRepository.IsCurrentSchema(databasePath), "结构不完整的数据库不应通过校验");
+    Assert(File.Exists(databasePath), "结构校验不应删除不完整的数据库");
     var repository = new ClipboardRepository(databasePath);
     repository.Initialize();
     Assert(repository.Count() == 0, "当前版本但结构不完整的数据库应直接重建");
@@ -207,6 +212,8 @@ static IReadOnlyList<ClipboardHistoryEntry> LoadAll(
 static void VerifyCorruptDatabaseRecovery(string databasePath)
 {
     File.WriteAllText(databasePath, "not a sqlite database");
+    Assert(!ClipboardRepository.IsCurrentSchema(databasePath), "损坏数据库不应通过结构校验");
+    Assert(File.ReadAllText(databasePath) == "not a sqlite database", "结构校验不应修改损坏数据库");
     var repository = new ClipboardRepository(databasePath);
     repository.Initialize();
     Assert(repository.Count() == 0, "损坏数据库应恢复为空库");
