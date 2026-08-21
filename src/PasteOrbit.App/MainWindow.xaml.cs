@@ -14,6 +14,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 
 using PasteOrbit.Core;
 
@@ -88,6 +89,7 @@ public sealed partial class MainWindow : Window
     private SettingsWindow? _settingsWindow;
     private bool _settingsWindowOpen;
     private bool _automaticUpdateCheckStarted;
+    private bool _isCheckingForUpdates;
     private bool _storageAvailable = true;
     private bool _nativeInitialized;
     private bool _hasPasteInputBounds;
@@ -189,6 +191,7 @@ public sealed partial class MainWindow : Window
             _trayIcon.OpenRequested += ShowFromTray;
             _trayIcon.PauseRequested += TrayPauseRequested;
             _trayIcon.SettingsRequested += TraySettingsRequested;
+            _trayIcon.CheckForUpdatesRequested += TrayCheckForUpdatesRequested;
             _trayIcon.ExitRequested += TrayExitRequested;
             _trayIcon.ContextMenuRequested += TrayContextMenuRequested;
             _trayIcon.SetTheme(WindowSurface.RequestedTheme);
@@ -333,6 +336,90 @@ public sealed partial class MainWindow : Window
     private void TraySettingsRequested()
     {
         EnqueueOnUi(OpenSettings);
+    }
+
+    private void TrayCheckForUpdatesRequested()
+    {
+        EnqueueOnUi(() => _ = CheckForUpdatesFromTrayAsync());
+    }
+
+    private async Task CheckForUpdatesFromTrayAsync()
+    {
+        if (_isCheckingForUpdates || _isExiting)
+        {
+            return;
+        }
+
+        _isCheckingForUpdates = true;
+        var restorePanelVisibility = _handle != IntPtr.Zero && !IsWindowVisible(_handle);
+        try
+        {
+            // ContentDialog 需要可见的 XamlRoot。托盘打开检查时临时显示主窗口，结束后恢复隐藏状态。
+            if (restorePanelVisibility)
+            {
+                ShowPanel(activatePanel: true);
+            }
+
+            var result = await CheckForUpdatesAsync();
+            if (result is null)
+            {
+                await ShowUpdateMessageAsync(
+                    AppLocalization.GetString("UpdateCheckFailedTitle"),
+                    AppLocalization.GetString("UpdateCheckFailedMessage"));
+            }
+            else if (!result.IsUpdateAvailable)
+            {
+                await ShowUpdateMessageAsync(
+                    AppLocalization.GetString("UpdateNoUpdateTitle"),
+                    AppLocalization.Format("UpdateNoUpdateMessage", result.CurrentVersion));
+            }
+            else
+            {
+                await ShowUpdateDialogAsync(result);
+            }
+        }
+        catch (Exception exception)
+        {
+            System.Diagnostics.Debug.WriteLine($"托盘检查更新失败：{exception}");
+            if (!_isExiting)
+            {
+                try
+                {
+                    await ShowUpdateMessageAsync(
+                        AppLocalization.GetString("UpdateCheckFailedTitle"),
+                        AppLocalization.GetString("UpdateCheckFailedMessage"));
+                }
+                catch (Exception dialogException)
+                {
+                    System.Diagnostics.Debug.WriteLine($"显示托盘更新失败提示失败：{dialogException}");
+                }
+            }
+        }
+        finally
+        {
+            _isCheckingForUpdates = false;
+            if (restorePanelVisibility && !_isExiting)
+            {
+                HidePanel();
+            }
+        }
+    }
+
+    private async Task ShowUpdateMessageAsync(string title, string message)
+    {
+        if (RootGrid.XamlRoot is not { } xamlRoot)
+        {
+            return;
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = title,
+            Content = message,
+            CloseButtonText = AppLocalization.GetString("Ok"),
+            XamlRoot = xamlRoot
+        };
+        await dialog.ShowAsync();
     }
 
     private void TrayPauseRequested()
@@ -1586,6 +1673,7 @@ public sealed partial class MainWindow : Window
                 _history.Remove(id);
             }
 
+            await Task.Run(_repository.Compact);
             RefreshHistory();
             StatusText.Text = AppLocalization.Format("CurrentListCleared", ids.Length);
         }
@@ -1723,17 +1811,33 @@ public sealed partial class MainWindow : Window
             ApplyCardLocalization(card);
             if (card.DataContext is HistoryListItem item)
             {
-                await item.EnsurePreviewLoadedAsync(_repository.LoadContent);
+                card.Tag = item;
+                if (item.Item.Kind == ClipboardContentKind.Image)
+                {
+                    await item.EnsureThumbnailLoadedAsync(_repository.LoadContent);
+                }
             }
         }
     }
 
     private async void HistoryCard_DataContextChanged(FrameworkElement sender, DataContextChangedEventArgs args)
     {
-        if (args.NewValue is HistoryListItem item)
+        var card = sender;
+        if (card.Tag is HistoryListItem oldItem)
         {
-            ApplyCardLocalization(sender);
-            await item.EnsurePreviewLoadedAsync(_repository.LoadContent);
+            if (ReferenceEquals(_previewedHistoryItem, oldItem))
+            {
+                CloseContentPreview();
+            }
+
+            oldItem.UnloadThumbnail();
+        }
+
+        card.Tag = args.NewValue;
+        ApplyCardLocalization(card);
+        if (args.NewValue is HistoryListItem { Item.Kind: ClipboardContentKind.Image } item)
+        {
+            await item.EnsureThumbnailLoadedAsync(_repository.LoadContent);
         }
     }
 
@@ -1796,7 +1900,7 @@ public sealed partial class MainWindow : Window
 
     private async Task ToggleContentPreviewAsync(HistoryListItem selected)
     {
-        // 同时只展开一条记录，切换时释放上一条记录的图片流和预览控件。
+        // 同时只展开一条记录，切换时释放上一条记录的预览控件。
         if (!TryGetCardPreviewElements(selected, out var card, out var preview, out var host))
         {
             return;
@@ -1812,42 +1916,75 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            await selected.EnsurePreviewLoadedAsync(_repository.LoadContent);
-            if (!ReferenceEquals(card.DataContext, selected))
-            {
-                return;
-            }
-
-            _previewedHistoryItem = selected;
-            _previewedHistoryCard = card;
-            preview.Visibility = Visibility.Visible;
-            SetCardPreviewButtonState(card, isExpanded: true);
-
+            object contentControl;
+            string? richText = null;
             switch (selected.Item.Kind)
             {
-                case ClipboardContentKind.Text when !string.IsNullOrEmpty(selected.RichTextContent):
-                    var richTextPreview = CreateRichTextPreview();
-                    host.Content = richTextPreview;
-                    card.UpdateLayout();
-                    await LoadRichTextPreviewAsync(richTextPreview, selected.RichTextContent);
-                    break;
                 case ClipboardContentKind.Text:
-                    host.Content = CreateTextPreview(selected.Item.SearchText);
-                    break;
-                case ClipboardContentKind.Image:
-                    host.Content = new Image
+                {
+                    var content = await Task.Run(() =>
+                        ClipboardTextContent.Deserialize(_repository.LoadContent(selected.Item.Id)));
+                    if (!ReferenceEquals(card.DataContext, selected))
                     {
-                        Source = selected.Thumbnail,
+                        return;
+                    }
+
+                    selected.UpdateTextFormatMetadata(content);
+                    if (!string.IsNullOrEmpty(content.Rtf))
+                    {
+                        contentControl = CreateRichTextPreview();
+                        richText = content.Rtf;
+                    }
+                    else
+                    {
+                        contentControl = CreateTextPreview(content.Text);
+                    }
+
+                    break;
+                }
+                case ClipboardContentKind.Image:
+                {
+                    var image = await LoadExpandedImageAsync(selected.Item.Id);
+                    if (!ReferenceEquals(card.DataContext, selected))
+                    {
+                        return;
+                    }
+
+                    contentControl = new Image
+                    {
+                        Source = image,
                         Stretch = Stretch.Uniform,
                         HorizontalAlignment = HorizontalAlignment.Stretch,
                         VerticalAlignment = VerticalAlignment.Stretch
                     };
                     break;
+                }
                 case ClipboardContentKind.Files:
+                {
                     var content = await Task.Run(() => _repository.LoadContent(selected.Item.Id));
                     var paths = JsonSerializer.Deserialize<string[]>(content) ?? [];
-                    host.Content = CreateTextPreview(string.Join(Environment.NewLine, paths));
+                    contentControl = CreateTextPreview(string.Join(Environment.NewLine, paths));
                     break;
+                }
+                default:
+                    return;
+            }
+
+            if (!ReferenceEquals(card.DataContext, selected))
+            {
+                return;
+            }
+
+            host.Content = contentControl;
+            preview.Visibility = Visibility.Visible;
+            _previewedHistoryItem = selected;
+            _previewedHistoryCard = card;
+            SetCardPreviewButtonState(card, isExpanded: true);
+
+            if (richText is not null && contentControl is RichEditBox richTextPreview)
+            {
+                card.UpdateLayout();
+                await LoadRichTextPreviewAsync(richTextPreview, richText);
             }
         }
         catch (Exception)
@@ -1855,6 +1992,28 @@ public sealed partial class MainWindow : Window
             CloseContentPreview();
             StatusText.Text = AppLocalization.GetString("PreviewUnavailable");
         }
+    }
+
+    private async Task<BitmapImage> LoadExpandedImageAsync(Guid id)
+    {
+        var content = await Task.Run(() => _repository.LoadContent(id));
+        using var stream = new InMemoryRandomAccessStream();
+        using (var output = stream.GetOutputStreamAt(0))
+        using (var writer = new DataWriter(output))
+        {
+            writer.WriteBytes(content);
+            await writer.StoreAsync();
+            await writer.FlushAsync();
+        }
+
+        stream.Seek(0);
+        var image = new BitmapImage
+        {
+            // 预览容器高度为 168，保留约 2 倍像素即可避免解码整张原图。
+            DecodePixelHeight = 336
+        };
+        await image.SetSourceAsync(stream);
+        return image;
     }
 
     private static RichEditBox CreateRichTextPreview()
@@ -2284,11 +2443,7 @@ public sealed partial class MainWindow : Window
         {
             _settingsWindow = null;
             _settingsWindowOpen = false;
-            // 退出流程关闭设置窗口时，不重新激活主面板。
-            if (!_isExiting)
-            {
-                Activate();
-            }
+            // 保持主窗口关闭前的可见状态。托盘打开设置时主面板应继续隐藏。
         };
         settingsWindow.InitializeNative();
         ActivateSettingsWindow();
@@ -2609,7 +2764,6 @@ public sealed partial class MainWindow : Window
         };
         WindowSurface.RequestedTheme = theme;
         _trayIcon?.SetTheme(theme);
-
     }
 
     private void ShowPanel(bool activatePanel)
@@ -2667,6 +2821,11 @@ public sealed partial class MainWindow : Window
     private void HidePanel()
     {
         CloseContentPreview();
+        foreach (var item in _displayItems)
+        {
+            item.UnloadThumbnail();
+        }
+
         if (!string.IsNullOrEmpty(SearchBox.Text))
         {
             SearchBox.Text = string.Empty;
@@ -2834,6 +2993,9 @@ public sealed partial class MainWindow : Window
 
     [DllImport("user32.dll")]
     private static extern bool ClientToScreen(IntPtr windowHandle, ref NativePoint point);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr hwnd);
 
     [DllImport("user32.dll")]
     private static extern bool ShowWindow(IntPtr hwnd, int command);

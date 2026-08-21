@@ -238,6 +238,15 @@ public sealed class ClipboardRepository
         transaction.Commit();
     }
 
+    public void Compact()
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        // VACUUM 重建数据库文件，回收已删除剪贴板内容占用的页面。
+        command.CommandText = "VACUUM;";
+        command.ExecuteNonQuery();
+    }
+
     private SqliteConnection OpenConnection()
     {
         var connection = new SqliteConnection(_connectionString);

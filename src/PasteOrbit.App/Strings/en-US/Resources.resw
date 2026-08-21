@@ -114,6 +114,7 @@
   <data name="TrayResumeMonitoring" xml:space="preserve"><value>Resume monitoring</value></data>
   <data name="TrayPauseMonitoring" xml:space="preserve"><value>Pause for 10 minutes</value></data>
   <data name="TraySettings" xml:space="preserve"><value>Settings</value></data>
+  <data name="TrayCheckForUpdates" xml:space="preserve"><value>Check for updates</value></data>
   <data name="TrayExit" xml:space="preserve"><value>Exit</value></data>
   <data name="StorageInitializationFailed" xml:space="preserve"><value>Local storage could not be initialized. Clipboard monitoring did not start.</value></data>
   <data name="ListeningStatus" xml:space="preserve"><value>Monitoring · {0} items</value></data>

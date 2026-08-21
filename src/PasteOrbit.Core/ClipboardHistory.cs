@@ -16,8 +16,15 @@ public sealed record ClipboardCapture(
 /// </summary>
 public sealed class ClipboardHistory
 {
+    private const int MaxPinyinCacheEntries = 256;
+
+    private sealed record PinyinCacheEntry(
+        PinyinSearchTerms? Terms,
+        LinkedListNode<Guid> OrderNode);
+
     private readonly List<ClipboardHistoryEntry> _items = [];
-    private readonly Dictionary<Guid, PinyinSearchTerms?> _pinyinSearchCache = [];
+    private readonly Dictionary<Guid, PinyinCacheEntry> _pinyinSearchCache = [];
+    private readonly LinkedList<Guid> _pinyinCacheOrder = [];
     private readonly object _syncRoot = new();
 
     public ClipboardHistory(IEnumerable<ClipboardHistoryEntry>? items = null)
@@ -88,7 +95,7 @@ public sealed class ClipboardHistory
                     UpdatedAt = now
                 };
                 _items.RemoveAt(existingIndex);
-                _pinyinSearchCache.Remove(existing.Id);
+                RemovePinyinCache(existing.Id);
             }
             else
             {
@@ -137,7 +144,7 @@ public sealed class ClipboardHistory
 
             foreach (var removedId in removedIds)
             {
-                _pinyinSearchCache.Remove(removedId);
+                RemovePinyinCache(removedId);
             }
         }
 
@@ -172,7 +179,7 @@ public sealed class ClipboardHistory
                 updated = _items[index] with { OcrText = ocrText };
                 _items[index] = updated;
                 // OCR 文字也参与普通搜索和拼音搜索，结果变化后必须丢弃旧索引。
-                _pinyinSearchCache.Remove(id);
+                RemovePinyinCache(id);
             }
         }
 
@@ -187,7 +194,7 @@ public sealed class ClipboardHistory
             removed = _items.RemoveAll(item => item.Id == id) > 0;
             if (removed)
             {
-                _pinyinSearchCache.Remove(id);
+                RemovePinyinCache(id);
             }
         }
 
@@ -201,7 +208,7 @@ public sealed class ClipboardHistory
         {
             _items.Clear();
             _items.AddRange(items.OrderByDescending(item => item.UpdatedAt));
-            _pinyinSearchCache.Clear();
+            ClearPinyinCache();
         }
     }
 
@@ -214,16 +221,55 @@ public sealed class ClipboardHistory
             return true;
         }
 
-        if (!_pinyinSearchCache.TryGetValue(item.Id, out var pinyinTerms))
+        if (!_pinyinSearchCache.TryGetValue(item.Id, out var cacheEntry))
         {
             var searchableText = string.IsNullOrEmpty(item.OcrText)
                 ? item.SearchText
                 : $"{item.SearchText}\n{item.OcrText}";
-            pinyinTerms = PinyinSearchTerms.Create(searchableText);
-            _pinyinSearchCache[item.Id] = pinyinTerms;
+            AddPinyinCache(item.Id, PinyinSearchTerms.Create(searchableText));
+            cacheEntry = _pinyinSearchCache[item.Id];
+        }
+        else
+        {
+            // 搜索频繁访问的记录保留在缓存中，淘汰长期未命中的旧索引。
+            TouchPinyinCache(cacheEntry.OrderNode);
         }
 
-        return pinyinTerms?.Matches(term) == true;
+        return cacheEntry.Terms?.Matches(term) == true;
+    }
+
+    private void AddPinyinCache(Guid id, PinyinSearchTerms? terms)
+    {
+        RemovePinyinCache(id);
+        while (_pinyinSearchCache.Count >= MaxPinyinCacheEntries
+            && _pinyinCacheOrder.First is { } oldest)
+        {
+            _pinyinCacheOrder.RemoveFirst();
+            _pinyinSearchCache.Remove(oldest.Value);
+        }
+
+        var node = _pinyinCacheOrder.AddLast(id);
+        _pinyinSearchCache[id] = new PinyinCacheEntry(terms, node);
+    }
+
+    private void RemovePinyinCache(Guid id)
+    {
+        if (_pinyinSearchCache.Remove(id, out var entry))
+        {
+            _pinyinCacheOrder.Remove(entry.OrderNode);
+        }
+    }
+
+    private void TouchPinyinCache(LinkedListNode<Guid> node)
+    {
+        _pinyinCacheOrder.Remove(node);
+        _pinyinCacheOrder.AddLast(node);
+    }
+
+    private void ClearPinyinCache()
+    {
+        _pinyinSearchCache.Clear();
+        _pinyinCacheOrder.Clear();
     }
 
     private static string ComputeHash(ClipboardContentKind kind, byte[] content)

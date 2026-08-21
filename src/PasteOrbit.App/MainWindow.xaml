@@ -482,7 +482,7 @@
                                                             Click="RecordPlainTextPasteButton_Click"
                                                             Tag="{Binding}"
                                                             Text="粘贴为纯文本"
-                                                            Visibility="{Binding FormatBadgeVisibility}">
+                                                            Visibility="{Binding PlainTextPasteVisibility}">
                                                             <MenuFlyoutItem.Icon>
                                                                 <FontIcon Glyph="&#xE8D2;" />
                                                             </MenuFlyoutItem.Icon>

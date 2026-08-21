@@ -100,10 +100,24 @@ try
 
     repository.Upsert(expired, sameContent);
     repository.Delete([expired.Id]);
+    repository.Compact();
     Assert(repository.LoadEntries().Count == 1, "SQLite 应删除清理出的记录");
     AssertThrows<KeyNotFoundException>(
         () => repository.LoadContent(expired.Id),
         "已删除记录的正文不应继续可用");
+
+    var compactEntry = entry with
+    {
+        Id = Guid.NewGuid(),
+        ContentHash = "compact-large",
+        UpdatedAt = now.AddMinutes(2)
+    };
+    repository.Upsert(compactEntry, new byte[1024 * 1024]);
+    var databaseSizeBeforeCompact = new FileInfo(databasePath).Length;
+    repository.Delete([compactEntry.Id]);
+    repository.Compact();
+    var databaseSizeAfterCompact = new FileInfo(databasePath).Length;
+    Assert(databaseSizeAfterCompact < databaseSizeBeforeCompact, "SQLite VACUUM 应回收已删除内容占用的空间");
 
     var corruptPath = Path.Combine(testDirectory, "corrupt.db");
     File.WriteAllText(corruptPath, "not a sqlite database");

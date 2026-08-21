@@ -1,10 +1,7 @@
 using System.ComponentModel;
-using System.IO;
 using System.Runtime.CompilerServices;
-using System.Text.Json;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media.Imaging;
 using PasteOrbit.Core;
 using Windows.Storage.Streams;
@@ -16,17 +13,18 @@ namespace PasteOrbit.App;
 /// </summary>
 public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
 {
-    private IRandomAccessStream? _thumbnailStream;
+    private const int MaxPreviewLength = 512;
+    private const int MaxOcrPreviewLength = 256;
+    private static readonly SemaphoreSlim ThumbnailLoadGate = new(1, 1);
+
     private readonly DispatcherQueue _dispatcherQueue;
-    private Task? _previewLoadTask;
+    private Task? _thumbnailLoadTask;
+    private IRandomAccessStream? _thumbnailStream;
     private BitmapImage? _thumbnail;
-    private string? _richTextContent;
     private string _formatLabel = string.Empty;
     private string _quickPasteLabel = string.Empty;
     private string _metadata;
-    private bool _previewRequested;
-    private bool _textMetadataLoaded;
-    private bool _fileMetadataLoaded;
+    private bool _thumbnailRequested;
     private bool _disposed;
 
     private HistoryListItem(ClipboardHistoryEntry item)
@@ -34,7 +32,8 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
         _dispatcherQueue = DispatcherQueue.GetForCurrentThread()
             ?? throw new InvalidOperationException(AppLocalization.GetString("HistoryDispatcherUnavailable"));
         Item = item;
-        Preview = item.SearchText.ReplaceLineEndings(" ");
+        Preview = CreatePreview(item.SearchText, MaxPreviewLength);
+        OcrPreview = CreatePreview(item.OcrText, MaxOcrPreviewLength);
         _metadata = item.Kind switch
         {
             ClipboardContentKind.Text => AppLocalization.Format("CharacterCount", item.SearchText.Length),
@@ -50,7 +49,7 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
 
     public string Preview { get; }
 
-    public string OcrPreview => Item.OcrText?.ReplaceLineEndings(" ") ?? string.Empty;
+    public string OcrPreview { get; }
 
     public Visibility OcrTextVisibility => string.IsNullOrEmpty(Item.OcrText)
         ? Visibility.Collapsed
@@ -89,6 +88,10 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
         ? Visibility.Visible
         : Visibility.Collapsed;
 
+    public Visibility PlainTextPasteVisibility => Item.Kind == ClipboardContentKind.Text
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
     public BitmapImage? Thumbnail
     {
         get => _thumbnail;
@@ -120,8 +123,6 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
         ? Visibility.Collapsed
         : Visibility.Visible;
 
-    internal string? RichTextContent => _richTextContent;
-
     public static HistoryListItem From(ClipboardHistoryEntry item)
     {
         ArgumentNullException.ThrowIfNull(item);
@@ -141,43 +142,48 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(nameof(QuickPasteVisibility));
     }
 
-    public Task EnsurePreviewLoadedAsync(Func<Guid, byte[]> loadContent)
+    internal void UpdateTextFormatMetadata(ClipboardTextContent content)
     {
-        ArgumentNullException.ThrowIfNull(loadContent);
-        // 列表滚动会反复触发加载请求，缓存任务避免同一记录并发读取。
-        _previewRequested = true;
-        if (_disposed)
-        {
-            return Task.CompletedTask;
-        }
-
-        if (Item.Kind == ClipboardContentKind.Text && _textMetadataLoaded)
-        {
-            return Task.CompletedTask;
-        }
-
-        if (Item.Kind == ClipboardContentKind.Image && Thumbnail is not null)
-        {
-            return Task.CompletedTask;
-        }
-
-        if (Item.Kind == ClipboardContentKind.Files && _fileMetadataLoaded)
-        {
-            return Task.CompletedTask;
-        }
-
-        _previewLoadTask ??= LoadPreviewAsync(loadContent);
-        return _previewLoadTask;
-    }
-
-    public void UnloadPreview()
-    {
-        _previewRequested = false;
-        if (Item.Kind != ClipboardContentKind.Image)
+        ArgumentNullException.ThrowIfNull(content);
+        if (_disposed || Item.Kind != ClipboardContentKind.Text)
         {
             return;
         }
 
+        var hasHtmlFormatting = HasMeaningfulHtmlFormatting(content.Html);
+        _formatLabel = (hasHtmlFormatting, content.Rtf is not null) switch
+        {
+            (true, true) => "HTML · RTF",
+            (true, false) => "HTML",
+            (false, true) => "RTF",
+            _ => string.Empty
+        };
+        OnPropertyChanged(nameof(FormatLabel));
+        OnPropertyChanged(nameof(FormatBadgeVisibility));
+    }
+
+    public Task EnsureThumbnailLoadedAsync(Func<Guid, byte[]> loadContent)
+    {
+        ArgumentNullException.ThrowIfNull(loadContent);
+        if (_disposed || Item.Kind != ClipboardContentKind.Image)
+        {
+            return Task.CompletedTask;
+        }
+
+        _thumbnailRequested = true;
+        if (Thumbnail is not null)
+        {
+            return Task.CompletedTask;
+        }
+
+        // 容器复用或快速滚动时，避免同一记录同时读取多次。
+        _thumbnailLoadTask ??= LoadThumbnailAsync(loadContent);
+        return _thumbnailLoadTask;
+    }
+
+    public void UnloadThumbnail()
+    {
+        _thumbnailRequested = false;
         Thumbnail = null;
         _thumbnailStream?.Dispose();
         _thumbnailStream = null;
@@ -186,47 +192,34 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
     public void Dispose()
     {
         _disposed = true;
-        UnloadPreview();
+        UnloadThumbnail();
     }
 
-    private async Task LoadPreviewAsync(Func<Guid, byte[]> loadContent)
+    private async Task LoadThumbnailAsync(Func<Guid, byte[]> loadContent)
     {
         try
         {
-            // 文本、文件和图片使用不同的预览路径，图片仅在真正需要时解码。
-            if (Item.Kind == ClipboardContentKind.Text)
+            // 图片解码会产生与原图尺寸相关的临时位图，串行处理避免多张大图同时占用内存。
+            await ThumbnailLoadGate.WaitAsync();
+            try
             {
-                var textContent = await Task.Run(() => ClipboardTextContent.Deserialize(loadContent(Item.Id)));
-                await RunOnUiThreadAsync(() =>
+                if (_disposed || !_thumbnailRequested)
                 {
-                    if (!_disposed)
-                    {
-                        ApplyTextContent(textContent);
-                    }
+                    return;
+                }
 
-                    return Task.CompletedTask;
-                });
-                return;
+                var content = await Task.Run(() => loadContent(Item.Id));
+                if (_disposed || !_thumbnailRequested)
+                {
+                    return;
+                }
+
+                await RunOnUiThreadAsync(() => LoadImagePreviewAsync(content));
             }
-
-            if (Item.Kind == ClipboardContentKind.Files)
+            finally
             {
-                var fileMetadata = await Task.Run(() => CreateFilesMetadata(loadContent(Item.Id)));
-                await RunOnUiThreadAsync(() =>
-                {
-                    if (!_disposed)
-                    {
-                        Metadata = fileMetadata;
-                        _fileMetadataLoaded = true;
-                    }
-
-                    return Task.CompletedTask;
-                });
-                return;
+                ThumbnailLoadGate.Release();
             }
-
-            var content = await Task.Run(() => loadContent(Item.Id));
-            await RunOnUiThreadAsync(() => LoadImagePreviewAsync(content));
         }
         catch (Exception)
         {
@@ -237,7 +230,6 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
                     Metadata = Item.Kind switch
                     {
                         ClipboardContentKind.Image => AppLocalization.GetString("ImagePreviewUnavailable"),
-                        ClipboardContentKind.Files => AppLocalization.GetString("FileInfoUnavailable"),
                         _ => Metadata
                     };
                 }
@@ -247,24 +239,8 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
         }
         finally
         {
-            _previewLoadTask = null;
+            _thumbnailLoadTask = null;
         }
-    }
-
-    private void ApplyTextContent(ClipboardTextContent content)
-    {
-        _richTextContent = content.Rtf;
-        var hasHtmlFormatting = HasMeaningfulHtmlFormatting(content.Html);
-        _formatLabel = (hasHtmlFormatting, content.Rtf is not null) switch
-        {
-            (true, true) => "HTML · RTF",
-            (true, false) => "HTML",
-            (false, true) => "RTF",
-            _ => string.Empty
-        };
-        _textMetadataLoaded = true;
-        OnPropertyChanged(nameof(FormatLabel));
-        OnPropertyChanged(nameof(FormatBadgeVisibility));
     }
 
     // CF_HTML 常会附带在普通文本后，只在存在实际富格式标记时展示 HTML 标签。
@@ -303,32 +279,41 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
         Metadata = string.IsNullOrEmpty(Item.OcrText)
             ? size
             : AppLocalization.Format("ImageMetadataWithOcr", size, Item.OcrText.Length);
-        if (!_previewRequested)
+        if (!_thumbnailRequested)
         {
             return;
         }
 
         var thumbnailStream = new InMemoryRandomAccessStream();
-        using (var output = thumbnailStream.GetOutputStreamAt(0))
-        using (var writer = new DataWriter(output))
+        try
         {
-            writer.WriteBytes(content);
-            await writer.StoreAsync();
-            await writer.FlushAsync();
-        }
+            using (var output = thumbnailStream.GetOutputStreamAt(0))
+            using (var writer = new DataWriter(output))
+            {
+                writer.WriteBytes(content);
+                await writer.StoreAsync();
+                await writer.FlushAsync();
+            }
 
-        thumbnailStream.Seek(0);
-        var thumbnail = new BitmapImage { DecodePixelWidth = 420 };
-        await thumbnail.SetSourceAsync(thumbnailStream);
-        if (_disposed || !_previewRequested)
+            thumbnailStream.Seek(0);
+            // 卡片图片恢复为原来的宽度约束，避免高宽比变化导致预览显示异常。
+            var thumbnail = new BitmapImage { DecodePixelWidth = 420 };
+            await thumbnail.SetSourceAsync(thumbnailStream);
+            if (_disposed || !_thumbnailRequested)
+            {
+                thumbnailStream.Dispose();
+                return;
+            }
+
+            _thumbnailStream?.Dispose();
+            _thumbnailStream = thumbnailStream;
+            Thumbnail = thumbnail;
+        }
+        catch
         {
             thumbnailStream.Dispose();
-            return;
+            throw;
         }
-
-        _thumbnailStream?.Dispose();
-        _thumbnailStream = thumbnailStream;
-        Thumbnail = thumbnail;
     }
 
     private Task RunOnUiThreadAsync(Func<Task> action)
@@ -358,14 +343,16 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
         return completion.Task;
     }
 
-    private static string CreateFilesMetadata(byte[] content)
+    private static string CreatePreview(string? text, int maxLength)
     {
-        var paths = JsonSerializer.Deserialize<string[]>(content) ?? [];
-        var metadata = AppLocalization.Format("FileCount", paths.Length);
-        var missingCount = paths.Count(path => !File.Exists(path) && !Directory.Exists(path));
-        return missingCount > 0
-            ? AppLocalization.Format("MissingFileCount", metadata, missingCount)
-            : metadata;
+        if (string.IsNullOrEmpty(text))
+        {
+            return string.Empty;
+        }
+
+        var length = Math.Min(text.Length, maxLength);
+        var preview = text[..length].ReplaceLineEndings(" ");
+        return text.Length > maxLength ? preview + "…" : preview;
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

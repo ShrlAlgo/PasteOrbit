@@ -9,9 +9,6 @@ using Microsoft.CSharp.RuntimeBinder;
 
 using PasteOrbit.Core;
 
-using Windows.Graphics.Imaging;
-using Windows.Storage.Streams;
-
 namespace PasteOrbit.App;
 
 /// <summary>
@@ -62,7 +59,7 @@ internal static class ExplorerFilePaste
             }
             else
             {
-                var pngContent = await ConvertImageToPngAsync(content);
+                var pngContent = await ImageFileConverter.ConvertToPngAsync(content);
                 await File.WriteAllBytesAsync(filePath, pngContent, CancellationToken.None);
             }
 
@@ -218,41 +215,6 @@ internal static class ExplorerFilePaste
         }
 
         return filePath;
-    }
-
-    private static async Task<byte[]> ConvertImageToPngAsync(byte[] content)
-    {
-        using var sourceStream = new InMemoryRandomAccessStream();
-        using (var output = sourceStream.GetOutputStreamAt(0))
-        using (var writer = new DataWriter(output))
-        {
-            writer.WriteBytes(content);
-            await writer.StoreAsync();
-            await writer.FlushAsync();
-        }
-
-        sourceStream.Seek(0);
-        var decoder = await BitmapDecoder.CreateAsync(sourceStream);
-        using var softwareBitmap = await decoder.GetSoftwareBitmapAsync(
-            BitmapPixelFormat.Bgra8,
-            BitmapAlphaMode.Premultiplied);
-        using var destinationStream = new InMemoryRandomAccessStream();
-        var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, destinationStream);
-        encoder.SetSoftwareBitmap(softwareBitmap);
-        await encoder.FlushAsync();
-        return await ReadBytesAsync(destinationStream);
-    }
-
-    private static async Task<byte[]> ReadBytesAsync(IRandomAccessStream stream)
-    {
-        stream.Seek(0);
-        var size = checked((int)stream.Size);
-        using var input = stream.GetInputStreamAt(0);
-        using var reader = new DataReader(input);
-        await reader.LoadAsync((uint)size);
-        var bytes = new byte[size];
-        reader.ReadBytes(bytes);
-        return bytes;
     }
 
     private static void ReleaseComObject(object? value)

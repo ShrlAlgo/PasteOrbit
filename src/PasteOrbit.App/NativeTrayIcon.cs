@@ -34,6 +34,7 @@ public sealed class NativeTrayIcon : IDisposable
     private const uint MenuSettings = 1002;
     private const uint MenuExit = 1003;
     private const uint MenuPause = 1004;
+    private const uint MenuCheckForUpdates = 1005;
 
     private readonly Win32MessageBridge _bridge;
     private readonly string _iconPath;
@@ -69,6 +70,7 @@ public sealed class NativeTrayIcon : IDisposable
         _notifyIconData.VersionOrTimeout = NotifyIconVersion4;
         ShellNotifyIcon(NimSetVersion, ref _notifyIconData);
 
+        // 启动时创建 WinUI 菜单宿主，避免首次右键才初始化造成延迟。
         try
         {
             _winUiMenuHost = new WinUiTrayMenuHost(bridge.Handle, TrayIconId);
@@ -87,6 +89,8 @@ public sealed class NativeTrayIcon : IDisposable
     public event Action? SettingsRequested;
 
     public event Action? PauseRequested;
+
+    public event Action? CheckForUpdatesRequested;
 
     public event Action? ExitRequested;
 
@@ -151,6 +155,7 @@ public sealed class NativeTrayIcon : IDisposable
                 ? AppLocalization.GetString("TrayResumeMonitoring")
                 : AppLocalization.GetString("TrayPauseMonitoring"));
             AppendMenu(menu, MfString, MenuSettings, AppLocalization.GetString("TraySettings"));
+            AppendMenu(menu, MfString, MenuCheckForUpdates, AppLocalization.GetString("TrayCheckForUpdates"));
             AppendMenu(menu, MfSeparator, 0, null);
             AppendMenu(menu, MfString, MenuExit, AppLocalization.GetString("TrayExit"));
 
@@ -175,6 +180,9 @@ public sealed class NativeTrayIcon : IDisposable
                     break;
                 case MenuPause:
                     PauseRequested?.Invoke();
+                    break;
+                case MenuCheckForUpdates:
+                    CheckForUpdatesRequested?.Invoke();
                     break;
                 case MenuExit:
                     ExitRequested?.Invoke();
@@ -251,6 +259,9 @@ public sealed class NativeTrayIcon : IDisposable
                 break;
             case WinUiTrayMenuHost.TrayMenuCommand.OpenSettings:
                 SettingsRequested?.Invoke();
+                break;
+            case WinUiTrayMenuHost.TrayMenuCommand.CheckForUpdates:
+                CheckForUpdatesRequested?.Invoke();
                 break;
             case WinUiTrayMenuHost.TrayMenuCommand.Exit:
                 ExitRequested?.Invoke();

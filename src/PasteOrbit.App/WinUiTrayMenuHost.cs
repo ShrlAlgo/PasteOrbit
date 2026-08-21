@@ -72,6 +72,7 @@ internal sealed class WinUiTrayMenuHost : IDisposable
         OpenHistory,
         ToggleListening,
         OpenSettings,
+        CheckForUpdates,
         Exit
     }
 
@@ -182,6 +183,7 @@ internal sealed class WinUiTrayMenuHost : IDisposable
                 : AppLocalization.GetString("TrayPauseMonitoring"),
             TrayMenuCommand.ToggleListening));
         menu.Items.Add(CreateCommandItem(AppLocalization.GetString("TraySettings"), TrayMenuCommand.OpenSettings));
+        menu.Items.Add(CreateCommandItem(AppLocalization.GetString("TrayCheckForUpdates"), TrayMenuCommand.CheckForUpdates));
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(CreateCommandItem(AppLocalization.GetString("TrayExit"), TrayMenuCommand.Exit));
         menu.Closed += CurrentMenu_Closed;
