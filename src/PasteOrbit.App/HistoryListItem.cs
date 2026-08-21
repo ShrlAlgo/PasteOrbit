@@ -13,8 +13,6 @@ namespace PasteOrbit.App;
 /// </summary>
 public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
 {
-    private const int MaxPreviewLength = 512;
-    private const int MaxOcrPreviewLength = 256;
     private static readonly SemaphoreSlim ThumbnailLoadGate = new(1, 1);
 
     private readonly DispatcherQueue _dispatcherQueue;
@@ -32,11 +30,11 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
         _dispatcherQueue = DispatcherQueue.GetForCurrentThread()
             ?? throw new InvalidOperationException(AppLocalization.GetString("HistoryDispatcherUnavailable"));
         Item = item;
-        Preview = CreatePreview(item.SearchText, MaxPreviewLength);
-        OcrPreview = CreatePreview(item.OcrText, MaxOcrPreviewLength);
+        Preview = item.PreviewText;
+        OcrPreview = item.OcrPreview ?? string.Empty;
         _metadata = item.Kind switch
         {
-            ClipboardContentKind.Text => AppLocalization.Format("CharacterCount", item.SearchText.Length),
+            ClipboardContentKind.Text => AppLocalization.Format("CharacterCount", item.SearchTextLength),
             ClipboardContentKind.Image => AppLocalization.GetString("ContentTypeImage"),
             ClipboardContentKind.Files => AppLocalization.GetString("ContentTypeFiles"),
             _ => string.Empty
@@ -51,7 +49,7 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
 
     public string OcrPreview { get; }
 
-    public Visibility OcrTextVisibility => string.IsNullOrEmpty(Item.OcrText)
+    public Visibility OcrTextVisibility => Item.OcrTextLength == 0
         ? Visibility.Collapsed
         : Visibility.Visible;
 
@@ -276,9 +274,9 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
         }
 
         var size = $"{Math.Max(1, content.Length / 1024d):0.#} KB";
-        Metadata = string.IsNullOrEmpty(Item.OcrText)
+        Metadata = Item.OcrTextLength == 0
             ? size
-            : AppLocalization.Format("ImageMetadataWithOcr", size, Item.OcrText.Length);
+            : AppLocalization.Format("ImageMetadataWithOcr", size, Item.OcrTextLength);
         if (!_thumbnailRequested)
         {
             return;
@@ -341,18 +339,6 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
         }
 
         return completion.Task;
-    }
-
-    private static string CreatePreview(string? text, int maxLength)
-    {
-        if (string.IsNullOrEmpty(text))
-        {
-            return string.Empty;
-        }
-
-        var length = Math.Min(text.Length, maxLength);
-        var preview = text[..length].ReplaceLineEndings(" ");
-        return text.Length > maxLength ? preview + "…" : preview;
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

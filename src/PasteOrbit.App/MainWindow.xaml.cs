@@ -33,6 +33,8 @@ namespace PasteOrbit.App;
 /// </summary>
 public sealed partial class MainWindow : Window
 {
+    private const int HistoryPageSize = 50;
+    private const int HistoryLoadThreshold = 10;
     private const int SwHide = 0;
     private const int SwShow = 5;
     private const uint SwpNoSize = 0x0001;
@@ -72,8 +74,12 @@ public sealed partial class MainWindow : Window
     private readonly LocalBackupService _backupService;
     private readonly UpdateCheckService _updateCheckService = new();
     private readonly HashSet<string> _excludedApplications = new(StringComparer.OrdinalIgnoreCase);
+    private CancellationTokenSource? _historyQueryCancellation;
+    private Task _historyLoadTask = Task.CompletedTask;
     private AppSettings _settings;
     private ClipboardContentKind? _selectedKind;
+    private ClipboardHistoryQuery _currentHistoryQuery = new();
+    private ClipboardHistoryCursor? _nextHistoryCursor;
     private HistoryListItem? _hoveredHistoryItem;
     private HistoryListItem? _previewedHistoryItem;
     private FrameworkElement? _previewedHistoryCard;
@@ -97,6 +103,10 @@ public sealed partial class MainWindow : Window
     private bool _isTopmost;
     private bool _isExiting;
     private bool _isListeningPaused;
+    private bool _isLoadingHistory;
+    private int _historyLoadVersion;
+    private int _historyTotalCount;
+    private int _historyUnpinnedCount;
     private IntPtr _panelTargetWindow;
     private uint? _headerDragPointerId;
     private int _headerDragStartScreenX;
@@ -136,6 +146,7 @@ public sealed partial class MainWindow : Window
 
         ApplyThemeSettings();
         _repository = new ClipboardRepository(Path.Combine(dataDirectory, "history.db"));
+        _history = new ClipboardHistory(_repository);
         _backupService = new LocalBackupService(_repository.DatabasePath, _settingsStore.Path);
         _ocrService = new ImageOcrService(_repository.LoadContent);
         _ocrService.Recognized += OcrService_Recognized;
@@ -143,12 +154,11 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            _history = new ClipboardHistory(_repository.InitializeAndLoadEntries());
+            _history.Initialize();
             CleanupHistory();
         }
         catch (Exception)
         {
-            _history = new ClipboardHistory();
             _storageAvailable = false;
             _startupError = AppLocalization.GetString("StorageInitializationFailed");
         }
@@ -535,6 +545,9 @@ public sealed partial class MainWindow : Window
     private void MainWindow_Closed(object sender, WindowEventArgs args)
     {
         CancelHeaderDrag();
+        _historyQueryCancellation?.Cancel();
+        _historyQueryCancellation?.Dispose();
+        _historyQueryCancellation = null;
         _panelMonitorTimer?.Stop();
         _trayIcon?.Dispose();
         _monitor.Dispose();
@@ -1184,7 +1197,6 @@ public sealed partial class MainWindow : Window
             try
             {
                 var item = _history.AddOrUpdate(capture);
-                _repository.Upsert(item, capture.Content);
                 CleanupHistory();
                 StatusText.Text = AppLocalization.Format("SavedItemCount", _history.Count);
                 RefreshHistory();
@@ -1215,7 +1227,7 @@ public sealed partial class MainWindow : Window
         {
             try
             {
-                if (!_storageAvailable || !_repository.SetOcrText(id, text))
+                if (!_storageAvailable)
                 {
                     return;
                 }
@@ -1275,53 +1287,152 @@ public sealed partial class MainWindow : Window
     private void CleanupHistory()
     {
         var cutoff = DateTimeOffset.UtcNow - TimeSpan.FromDays(_settings.RetentionDays);
-        var removedIds = _history.Cleanup(cutoff, _settings.MaxHistoryEntries);
-        _repository.Delete(removedIds);
+        if (_history.Cleanup(cutoff, _settings.MaxHistoryEntries) > 0)
+        {
+            _repository.Compact();
+        }
     }
 
-    private void RefreshHistory(bool recreateDisplayItems = false)
+    private void RefreshHistory(bool recreateDisplayItems = false, bool debounce = false)
     {
-        // 复用仍然存在的卡片对象，释放过滤结果中已离开的预览资源。
-        CloseContentPreview();
-        _hoveredHistoryItem = null;
-        var selectedId = (HistoryList.SelectedItem as HistoryListItem)?.Item.Id;
-        Dictionary<Guid, HistoryListItem> reusableItems = recreateDisplayItems
-            ? []
-            : _displayItems.ToDictionary(displayItem => displayItem.Item.Id);
-        if (recreateDisplayItems)
+        _historyQueryCancellation?.Cancel();
+        _historyQueryCancellation?.Dispose();
+        _historyQueryCancellation = new CancellationTokenSource();
+        var version = ++_historyLoadVersion;
+        var query = new ClipboardHistoryQuery(SearchBox?.Text, _selectedKind);
+        _historyLoadTask = ReloadHistoryAsync(
+            query,
+            version,
+            recreateDisplayItems,
+            debounce,
+            _historyQueryCancellation.Token);
+    }
+
+    private async Task ReloadHistoryAsync(
+        ClipboardHistoryQuery query,
+        int version,
+        bool recreateDisplayItems,
+        bool debounce,
+        CancellationToken cancellationToken)
+    {
+        _isLoadingHistory = true;
+        try
         {
-            foreach (var displayItem in _displayItems)
+            if (debounce)
             {
-                displayItem.Dispose();
+                await Task.Delay(150, cancellationToken);
+            }
+
+            var page = await Task.Run(
+                () => _history.Search(query, null, HistoryPageSize),
+                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (version != _historyLoadVersion)
+            {
+                return;
+            }
+
+            CloseContentPreview();
+            _hoveredHistoryItem = null;
+            var selectedId = (HistoryList.SelectedItem as HistoryListItem)?.Item.Id;
+            DisposeDisplayItems();
+            _currentHistoryQuery = query;
+            _nextHistoryCursor = page.NextCursor;
+            _historyTotalCount = page.TotalCount;
+            _historyUnpinnedCount = page.UnpinnedCount;
+            AppendHistoryItems(page.Items);
+            UpdateHistoryListState();
+
+            if (selectedId is Guid id)
+            {
+                HistoryList.SelectedItem = _displayItems.FirstOrDefault(item => item.Item.Id == id);
+            }
+
+            if (_displayItems.Count > 0)
+            {
+                HistoryList.ScrollIntoView(_displayItems[0], ScrollIntoViewAlignment.Leading);
+            }
+
+            if (recreateDisplayItems)
+            {
+                _dispatcherQueue?.TryEnqueue(RefreshHistoryCardLocalization);
             }
         }
-
-        _displayItems.Clear();
-        foreach (var item in _history.Search(SearchBox?.Text, _selectedKind))
+        catch (OperationCanceledException)
         {
-            if (reusableItems.Remove(item.Id, out var displayItem))
+        }
+        catch (Exception exception)
+        {
+            System.Diagnostics.Debug.WriteLine($"加载历史记录失败：{exception}");
+            StatusText.Text = AppLocalization.GetString("StorageInitializationFailed");
+        }
+        finally
+        {
+            if (version == _historyLoadVersion)
             {
-                if (ReferenceEquals(displayItem.Item, item))
-                {
-                    _displayItems.Add(displayItem);
-                    continue;
-                }
+                _isLoadingHistory = false;
+            }
+        }
+    }
 
-                displayItem.Dispose();
+    private async Task LoadNextHistoryPageAsync()
+    {
+        if (_isLoadingHistory || _nextHistoryCursor is null || _historyQueryCancellation is null)
+        {
+            return;
+        }
+
+        _isLoadingHistory = true;
+        var version = _historyLoadVersion;
+        var cursor = _nextHistoryCursor;
+        var cancellationToken = _historyQueryCancellation.Token;
+        try
+        {
+            var page = await Task.Run(
+                () => _history.Search(_currentHistoryQuery, cursor, HistoryPageSize),
+                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (version != _historyLoadVersion)
+            {
+                return;
             }
 
-            _displayItems.Add(HistoryListItem.From(item));
+            _nextHistoryCursor = page.NextCursor;
+            _historyTotalCount = page.TotalCount;
+            _historyUnpinnedCount = page.UnpinnedCount;
+            AppendHistoryItems(page.Items);
+            UpdateHistoryListState();
         }
-
-        foreach (var displayItem in reusableItems.Values)
+        catch (OperationCanceledException)
         {
-            displayItem.Dispose();
         }
+        catch (Exception exception)
+        {
+            System.Diagnostics.Debug.WriteLine($"加载下一页历史记录失败：{exception}");
+        }
+        finally
+        {
+            if (version == _historyLoadVersion)
+            {
+                _isLoadingHistory = false;
+            }
+        }
+    }
 
-        // 数字键只映射当前列表中的未置顶记录，搜索期间不显示快捷编号。
+    private void AppendHistoryItems(IEnumerable<ClipboardHistoryEntry> entries)
+    {
+        foreach (var entry in entries)
+        {
+            _displayItems.Add(HistoryListItem.From(entry));
+        }
+    }
+
+    private void UpdateHistoryListState()
+    {
+        // 数字键只映射当前第一页中的未置顶记录，搜索期间不显示快捷编号。
         Array.Clear(_quickPasteItems);
         var quickPasteIndex = 0;
-        var showQuickPasteLabels = string.IsNullOrEmpty(SearchBox?.Text);
+        var showQuickPasteLabels = string.IsNullOrEmpty(_currentHistoryQuery.SearchText);
         foreach (var displayItem in _displayItems)
         {
             if (showQuickPasteLabels
@@ -1338,18 +1449,9 @@ public sealed partial class MainWindow : Window
             }
         }
 
-        EmptyText.Visibility = _displayItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        ClearHistoryButton.IsEnabled = _displayItems.Any(item => !item.Item.IsPinned);
-        CountText.Text = AppLocalization.Format("ItemCount", _displayItems.Count);
-        if (selectedId is { } id)
-        {
-            HistoryList.SelectedItem = _displayItems.FirstOrDefault(item => item.Item.Id == id);
-        }
-
-        if (recreateDisplayItems)
-        {
-            _dispatcherQueue?.TryEnqueue(RefreshHistoryCardLocalization);
-        }
+        EmptyText.Visibility = _historyTotalCount == 0 ? Visibility.Visible : Visibility.Collapsed;
+        ClearHistoryButton.IsEnabled = _historyUnpinnedCount > 0;
+        CountText.Text = AppLocalization.Format("ItemCount", _historyTotalCount);
     }
 
     private void RefreshHistoryCardLocalization()
@@ -1438,7 +1540,7 @@ public sealed partial class MainWindow : Window
             HistoryList,
             AppLocalization.GetString("HistoryListAutomationName"));
         EmptyText.Text = AppLocalization.GetString("MainEmptyHistoryText");
-        CountText.Text = AppLocalization.Format("ItemCount", _displayItems.Count);
+        CountText.Text = AppLocalization.Format("ItemCount", _historyTotalCount);
         StatusText.Text = !_storageAvailable
             ? AppLocalization.GetString("StorageInitializationFailed")
             : _isListeningPaused
@@ -1623,7 +1725,23 @@ public sealed partial class MainWindow : Window
 
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
     {
-        RefreshHistory();
+        RefreshHistory(debounce: true);
+    }
+
+    private async void HistoryList_ContainerContentChanging(
+        ListViewBase sender,
+        ContainerContentChangingEventArgs args)
+    {
+        if (args.InRecycleQueue
+            || _isLoadingHistory
+            || args.ItemIndex < Math.Max(0, _displayItems.Count - HistoryLoadThreshold))
+        {
+            return;
+        }
+
+        var loadTask = LoadNextHistoryPageAsync();
+        _historyLoadTask = loadTask;
+        await loadTask;
     }
 
     private void SearchBox_PointerPressed(object sender, PointerRoutedEventArgs e)
@@ -1637,10 +1755,7 @@ public sealed partial class MainWindow : Window
 
     private async void ClearHistoryButton_Click(object sender, RoutedEventArgs e)
     {
-        var visibleItems = _displayItems
-            .Where(item => !item.Item.IsPinned)
-            .ToArray();
-        if (visibleItems.Length == 0)
+        if (_historyUnpinnedCount == 0)
         {
             return;
         }
@@ -1648,7 +1763,7 @@ public sealed partial class MainWindow : Window
         var dialog = new ContentDialog
         {
             Title = AppLocalization.GetString("ClearCurrentListTitle"),
-            Content = AppLocalization.Format("ClearCurrentListMessage", visibleItems.Length),
+            Content = AppLocalization.Format("ClearCurrentListMessage", _historyUnpinnedCount),
             PrimaryButtonText = AppLocalization.GetString("Clear"),
             CloseButtonText = AppLocalization.GetString("Cancel"),
             DefaultButton = ContentDialogButton.Close,
@@ -1660,28 +1775,15 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        // 对话框期间可能新增记录，确认后重新读取当前列表，确保只处理当前筛选结果。
-        var itemsToRemove = _displayItems
-            .Where(item => !item.Item.IsPinned)
-            .ToArray();
-        var ids = itemsToRemove.Select(item => item.Item.Id).ToArray();
-        if (ids.Length == 0)
-        {
-            return;
-        }
-
         _monitor.SuspendCapture();
         try
         {
-            _repository.Delete(ids);
-            foreach (var id in ids)
-            {
-                _history.Remove(id);
-            }
-
-            await Task.Run(_repository.Compact);
+            // 确认后重新读取筛选条件，清理数据库中的全部匹配项，不受当前已加载页限制。
+            var query = new ClipboardHistoryQuery(SearchBox?.Text, _selectedKind);
+            var deletedCount = await Task.Run(() => _history.DeleteMatching(query));
+            await Task.Run(() => _repository.Compact(full: true));
             RefreshHistory();
-            StatusText.Text = AppLocalization.Format("CurrentListCleared", ids.Length);
+            StatusText.Text = AppLocalization.Format("CurrentListCleared", deletedCount);
         }
         catch (Exception)
         {
@@ -1869,7 +1971,7 @@ public sealed partial class MainWindow : Window
     private async void RecordPasteOcrTextButton_Click(object sender, RoutedEventArgs e)
     {
         if (GetHistoryListItem(sender) is not HistoryListItem selected
-            || string.IsNullOrEmpty(selected.Item.OcrText))
+            || selected.Item.OcrTextLength == 0)
         {
             return;
         }
@@ -1878,10 +1980,16 @@ public sealed partial class MainWindow : Window
         _monitor.SuspendCapture();
         try
         {
+            var ocrText = await Task.Run(() => _history.LoadOcrText(selected.Item.Id));
+            if (string.IsNullOrEmpty(ocrText))
+            {
+                return;
+            }
+
             HidePanel();
             await Task.Delay(50);
             var textItem = selected.Item with { Kind = ClipboardContentKind.Text };
-            var content = new ClipboardTextContent(selected.Item.OcrText, null, null).Serialize();
+            var content = new ClipboardTextContent(ocrText, null, null).Serialize();
             var pasted = await ClipboardPlayback.PlayAsync(
                 textItem,
                 content,
@@ -2230,7 +2338,6 @@ public sealed partial class MainWindow : Window
         var updated = _history.SetPinned(selected.Item.Id, !selected.Item.IsPinned);
         if (updated is not null)
         {
-            _repository.SetPinned(updated.Id, updated.IsPinned);
             StatusText.Text = updated.IsPinned
                 ? AppLocalization.GetString("ItemPinned")
                 : AppLocalization.GetString("ItemUnpinned");
@@ -2252,7 +2359,6 @@ public sealed partial class MainWindow : Window
     {
         if (_history.Remove(selected.Item.Id))
         {
-            _repository.Delete([selected.Item.Id]);
             StatusText.Text = AppLocalization.GetString("ItemDeleted");
             RefreshHistory();
         }
@@ -2506,10 +2612,12 @@ public sealed partial class MainWindow : Window
         _monitor.SuspendCapture();
         try
         {
+            _historyQueryCancellation?.Cancel();
+            await _historyLoadTask;
             await _backupService.RestoreAsync(sourcePath);
-            _history.ReplaceAll(_repository.InitializeAndLoadEntries());
+            _history.Initialize();
+            CleanupHistory();
             SettingsWindow_SettingsChanged(_settingsStore.Load());
-            RefreshHistory();
         }
         finally
         {

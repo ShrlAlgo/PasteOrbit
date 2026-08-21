@@ -341,6 +341,7 @@
                     IsItemClickEnabled="True"
                     ItemClick="HistoryList_ItemClick"
                     ItemContainerStyle="{StaticResource HistoryItemStyle}"
+                    ContainerContentChanging="HistoryList_ContainerContentChanging"
                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                     ScrollViewer.HorizontalScrollMode="Disabled"
                     ScrollViewer.VerticalScrollBarVisibility="Auto"

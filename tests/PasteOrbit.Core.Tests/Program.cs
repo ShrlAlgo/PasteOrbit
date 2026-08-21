@@ -1,129 +1,19 @@
+using Microsoft.Data.Sqlite;
+
 using PasteOrbit.Core;
 
-// 覆盖历史记录去重、搜索、置顶和 OCR 索引失效场景。
-var now = DateTimeOffset.UtcNow;
-var item = new ClipboardHistoryEntry(
-    Guid.NewGuid(),
-    ClipboardContentKind.Text,
-    "hash",
-    "示例文本",
-    "notepad",
-    now,
-    now);
-
-Assert(item.Kind == ClipboardContentKind.Text, "内容类型应被保留");
-Assert(item.SearchText == "示例文本", "检索文本应被保留");
-Assert(!item.IsPinned, "新记录默认不置顶");
-
-var history = new ClipboardHistory();
-var sameContent = "same"u8.ToArray();
-var first = history.AddOrUpdate(
-    new ClipboardCapture(ClipboardContentKind.Text, "first", sameContent, "notepad"),
-    now);
-var second = history.AddOrUpdate(
-    new ClipboardCapture(ClipboardContentKind.Text, "second", sameContent, "browser"),
-    now.AddSeconds(1));
-
-Assert(history.GetSnapshot().Count == 1, "相同内容不应产生重复记录");
-Assert(first.Id == second.Id, "重复内容应更新原记录");
-Assert(second.SearchText == "second", "重复记录应更新检索文本");
-Assert(second.SourceApplication == "browser", "重复记录应更新来源应用");
-Assert(second.UpdatedAt > first.UpdatedAt, "重复记录应更新时间");
-Assert(history.Search("SECOND").Single().Id == second.Id, "搜索应忽略文本大小写");
-Assert(history.Search("browser").Single().Id == second.Id, "搜索应匹配来源应用");
-Assert(history.Search(null, ClipboardContentKind.Image).Count == 0, "类型筛选应排除其他内容");
-
-var pinnedResult = history.SetPinned(second.Id, true);
-Assert(pinnedResult?.IsPinned == true, "记录应可置顶");
-Assert(history.Remove(second.Id), "记录应可删除");
-Assert(history.GetSnapshot().Count == 0, "删除后记录不应保留");
-
-var chinese = history.AddOrUpdate(
-    new ClipboardCapture(ClipboardContentKind.Text, "剪贴板历史", "pinyin"u8.ToArray(), "notepad"),
-    now.AddSeconds(2));
-Assert(history.Search("jiantieban").Single().Id == chinese.Id, "搜索应匹配中文全拼");
-Assert(history.Search("jtb").Single().Id == chinese.Id, "搜索应匹配拼音首字母");
-Assert(history.Search("JIAN").Single().Id == chinese.Id, "拼音搜索应忽略大小写");
-Assert(history.Search("不存在").Count == 0, "无关查询不应匹配拼音索引");
-var updatedChinese = history.AddOrUpdate(
-    new ClipboardCapture(ClipboardContentKind.Text, "轨道交通", "pinyin"u8.ToArray(), "notepad"),
-    now.AddSeconds(3));
-Assert(updatedChinese.Id == chinese.Id, "重复内容更新时应保留原记录标识");
-Assert(history.Search("gdjt").Single().Id == chinese.Id, "记录更新后应重建拼音索引");
-Assert(history.Search("jtb").Count == 0, "记录更新后不应保留旧拼音索引");
-
-var image = history.AddOrUpdate(
-    new ClipboardCapture(ClipboardContentKind.Image, "图片内容", "image"u8.ToArray(), "snippingtool"),
-    now.AddSeconds(4));
-Assert(history.SetOcrText(image.Id, "剪切板中的识别文字")?.OcrText == "剪切板中的识别文字", "OCR 文字应更新到历史记录");
-Assert(history.Search("识别文字").Single().Id == image.Id, "搜索应匹配 OCR 文字");
-Assert(history.Search("sbwz").Single().Id == image.Id, "拼音搜索应匹配 OCR 文字首字母");
-
 var protectedText = UserDataProtector.ProtectText("仅当前用户可读取");
-Assert(protectedText.AsSpan().IndexOf("仅当前用户可读取"u8) < 0, "密文不应包含明文");
+Assert(protectedText.AsSpan().IndexOf("仅当前用户可读取"u8) < 0, "DPAPI 密文不应包含明文");
 Assert(UserDataProtector.UnprotectText(protectedText) == "仅当前用户可读取", "DPAPI 应能往返解密");
 
 var testDirectory = Path.Combine(Path.GetTempPath(), "PasteOrbit.Tests", Guid.NewGuid().ToString("N"));
-var databasePath = Path.Combine(testDirectory, "history.db");
+Directory.CreateDirectory(testDirectory);
 try
 {
-    // 使用临时数据库验证加密持久化、迁移、清理和损坏恢复。
-    var repository = new ClipboardRepository(databasePath);
-    repository.Initialize();
-    repository.Upsert(second, sameContent);
-
-    var loaded = repository.LoadEntries();
-    Assert(loaded.Count == 1, "SQLite 应加载已保存记录");
-    Assert(loaded[0].Id == second.Id, "SQLite 应保留记录标识");
-    Assert(loaded[0].SearchText == second.SearchText, "SQLite 应解密检索文本");
-    Assert(repository.LoadContent(loaded[0].Id).AsSpan().SequenceEqual(sameContent), "SQLite 应按需解密内容");
-    Assert(File.ReadAllBytes(databasePath).AsSpan().IndexOf("second"u8) < 0, "数据库不应出现检索明文");
-
-    var entry = second;
-    repository.Upsert(entry, sameContent);
-    Assert(repository.LoadEntries().Single() == entry, "元数据查询应保留记录信息");
-    Assert(repository.LoadContent(entry.Id).AsSpan().SequenceEqual(sameContent), "正文应能按记录标识加载");
-    Assert(repository.SetOcrText(entry.Id, "encrypted OCR text"), "OCR 文字应能独立更新");
-    Assert(repository.LoadEntries().Single().OcrText == "encrypted OCR text", "SQLite 应解密 OCR 文字");
-    Assert(File.ReadAllBytes(databasePath).AsSpan().IndexOf("encrypted OCR text"u8) < 0, "数据库不应出现 OCR 明文");
-    Assert(repository.SetPinned(entry.Id, true), "置顶状态应能独立更新");
-    Assert(repository.LoadEntries().Single().IsPinned, "独立置顶更新应持久化");
-
-    var pinned = entry with { Id = Guid.NewGuid(), ContentHash = "pinned", IsPinned = true, UpdatedAt = now };
-    var expired = entry with { Id = Guid.NewGuid(), ContentHash = "expired", UpdatedAt = now.AddDays(-31) };
-    var recent = entry with { Id = Guid.NewGuid(), ContentHash = "recent", UpdatedAt = now.AddMinutes(1) };
-    var cleanupHistory = new ClipboardHistory([pinned, expired, recent]);
-    var removed = cleanupHistory.Cleanup(now.AddDays(-30), 1);
-    Assert(removed.Contains(expired.Id), "过期普通记录应被清理");
-    Assert(cleanupHistory.GetSnapshot().Any(candidate => candidate.Id == pinned.Id), "置顶记录不应被清理");
-    Assert(cleanupHistory.GetSnapshot().Any(candidate => candidate.Id == recent.Id), "限制内的新记录应被保留");
-
-    repository.Upsert(expired, sameContent);
-    repository.Delete([expired.Id]);
-    repository.Compact();
-    Assert(repository.LoadEntries().Count == 1, "SQLite 应删除清理出的记录");
-    AssertThrows<KeyNotFoundException>(
-        () => repository.LoadContent(expired.Id),
-        "已删除记录的正文不应继续可用");
-
-    var compactEntry = entry with
-    {
-        Id = Guid.NewGuid(),
-        ContentHash = "compact-large",
-        UpdatedAt = now.AddMinutes(2)
-    };
-    repository.Upsert(compactEntry, new byte[1024 * 1024]);
-    var databaseSizeBeforeCompact = new FileInfo(databasePath).Length;
-    repository.Delete([compactEntry.Id]);
-    repository.Compact();
-    var databaseSizeAfterCompact = new FileInfo(databasePath).Length;
-    Assert(databaseSizeAfterCompact < databaseSizeBeforeCompact, "SQLite VACUUM 应回收已删除内容占用的空间");
-
-    var corruptPath = Path.Combine(testDirectory, "corrupt.db");
-    File.WriteAllText(corruptPath, "not a sqlite database");
-    var recoveredRepository = new ClipboardRepository(corruptPath);
-    Assert(recoveredRepository.InitializeAndLoadEntries().Count == 0, "损坏数据库应恢复为空库");
-    Assert(File.Exists(recoveredRepository.LastRecoveryPath), "损坏数据库原文件应被保留");
+    VerifyLegacyDatabaseReset(Path.Combine(testDirectory, "legacy.db"));
+    VerifyIncompleteDatabaseReset(Path.Combine(testDirectory, "incomplete.db"));
+    VerifyHistoryStore(Path.Combine(testDirectory, "history.db"));
+    VerifyCorruptDatabaseRecovery(Path.Combine(testDirectory, "corrupt.db"));
 }
 finally
 {
@@ -134,6 +24,194 @@ finally
 }
 
 Console.WriteLine("PasteOrbit.Core checks passed.");
+
+static void VerifyLegacyDatabaseReset(string databasePath)
+{
+    var connectionString = new SqliteConnectionStringBuilder { DataSource = databasePath }.ToString();
+    using (var connection = new SqliteConnection(connectionString))
+    {
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            CREATE TABLE legacy_items (id TEXT PRIMARY KEY);
+            INSERT INTO legacy_items (id) VALUES ('old');
+            PRAGMA user_version = 1;
+            """;
+        command.ExecuteNonQuery();
+    }
+
+    var repository = new ClipboardRepository(databasePath);
+    repository.Initialize();
+    Assert(repository.Count() == 0, "旧数据库应直接删除并创建空的新结构");
+    using var currentConnection = new SqliteConnection(connectionString);
+    currentConnection.Open();
+    using var versionCommand = currentConnection.CreateCommand();
+    versionCommand.CommandText = "PRAGMA user_version;";
+    Assert(Convert.ToInt32(versionCommand.ExecuteScalar()) == 2, "新数据库应写入当前结构版本");
+}
+
+static void VerifyHistoryStore(string databasePath)
+{
+    var repository = new ClipboardRepository(databasePath);
+    var history = new ClipboardHistory(repository);
+    history.Initialize();
+    var now = DateTimeOffset.UtcNow;
+    var sameContent = "ENCRYPTED_CONTENT_MARKER"u8.ToArray();
+
+    var first = history.AddOrUpdate(
+        new ClipboardCapture(ClipboardContentKind.Text, "first", sameContent, "notepad"),
+        now);
+    var second = history.AddOrUpdate(
+        new ClipboardCapture(ClipboardContentKind.Text, "second", sameContent, "browser"),
+        now.AddSeconds(1));
+    Assert(history.Count == 1, "相同内容不应产生重复记录");
+    Assert(first.Id == second.Id, "重复内容应保留原记录标识");
+    Assert(second.PreviewText == "second", "重复内容应更新短预览");
+    Assert(second.SourceApplication == "browser", "重复内容应更新来源应用");
+    Assert(history.Search(new ClipboardHistoryQuery("SECOND"), null, 50).Items.Single().Id == second.Id, "FTS5 搜索应忽略大小写");
+    Assert(history.Search(new ClipboardHistoryQuery("browser"), null, 50).Items.Single().Id == second.Id, "搜索应匹配来源应用");
+    Assert(history.Search(new ClipboardHistoryQuery("first"), null, 50).TotalCount == 0, "重复内容更新后不应保留旧索引");
+
+    var longText = new string('长', 800);
+    var longEntry = history.AddOrUpdate(
+        new ClipboardCapture(ClipboardContentKind.Text, longText, "long-entry"u8.ToArray(), "notepad"),
+        now.AddSeconds(2));
+    Assert(longEntry.PreviewText.Length == 513, "卡片文本预览应限制为 512 字符并附加省略号");
+    Assert(longEntry.SearchTextLength == longText.Length, "轻量记录应保留完整文本长度");
+
+    var chinese = history.AddOrUpdate(
+        new ClipboardCapture(ClipboardContentKind.Text, "剪贴板历史", "pinyin"u8.ToArray(), "notepad"),
+        now.AddSeconds(3));
+    Assert(history.Search(new ClipboardHistoryQuery("剪贴板"), null, 50).Items.Single().Id == chinese.Id, "FTS5 trigram 应匹配中文原文");
+    Assert(history.Search(new ClipboardHistoryQuery("历史"), null, 50).Items.Single().Id == chinese.Id, "短查询应匹配两个中文字符");
+    Assert(history.Search(new ClipboardHistoryQuery("jiantieban"), null, 50).Items.Single().Id == chinese.Id, "搜索应匹配中文全拼");
+    Assert(history.Search(new ClipboardHistoryQuery("jtb"), null, 50).Items.Single().Id == chinese.Id, "搜索应匹配拼音首字母");
+
+    var updatedChinese = history.AddOrUpdate(
+        new ClipboardCapture(ClipboardContentKind.Text, "轨道交通", "pinyin"u8.ToArray(), "notepad"),
+        now.AddSeconds(4));
+    Assert(updatedChinese.Id == chinese.Id, "重复内容更新时应保留记录标识");
+    Assert(history.Search(new ClipboardHistoryQuery("gdjt"), null, 50).Items.Single().Id == chinese.Id, "重复内容更新后应重建拼音索引");
+    Assert(history.Search(new ClipboardHistoryQuery("jtb"), null, 50).TotalCount == 0, "重复内容更新后不应保留旧拼音索引");
+
+    var image = history.AddOrUpdate(
+        new ClipboardCapture(ClipboardContentKind.Image, "图片内容", "image"u8.ToArray(), "snippingtool"),
+        now.AddSeconds(5));
+    var recognized = history.SetOcrText(image.Id, "剪贴板中的识别文字");
+    Assert(recognized?.OcrPreview == "剪贴板中的识别文字", "OCR 更新应返回短预览");
+    Assert(history.LoadOcrText(image.Id) == "剪贴板中的识别文字", "完整 OCR 文本应按 ID 读取");
+    Assert(history.Search(new ClipboardHistoryQuery("识别文字"), null, 50).Items.Single().Id == image.Id, "搜索应匹配 OCR 文字");
+    Assert(history.Search(new ClipboardHistoryQuery("sbwz"), null, 50).Items.Single().Id == image.Id, "拼音搜索应匹配 OCR 首字母");
+
+    var pinned = history.SetPinned(second.Id, true);
+    Assert(pinned?.IsPinned == true, "记录应可置顶");
+    var ordered = history.Search(new ClipboardHistoryQuery(), null, 50).Items;
+    Assert(ordered[0].Id == second.Id, "置顶记录应排在普通记录之前");
+
+    for (var index = 0; index < 125; index++)
+    {
+        history.AddOrUpdate(
+            new ClipboardCapture(
+                ClipboardContentKind.Text,
+                $"paged item {index:D3}",
+                System.Text.Encoding.UTF8.GetBytes($"paged-content-{index:D3}"),
+                "pager"),
+            now.AddMinutes(index + 1));
+    }
+
+    var allEntries = LoadAll(history, new ClipboardHistoryQuery(), 17);
+    Assert(allEntries.Count == history.Count, "游标分页应加载全部记录");
+    Assert(allEntries.Select(entry => entry.Id).Distinct().Count() == allEntries.Count, "游标分页不应产生重复记录");
+    Assert(allEntries[0].Id == second.Id, "分页排序应始终保持置顶记录在前");
+    Assert(
+        allEntries.Skip(1).Zip(allEntries.Skip(2), (left, right) => left.UpdatedAt >= right.UpdatedAt).All(result => result),
+        "普通记录分页应按更新时间倒序");
+
+    var textPage = history.Search(
+        new ClipboardHistoryQuery(null, ClipboardContentKind.Text),
+        null,
+        20);
+    Assert(textPage.Items.All(entry => entry.Kind == ClipboardContentKind.Text), "类型筛选应在数据库查询中执行");
+
+    var filterPinned = history.AddOrUpdate(
+        new ClipboardCapture(ClipboardContentKind.Text, "delete group pinned", "delete-pinned"u8.ToArray(), "tests"),
+        now.AddHours(3));
+    history.SetPinned(filterPinned.Id, true);
+    history.AddOrUpdate(
+        new ClipboardCapture(ClipboardContentKind.Text, "delete group normal", "delete-normal"u8.ToArray(), "tests"),
+        now.AddHours(3).AddSeconds(1));
+    var deletedCount = history.DeleteMatching(new ClipboardHistoryQuery("delete group"));
+    Assert(deletedCount == 1, "清空筛选结果应只删除未置顶记录");
+    Assert(history.Search(new ClipboardHistoryQuery("delete group pinned"), null, 50).Items.Single().Id == filterPinned.Id, "清空筛选结果应保留置顶记录");
+
+    var cleanupPinned = history.AddOrUpdate(
+        new ClipboardCapture(ClipboardContentKind.Text, "cleanup pinned", "cleanup-pinned"u8.ToArray(), "tests"),
+        now.AddDays(-90));
+    history.SetPinned(cleanupPinned.Id, true);
+    history.AddOrUpdate(
+        new ClipboardCapture(ClipboardContentKind.Text, "cleanup expired", "cleanup-expired"u8.ToArray(), "tests"),
+        now.AddDays(-90));
+    var removedCount = history.Cleanup(now.AddDays(-30), 500);
+    Assert(removedCount >= 1, "自动清理应删除过期普通记录");
+    Assert(history.Search(new ClipboardHistoryQuery("cleanup pinned"), null, 50).TotalCount == 1, "自动清理应保留置顶记录");
+
+    Assert(repository.LoadContent(second.Id).AsSpan().SequenceEqual(sameContent), "正文应按 ID 解密读取");
+    Assert(File.ReadAllBytes(databasePath).AsSpan().IndexOf(sameContent) < 0, "数据库文件不应包含未加密正文");
+    repository.Compact();
+    repository.Compact(full: true);
+    Assert(history.Remove(longEntry.Id), "记录应能从数据库和搜索索引删除");
+    AssertThrows<KeyNotFoundException>(() => repository.LoadContent(longEntry.Id), "删除后正文不应继续可用");
+}
+
+static void VerifyIncompleteDatabaseReset(string databasePath)
+{
+    var connectionString = new SqliteConnectionStringBuilder
+    {
+        DataSource = databasePath,
+        Pooling = false
+    }.ToString();
+    using (var connection = new SqliteConnection(connectionString))
+    {
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            CREATE TABLE clipboard_items (storage_id INTEGER PRIMARY KEY);
+            PRAGMA user_version = 2;
+            """;
+        command.ExecuteNonQuery();
+    }
+
+    var repository = new ClipboardRepository(databasePath);
+    repository.Initialize();
+    Assert(repository.Count() == 0, "当前版本但结构不完整的数据库应直接重建");
+}
+
+static IReadOnlyList<ClipboardHistoryEntry> LoadAll(
+    ClipboardHistory history,
+    ClipboardHistoryQuery query,
+    int pageSize)
+{
+    var entries = new List<ClipboardHistoryEntry>();
+    ClipboardHistoryCursor? cursor = null;
+    do
+    {
+        var page = history.Search(query, cursor, pageSize);
+        entries.AddRange(page.Items);
+        cursor = page.NextCursor;
+    }
+    while (cursor is not null);
+
+    return entries;
+}
+
+static void VerifyCorruptDatabaseRecovery(string databasePath)
+{
+    File.WriteAllText(databasePath, "not a sqlite database");
+    var repository = new ClipboardRepository(databasePath);
+    repository.Initialize();
+    Assert(repository.Count() == 0, "损坏数据库应恢复为空库");
+    Assert(repository.LastRecoveryPath is not null && File.Exists(repository.LastRecoveryPath), "损坏数据库原文件应被隔离保留");
+}
 
 static void Assert(bool condition, string message)
 {

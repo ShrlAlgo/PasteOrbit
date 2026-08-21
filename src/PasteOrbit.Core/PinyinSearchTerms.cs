@@ -54,10 +54,4 @@ internal sealed record PinyinSearchTerms(string FullPinyin, string Initials)
             ? new PinyinSearchTerms(fullPinyin.ToString(), initials.ToString())
             : null;
     }
-
-    public bool Matches(string query)
-    {
-        return FullPinyin.Contains(query, StringComparison.OrdinalIgnoreCase)
-            || Initials.Contains(query, StringComparison.OrdinalIgnoreCase);
-    }
 }
