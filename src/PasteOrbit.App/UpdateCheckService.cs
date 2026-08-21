@@ -70,7 +70,7 @@ public sealed class UpdateCheckService : IDisposable
             return null;
         }
 
-        // 安装包缺失时保留打开 Release 页面作为回退入口。
+        // 安装包缺失时返回不可自动更新状态，由界面提供“不再提示”操作。
         var installer = SelectInstallerAsset(release.Assets);
 
         return new UpdateCheckResult(

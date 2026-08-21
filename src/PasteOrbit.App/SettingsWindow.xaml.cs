@@ -37,6 +37,7 @@ public sealed partial class SettingsWindow : Window
     private readonly Func<string, Task> _restoreBackup;
     private readonly Func<Task<UpdateCheckResult?>> _checkForUpdates;
     private readonly Func<UpdateCheckResult, XamlRoot, Task> _applyUpdate;
+    private AppSettings _settings;
     private string _appliedLanguage;
     private bool _isInitialized;
     private bool _isLoadingSettings;
@@ -69,6 +70,7 @@ public sealed partial class SettingsWindow : Window
         InitializeComponent();
         Title = AppLocalization.GetString("SettingsWindowTitle");
         _store = store;
+        _settings = settings;
         _exportBackup = exportBackup;
         _restoreBackup = restoreBackup;
         _checkForUpdates = checkForUpdates;
@@ -617,7 +619,8 @@ public sealed partial class SettingsWindow : Window
             Language = GetSelectedLanguage(),
             ThemeMode = GetSelectedValue(ThemeComboBox),
             RetentionDays = int.Parse(GetSelectedValue(RetentionDaysComboBox)),
-            MaxHistoryEntries = int.Parse(GetSelectedValue(MaxEntriesComboBox))
+            MaxHistoryEntries = int.Parse(GetSelectedValue(MaxEntriesComboBox)),
+            SkippedUpdateVersion = _settings.SkippedUpdateVersion
         };
     }
 
@@ -757,6 +760,7 @@ public sealed partial class SettingsWindow : Window
 
             ApplyThemeSettings(newSettings.ThemeMode);
             SettingsChanged?.Invoke(newSettings);
+            _settings = newSettings;
             _appliedLanguage = newSettings.Language;
             if (languageChanged)
             {
@@ -910,9 +914,9 @@ public sealed partial class SettingsWindow : Window
             Content = content,
             PrimaryButtonText = result.CanAutoUpdate
                 ? AppLocalization.GetString("DownloadUpdateButton")
-                : AppLocalization.GetString("OpenReleasePageButton"),
+                : AppLocalization.GetString("DoNotRemindUpdateButton"),
             SecondaryButtonText = result.CanAutoUpdate
-                ? AppLocalization.GetString("OpenReleasePageButton")
+                ? AppLocalization.GetString("DoNotRemindUpdateButton")
                 : string.Empty,
             CloseButtonText = AppLocalization.GetString("Later"),
             DefaultButton = ContentDialogButton.Primary,
@@ -932,11 +936,14 @@ public sealed partial class SettingsWindow : Window
         if ((dialogResult == ContentDialogResult.Primary && !result.CanAutoUpdate)
             || dialogResult == ContentDialogResult.Secondary)
         {
-            if (!await Launcher.LaunchUriAsync(result.ReleaseUri))
+            _settings.SkippedUpdateVersion = result.ReleaseTag;
+            try
             {
-                await ShowMessageAsync(
-                    AppLocalization.GetString("UpdateOpenFailedTitle"),
-                    AppLocalization.GetString("UpdateOpenFailedMessage"));
+                _store.Save(_settings);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                Debug.WriteLine($"保存忽略更新版本失败：{exception}");
             }
         }
     }

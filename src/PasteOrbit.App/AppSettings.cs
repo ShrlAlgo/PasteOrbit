@@ -42,6 +42,8 @@ public sealed class AppSettings
     public int RetentionDays { get; set; } = 30;
 
     public int MaxHistoryEntries { get; set; } = 5000;
+
+    public string? SkippedUpdateVersion { get; set; }
 }
 
 public sealed class AppSettingsStore

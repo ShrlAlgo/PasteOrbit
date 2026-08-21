@@ -300,4 +300,9 @@
   <data name="PasteOcrTextMenuItemText" xml:space="preserve"><value>Paste recognized text</value></data>
   <data name="PasteAsFileMenuItemText" xml:space="preserve"><value>Paste as file</value></data>
   <data name="DeleteRecordMenuItemText" xml:space="preserve"><value>Delete item</value></data>
+  <data name="MainGitHubButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Open PasteOrbit GitHub repository</value></data>
+  <data name="MainGitHubButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>GitHub</value></data>
+  <data name="MainGitHubButtonAutomationName" xml:space="preserve"><value>Open PasteOrbit GitHub repository</value></data>
+  <data name="MainGitHubButtonTooltip" xml:space="preserve"><value>GitHub</value></data>
+  <data name="DoNotRemindUpdateButton" xml:space="preserve"><value>Don't remind me again</value></data>
 </root>

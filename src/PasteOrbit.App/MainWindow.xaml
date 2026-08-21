@@ -219,6 +219,20 @@
                             <FontIcon Glyph="&#xE718;" />
                         </Viewbox>
                     </ToggleButton>
+                    <Button
+                        x:Name="GitHubButton"
+                        x:Uid="MainGitHubButton"
+                        AutomationProperties.Name="打开 PasteOrbit GitHub 仓库"
+                        Click="GitHubButton_Click"
+                        Style="{StaticResource HeaderButtonStyle}"
+                        ToolTipService.ToolTip="GitHub">
+                        <Viewbox
+                            Width="14"
+                            Height="14"
+                            Stretch="Uniform">
+                            <FontIcon Glyph="&#xE71B;" />
+                        </Viewbox>
+                    </Button>
                 </StackPanel>
             </Grid>
 

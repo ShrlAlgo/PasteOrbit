@@ -1415,6 +1415,12 @@ public sealed partial class MainWindow : Window
             WindowPinToggle,
             AppLocalization.GetString("MainWindowPinToggleTooltip"));
         AutomationProperties.SetName(
+            GitHubButton,
+            AppLocalization.GetString("MainGitHubButtonAutomationName"));
+        ToolTipService.SetToolTip(
+            GitHubButton,
+            AppLocalization.GetString("MainGitHubButtonTooltip"));
+        AutomationProperties.SetName(
             SearchBox,
             AppLocalization.GetString("MainSearchBoxAutomationName"));
         SearchBox.PlaceholderText = AppLocalization.GetString("MainSearchBoxPlaceholder");
@@ -2421,6 +2427,18 @@ public sealed partial class MainWindow : Window
         OpenSettings();
     }
 
+    private async void GitHubButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await Launcher.LaunchUriAsync(new Uri("https://github.com/ShrlAlgo/PasteOrbit"));
+        }
+        catch (Exception exception)
+        {
+            System.Diagnostics.Debug.WriteLine($"打开 GitHub 仓库失败：{exception}");
+        }
+    }
+
     private void OpenSettings()
     {
         if (_settingsWindow is not null)
@@ -2510,7 +2528,11 @@ public sealed partial class MainWindow : Window
         {
             // 首次激活后后台检查一次，网络异常不影响剪切板监听。
             var result = await CheckForUpdatesAsync();
-            if (result?.IsUpdateAvailable == true)
+            if (result?.IsUpdateAvailable == true
+                && !string.Equals(
+                    _settings.SkippedUpdateVersion,
+                    result.ReleaseTag,
+                    StringComparison.OrdinalIgnoreCase))
             {
                 await ShowUpdateDialogAsync(result);
             }
@@ -2560,16 +2582,16 @@ public sealed partial class MainWindow : Window
             });
         }
 
-        // 有安装包时优先提供自动更新，Release 页面始终保留为回退入口。
+        // 有安装包时优先提供自动更新；没有安装包时允许忽略当前版本提示。
         var dialog = new ContentDialog
         {
             Title = AppLocalization.GetString("UpdateAvailableTitle"),
             Content = content,
             PrimaryButtonText = result.CanAutoUpdate
                 ? AppLocalization.GetString("DownloadUpdateButton")
-                : AppLocalization.GetString("OpenReleasePageButton"),
+                : AppLocalization.GetString("DoNotRemindUpdateButton"),
             SecondaryButtonText = result.CanAutoUpdate
-                ? AppLocalization.GetString("OpenReleasePageButton")
+                ? AppLocalization.GetString("DoNotRemindUpdateButton")
                 : string.Empty,
             CloseButtonText = AppLocalization.GetString("Later"),
             DefaultButton = ContentDialogButton.Primary,
@@ -2585,10 +2607,20 @@ public sealed partial class MainWindow : Window
         if ((dialogResult == ContentDialogResult.Primary && !result.CanAutoUpdate)
             || dialogResult == ContentDialogResult.Secondary)
         {
-            if (!await Launcher.LaunchUriAsync(result.ReleaseUri))
-            {
-                System.Diagnostics.Debug.WriteLine("无法打开更新下载页面。");
-            }
+            IgnoreUpdateVersion(result);
+        }
+    }
+
+    private void IgnoreUpdateVersion(UpdateCheckResult result)
+    {
+        _settings.SkippedUpdateVersion = result.ReleaseTag;
+        try
+        {
+            _settingsStore.Save(_settings);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            System.Diagnostics.Debug.WriteLine($"保存忽略更新版本失败：{exception}");
         }
     }
 
@@ -2596,11 +2628,7 @@ public sealed partial class MainWindow : Window
     {
         if (!result.CanAutoUpdate)
         {
-            if (!await Launcher.LaunchUriAsync(result.ReleaseUri))
-            {
-                System.Diagnostics.Debug.WriteLine("无法打开更新下载页面。");
-            }
-
+            IgnoreUpdateVersion(result);
             return;
         }
 
@@ -2814,6 +2842,17 @@ public sealed partial class MainWindow : Window
             if (_displayItems.Count > 0)
             {
                 HistoryList.ScrollIntoView(_displayItems[0], ScrollIntoViewAlignment.Leading);
+            }
+
+            // 隐藏面板时会释放图片流；再次显示时容器可能不会重新触发 Loaded，因此主动恢复可见卡片的图片预览。
+            HistoryList.UpdateLayout();
+            foreach (var item in _displayItems)
+            {
+                if (item.Item.Kind == ClipboardContentKind.Image
+                    && HistoryList.ContainerFromItem(item) is not null)
+                {
+                    _ = item.EnsureThumbnailLoadedAsync(_repository.LoadContent);
+                }
             }
         });
     }

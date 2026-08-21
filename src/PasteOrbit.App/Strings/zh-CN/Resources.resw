@@ -300,4 +300,9 @@
   <data name="PasteOcrTextMenuItemText" xml:space="preserve"><value>粘贴识别文字</value></data>
   <data name="PasteAsFileMenuItemText" xml:space="preserve"><value>粘贴为文件</value></data>
   <data name="DeleteRecordMenuItemText" xml:space="preserve"><value>删除记录</value></data>
+  <data name="MainGitHubButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>打开 PasteOrbit GitHub 仓库</value></data>
+  <data name="MainGitHubButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>GitHub</value></data>
+  <data name="MainGitHubButtonAutomationName" xml:space="preserve"><value>打开 PasteOrbit GitHub 仓库</value></data>
+  <data name="MainGitHubButtonTooltip" xml:space="preserve"><value>GitHub</value></data>
+  <data name="DoNotRemindUpdateButton" xml:space="preserve"><value>不再提示</value></data>
 </root>
