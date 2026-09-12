@@ -1,40 +1,49 @@
-using Microsoft.Windows.ApplicationModel.Resources;
-using Microsoft.Windows.Globalization;
+using System.Globalization;
+using System.Xml.Linq;
 
 namespace PasteOrbit.App;
 
-/// <summary>
-/// 统一读取和刷新 WinUI 资源语言。
-/// </summary>
 internal static class AppLocalization
 {
-    private static ResourceLoader _resourceLoader = new();
+    private static IReadOnlyDictionary<string, string> _resources = new Dictionary<string, string>();
 
-    public static string GetString(string resourceName)
+    public static string CurrentLanguage { get; private set; } = "zh-CN";
+
+    public static void SetLanguage(string? language)
     {
-        return _resourceLoader.GetString(resourceName);
+        CurrentLanguage = language is "en-US" or "zh-CN"
+            ? language
+            : CultureInfo.CurrentUICulture.Name.StartsWith("zh", StringComparison.OrdinalIgnoreCase) ? "zh-CN" : "en-US";
+        var path = Path.Combine(AppContext.BaseDirectory, "Strings", CurrentLanguage, "Resources.resw");
+        _resources = LoadResources(path);
     }
 
-    public static string Format(string resourceName, params object[] arguments)
+    public static string GetString(string key)
     {
-        return string.Format(GetString(resourceName), arguments);
+        return _resources.TryGetValue(key, out var value) ? value : key;
     }
 
-    public static void SetLanguage(string language)
+    public static string Format(string key, params object?[] arguments)
     {
-        var requestedLanguage = language switch
-        {
-            "zh-CN" => "zh-CN",
-            "en-US" => "en-US",
-            _ => App.SystemLanguage
-        };
+        return string.Format(CultureInfo.CurrentCulture, GetString(key), arguments);
+    }
 
-        if (!string.Equals(ApplicationLanguages.PrimaryLanguageOverride, requestedLanguage, StringComparison.OrdinalIgnoreCase))
+    private static IReadOnlyDictionary<string, string> LoadResources(string path)
+    {
+        if (!File.Exists(path))
         {
-            ApplicationLanguages.PrimaryLanguageOverride = requestedLanguage;
+            return new Dictionary<string, string>();
         }
 
-        // ResourceLoader 会缓存当前资源上下文，语言切换后重新创建才能让后续代码读取新语言。
-        _resourceLoader = new ResourceLoader();
+        // 继续复用现有 RESW，WPF 与 WinUI 分支共用同一套翻译文本。
+        return XDocument.Load(path)
+            .Root?
+            .Elements("data")
+            .Where(element => element.Attribute("name") is not null)
+            .ToDictionary(
+                element => element.Attribute("name")!.Value,
+                element => element.Element("value")?.Value ?? string.Empty,
+                StringComparer.Ordinal)
+            ?? new Dictionary<string, string>();
     }
 }

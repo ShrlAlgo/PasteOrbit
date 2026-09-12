@@ -1,118 +1,149 @@
-using System.Runtime.InteropServices;
 using System.Threading;
-using Microsoft.Windows.Globalization;
-using Microsoft.UI.Xaml;
+using System.Windows;
+using System.Windows.Forms;
+
+using PasteOrbit.Core;
 
 namespace PasteOrbit.App;
 
-/// <summary>
-/// 应用生命周期入口，负责语言覆盖、单实例唤醒和主窗口释放。
-/// </summary>
-public partial class App : Application
+public partial class App : System.Windows.Application
 {
-    private const string SingleInstanceMutexName = @"Local\PasteOrbit.SingleInstance";
-    private static readonly IntPtr HwndBroadcast = new(-1);
-    internal static readonly uint ShowExistingInstanceMessage = RegisterWindowMessage("PasteOrbit.ShowExistingInstance");
-    // 在应用覆盖语言前记录系统首选语言，运行时切回“跟随系统”时仍能恢复到正确资源。
-    internal static readonly string SystemLanguage = ResolveSystemLanguage();
-
+    private const string MutexName = "Local\\PasteOrbit.SingleInstance";
+    private Mutex? _instanceMutex;
+    private NotifyIcon? _trayIcon;
+    private ClipboardRepository? _repository;
     private MainWindow? _mainWindow;
-    private Mutex? _singleInstanceMutex;
-    private readonly bool _isPrimaryInstance;
-    private bool _isExiting;
+    private SettingsWindow? _settingsWindow;
 
     public App()
     {
-        var settingsPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "PasteOrbit",
-            "settings.json");
-        var language = new AppSettingsStore(settingsPath).Load().Language;
-        if (!string.IsNullOrEmpty(language))
+        Startup += OnStartup;
+        Exit += OnExit;
+        DispatcherUnhandledException += (_, args) =>
         {
-            ApplicationLanguages.PrimaryLanguageOverride = language;
-        }
-
-        InitializeComponent();
-        _singleInstanceMutex = new Mutex(true, SingleInstanceMutexName, out var createdNew);
-        _isPrimaryInstance = createdNew;
+            MessageBox.Show(args.Exception.Message, "PasteOrbit", MessageBoxButton.OK, MessageBoxImage.Error);
+            args.Handled = true;
+        };
     }
 
-    protected override void OnLaunched(LaunchActivatedEventArgs args)
+    public AppSettings Settings { get; private set; } = new();
+    public AppSettingsStore SettingsStore { get; private set; } = null!;
+    public string DataDirectory { get; private set; } = string.Empty;
+    public ClipboardRepository Repository => _repository!;
+
+    public void ShowMainWindow(IntPtr targetWindow = default) => _mainWindow?.ShowPanel(targetWindow);
+
+    public void ShowSettings()
     {
-        // 非主实例只发送唤醒消息，不重复创建托盘、监听器和窗口。
-        if (!_isPrimaryInstance)
+        if (_settingsWindow is null)
         {
-            // 第二个实例只负责唤醒首个实例，随后立即退出，不创建窗口和后台服务。
-            PostMessage(HwndBroadcast, ShowExistingInstanceMessage, IntPtr.Zero, IntPtr.Zero);
-            _singleInstanceMutex?.Dispose();
-            _singleInstanceMutex = null;
-            Environment.Exit(0);
+            _settingsWindow = new SettingsWindow(this);
+            _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+        }
+
+        _settingsWindow.Show();
+        _settingsWindow.Activate();
+    }
+
+    public void ExitApplication()
+    {
+        _settingsWindow?.Close();
+        _mainWindow?.CloseForExit();
+        Shutdown();
+    }
+
+    public void ApplyTheme(string themeMode)
+    {
+        ThemeMode = themeMode switch
+        {
+            "Light" => System.Windows.ThemeMode.Light,
+            "Dark" => System.Windows.ThemeMode.Dark,
+            _ => System.Windows.ThemeMode.System
+        };
+    }
+
+    private void OnStartup(object sender, StartupEventArgs e)
+    {
+        _instanceMutex = new Mutex(true, MutexName, out var isFirstInstance);
+        if (!isFirstInstance)
+        {
+            Shutdown();
             return;
         }
 
-        _mainWindow = new MainWindow();
-        _mainWindow.Closed += (_, _) => ReleaseSingleInstance();
-        // 先完成窗口尺寸、位置和原生句柄配置，再首次显示，避免面板在默认位置闪现。
-        _mainWindow.InitializeNative();
-        _mainWindow.Activate();
+        DataDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PasteOrbit");
+        Directory.CreateDirectory(DataDirectory);
+        SettingsStore = new AppSettingsStore(Path.Combine(DataDirectory, "settings.json"));
+        Settings = SettingsStore.Load();
+        AppLocalization.SetLanguage(Settings.Language);
+        ApplyTheme(Settings.ThemeMode);
+
+        _repository = new ClipboardRepository(Path.Combine(DataDirectory, "history.db"));
+        _repository.Initialize();
+        _mainWindow = new MainWindow(this, new ClipboardHistory(_repository));
+        MainWindow = _mainWindow;
+        CreateTrayIcon();
+        _mainWindow.ShowPanel();
     }
 
-    internal void ExitApplication()
+    private void CreateTrayIcon()
     {
-        // 统一关闭主窗口及其后台资源，保证单实例互斥体最终释放。
-        if (_isExiting)
+        var menu = new ContextMenuStrip();
+        menu.Items.Add(AppLocalization.GetString("TrayOpenHistory"), null, (_, _) => ShowMainWindow());
+        menu.Items.Add(AppLocalization.GetString("TraySettings"), null, (_, _) => ShowSettings());
+        menu.Items.Add(AppLocalization.GetString("TrayCheckForUpdates"), null, async (_, _) => await CheckForUpdatesAsync());
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(AppLocalization.GetString("TrayExit"), null, (_, _) => ExitApplication());
+        _trayIcon = new NotifyIcon
         {
-            return;
+            Icon = new System.Drawing.Icon(Path.Combine(AppContext.BaseDirectory, "Assets", "PasteOrbit.ico")),
+            Text = "PasteOrbit",
+            ContextMenuStrip = menu,
+            Visible = true
+        };
+        _trayIcon.DoubleClick += (_, _) => ShowMainWindow();
+    }
+
+    private async Task CheckForUpdatesAsync()
+    {
+        try
+        {
+            using var service = new UpdateCheckService();
+            var update = await service.CheckAsync();
+            var message = update is { IsUpdateAvailable: true }
+                ? $"{AppLocalization.GetString("UpdateAvailableTitle")} {update.LatestVersion}"
+                : AppLocalization.GetString("UpdateNoUpdateMessage");
+            MessageBox.Show(message, "PasteOrbit", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception exception)
+        {
+            MessageBox.Show(exception.Message, "PasteOrbit", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void OnExit(object sender, ExitEventArgs e)
+    {
+        if (_trayIcon is not null)
+        {
+            _trayIcon.Visible = false;
+            _trayIcon.Dispose();
         }
 
-        _isExiting = true;
-        _mainWindow?.ExitApplication();
-    }
-
-    private void ReleaseSingleInstance()
-    {
-        if (_singleInstanceMutex is null)
+        _repository?.Compact();
+        if (_instanceMutex is null)
         {
             return;
         }
 
         try
         {
-            _singleInstanceMutex.ReleaseMutex();
+            _instanceMutex.ReleaseMutex();
         }
         catch (ApplicationException)
         {
         }
 
-        _singleInstanceMutex.Dispose();
-        _singleInstanceMutex = null;
+        _instanceMutex.Dispose();
     }
-
-    private static string ResolveSystemLanguage()
-    {
-        // 只映射应用提供的语言，其他系统语言使用中文资源。
-        foreach (var language in ApplicationLanguages.Languages)
-        {
-            if (language.StartsWith("en", StringComparison.OrdinalIgnoreCase))
-            {
-                return "en-US";
-            }
-
-            if (language.StartsWith("zh", StringComparison.OrdinalIgnoreCase))
-            {
-                return "zh-CN";
-            }
-        }
-
-        return "zh-CN";
-    }
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern uint RegisterWindowMessage(string message);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool PostMessage(IntPtr windowHandle, uint message, IntPtr wParam, IntPtr lParam);
 
 }

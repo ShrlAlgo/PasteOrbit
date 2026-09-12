@@ -1,38 +1,51 @@
 <Project Sdk="Microsoft.NET.Sdk">
-
-  <ItemGroup>
-    <!-- 使用项目内原生托盘实现，避免额外托盘窗口依赖。 -->
-    <ProjectReference Include="..\PasteOrbit.Core\PasteOrbit.Core.csproj" />
-    <Content Include="..\..\Assets\PasteOrbit.ico" Link="Assets\PasteOrbit.ico" CopyToOutputDirectory="PreserveNewest" />
-    <!-- Runtime 要求组件版本严格匹配，显式固定当前可用版本。 -->
-    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.3.0" />
-    <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" Version="2.3.5" />
-    <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="2.1.3" />
-    <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" Version="2.3.1" />
-    <!-- 应用未使用 WebView2 控件，不复制其托管程序集和本机加载器。 -->
-    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3719.77" ExcludeAssets="all" PrivateAssets="all" />
-
-  </ItemGroup>
-
   <PropertyGroup>
     <AssemblyName>PasteOrbit</AssemblyName>
     <RootNamespace>PasteOrbit.App</RootNamespace>
     <OutputType>WinExe</OutputType>
-    <ApplicationIcon>..\..\Assets\PasteOrbit.ico</ApplicationIcon>
-    <TargetFramework>net8.0-windows10.0.26100.0</TargetFramework>
-    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <UseWinUI>true</UseWinUI>
-    <WindowsPackageType>None</WindowsPackageType>
-    <DefaultLanguage>zh-CN</DefaultLanguage>
-    <!-- 使用本机已安装的 Windows App Runtime，避免把整套运行时复制到输出目录。 -->
-    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationIcon>..\..\Assets\PasteOrbit.ico</ApplicationIcon>
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
     <AppendPlatformToOutputPath>false</AppendPlatformToOutputPath>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EnableDefaultPageItems>false</EnableDefaultPageItems>
+    <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
+    <NoWarn>$(NoWarn);WPF0001</NoWarn>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\PasteOrbit.Core\PasteOrbit.Core.csproj" />
+    <Content Include="..\..\Assets\PasteOrbit.ico" Link="Assets\PasteOrbit.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Strings\**\Resources.resw" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ApplicationDefinition Include="App.xaml" />
+    <Page Include="MainWindow.xaml" />
+    <Page Include="SettingsWindow.xaml" />
+    <Compile Include="App.xaml.cs" />
+    <Compile Include="AppLocalization.cs" />
+    <Compile Include="AppSettings.cs" />
+    <Compile Include="ClipboardTextContent.cs" />
+    <Compile Include="ExplorerFilePaste.cs" />
+    <Compile Include="GlobalHotKey.cs" />
+    <Compile Include="GlobalUsings.cs" />
+    <Compile Include="HistoryListItem.cs" />
+    <Compile Include="LocalBackupService.cs" />
+    <Compile Include="MainWindow.xaml.cs" />
+    <Compile Include="SettingsWindow.xaml.cs" />
+    <Compile Include="UpdateCheckService.cs" />
+    <Compile Include="UpdateInstaller.cs" />
+    <Compile Include="UiAutomationTarget.cs" />
+    <Compile Include="Win32MessageBridge.cs" />
+    <Compile Include="WpfClipboardMonitor.cs" />
+    <Compile Include="WpfClipboardPlayback.cs" />
+  </ItemGroup>
 </Project>

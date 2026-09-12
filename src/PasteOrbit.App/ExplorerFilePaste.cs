@@ -59,8 +59,8 @@ internal static class ExplorerFilePaste
             }
             else
             {
-                var pngContent = await ImageFileConverter.ConvertToPngAsync(content);
-                await File.WriteAllBytesAsync(filePath, pngContent, CancellationToken.None);
+                // WPF 捕获阶段已将位图规范化为 PNG，导出时保留同一份原始字节。
+                await File.WriteAllBytesAsync(filePath, content, CancellationToken.None);
             }
 
             SHChangeNotify(ShcneUpdatedir, ShcnfPathW, folderPath, IntPtr.Zero);

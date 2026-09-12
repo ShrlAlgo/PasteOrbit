@@ -1,1131 +1,163 @@
-using System.ComponentModel;
 using System.Diagnostics;
-using System.Runtime.InteropServices;
-using System.Security;
-using System.Security.Cryptography;
+using System.Globalization;
+using System.Reflection;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
 
-using Microsoft.UI;
-using Microsoft.UI.Windowing;
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Automation;
-using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Input;
 using Microsoft.Win32;
-
-using Windows.Graphics;
-using Windows.Storage.Pickers;
-using Windows.System;
-
-using WinRT.Interop;
 
 namespace PasteOrbit.App;
 
-/// <summary>
-/// 设置窗口及其导航、配置持久化和快捷键捕获逻辑。
-/// </summary>
-public sealed partial class SettingsWindow : Window
+public partial class SettingsWindow : Window
 {
-    private const int VirtualKeyControl = 0x11;
-    private const int VirtualKeyAlt = 0x12;
-    private const int VirtualKeyShift = 0x10;
-    private const int VirtualKeyLeftWindows = 0x5B;
-    private const int VirtualKeyRightWindows = 0x5C;
-    private const string StartupRunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
-    private const string StartupValueName = "PasteOrbit";
-    private readonly AppSettingsStore _store;
-    private readonly Func<string, Task> _exportBackup;
-    private readonly Func<string, Task> _restoreBackup;
-    private readonly Func<Task<UpdateCheckResult?>> _checkForUpdates;
-    private readonly Func<UpdateCheckResult, XamlRoot, Task> _applyUpdate;
-    private AppSettings _settings;
-    private string _appliedLanguage;
-    private bool _isInitialized;
-    private bool _isLoadingSettings;
-    private bool _isRefreshingLocalization;
-    private bool _configured;
-    private bool _isCheckingForUpdates;
-    private AppWindow? _appWindow;
-    private Button? _capturingShortcutButton;
-    private string? _capturingShortcutValue;
-    // 设置页使用轻量页面历史栈，让标题栏返回与 NavigationView 的页面切换保持一致。
-    private readonly Stack<string> _navigationHistory = [];
-    private string? _currentPageTag;
-    private bool _isNavigatingBack;
+    private readonly App _app;
+    private readonly LocalBackupService _backup;
 
-    private sealed record RunningProcessItem(string ProcessName, string WindowTitle)
+    public SettingsWindow(App app)
     {
-        public string DisplayName => string.IsNullOrWhiteSpace(WindowTitle)
-            ? ProcessName
-            : $"{WindowTitle} ({ProcessName})";
-    }
-
-    public SettingsWindow(
-        AppSettings settings,
-        AppSettingsStore store,
-        Func<string, Task> exportBackup,
-        Func<string, Task> restoreBackup,
-        Func<Task<UpdateCheckResult?>> checkForUpdates,
-        Func<UpdateCheckResult, XamlRoot, Task> applyUpdate)
-    {
+        _app = app;
+        _backup = new LocalBackupService(
+            Path.Combine(app.DataDirectory, "history.db"),
+            Path.Combine(app.DataDirectory, "settings.json"));
         InitializeComponent();
-        Title = AppLocalization.GetString("SettingsWindowTitle");
-        _store = store;
-        _settings = settings;
-        _exportBackup = exportBackup;
-        _restoreBackup = restoreBackup;
-        _checkForUpdates = checkForUpdates;
-        _applyUpdate = applyUpdate;
-        _appliedLanguage = settings.Language;
-        _currentPageTag = "General";
-        _isInitialized = true;
-        ApplyThemeSettings(settings.ThemeMode);
-        _isLoadingSettings = true;
-        LoadSettings(settings);
-        _isLoadingSettings = false;
-        RefreshLocalization();
-        AttachSettingHandlers();
-        SettingsNavigation.BackRequested += SettingsNavigation_BackRequested;
-        Activated += SettingsWindow_Activated;
+        LoadSettings(app.Settings);
+        VersionText.Text = $"PasteOrbit {Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3)}";
     }
 
-    public event Action<AppSettings>? SettingsChanged;
-
-    public void InitializeNative()
+    private void LoadSettings(AppSettings settings)
     {
-        if (_configured)
+        LanguageBox.SelectedValue = settings.Language;
+        ThemeBox.SelectedValue = settings.ThemeMode;
+        AutoHideBox.IsChecked = settings.AutoHideOnDeactivate;
+        StartWithWindowsBox.IsChecked = settings.StartWithWindows;
+        MonitorTextBox.IsChecked = settings.MonitorText;
+        MonitorImagesBox.IsChecked = settings.MonitorImages;
+        MonitorFilesBox.IsChecked = settings.MonitorFiles;
+        ExcludedAppsBox.Text = settings.ExcludedApplications;
+        RetentionDaysBox.Text = settings.RetentionDays.ToString(CultureInfo.InvariantCulture);
+        MaxEntriesBox.Text = settings.MaxHistoryEntries.ToString(CultureInfo.InvariantCulture);
+        HotKeyBox.Text = settings.GlobalHotKey;
+    }
+
+    private void SaveButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!int.TryParse(RetentionDaysBox.Text, out var retentionDays) || retentionDays is < 1 or > 3650
+            || !int.TryParse(MaxEntriesBox.Text, out var maxEntries) || maxEntries is < 10 or > 100000)
         {
+            MessageBox.Show("历史保留范围无效。", "PasteOrbit", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
-        _configured = true;
-        var handle = WindowNative.GetWindowHandle(this);
-        _appWindow = AppWindow.GetFromWindowId(Win32Interop.GetWindowIdFromWindow(handle));
-        var appWindow = _appWindow!;
-        var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "PasteOrbit.ico");
-        if (File.Exists(iconPath))
-        {
-            appWindow.SetIcon(iconPath);
-        }
-        appWindow.Resize(new SizeInt32(760, 680));
-        var presenter = OverlappedPresenter.Create();
-        presenter.IsResizable = true;
-        presenter.IsMaximizable = false;
-        presenter.IsMinimizable = false;
-        presenter.PreferredMinimumWidth = 600;
-        presenter.SetBorderAndTitleBar(true, true);
-        ExtendsContentIntoTitleBar = true;
-        SetTitleBar(SettingsTitleBar);
-        appWindow.SetPresenter(presenter);
-        ApplyNativeTitleBarTheme();
-        var workArea = DisplayArea.GetFromWindowId(appWindow.Id, DisplayAreaFallback.Primary).WorkArea;
-        appWindow.Move(new PointInt32(
-            workArea.X + (workArea.Width - appWindow.Size.Width) / 2,
-            workArea.Y + (workArea.Height - appWindow.Size.Height) / 2));
+        var settings = _app.Settings;
+        settings.Language = LanguageBox.SelectedValue as string ?? string.Empty;
+        settings.ThemeMode = ThemeBox.SelectedValue as string ?? "System";
+        settings.AutoHideOnDeactivate = AutoHideBox.IsChecked == true;
+        settings.StartWithWindows = StartWithWindowsBox.IsChecked == true;
+        settings.MonitorText = MonitorTextBox.IsChecked == true;
+        settings.MonitorImages = MonitorImagesBox.IsChecked == true;
+        settings.MonitorFiles = MonitorFilesBox.IsChecked == true;
+        settings.ExcludedApplications = ExcludedAppsBox.Text.Trim();
+        settings.RetentionDays = retentionDays;
+        settings.MaxHistoryEntries = maxEntries;
+        settings.GlobalHotKey = HotKeyBox.Text;
+        _app.SettingsStore.Save(settings);
+        AppLocalization.SetLanguage(settings.Language);
+        _app.ApplyTheme(settings.ThemeMode);
+        SetStartup(settings.StartWithWindows);
+        (_app.MainWindow as MainWindow)?.ApplySettings();
+        Close();
     }
 
-    private void SettingsWindow_Activated(object sender, WindowActivatedEventArgs args)
+    private void HotKeyBox_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
-        if (args.WindowActivationState == WindowActivationState.Deactivated)
-        {
-            return;
-        }
-
-        InitializeNative();
-    }
-
-    private void LoadSettings(AppSettings settings, bool includeSystemStartup = true)
-    {
-        CancelShortcutCapture();
-        StartWithWindowsToggleSwitch.IsOn = settings.StartWithWindows
-            || (includeSystemStartup && IsStartWithWindowsEnabled());
-        AutoHideToggleSwitch.IsOn = settings.AutoHideOnDeactivate;
-        MonitorTextToggleSwitch.IsOn = settings.MonitorText;
-        MonitorImagesToggleSwitch.IsOn = settings.MonitorImages;
-        ImageOcrToggleSwitch.IsOn = settings.EnableImageOcr;
-        MonitorFilesToggleSwitch.IsOn = settings.MonitorFiles;
-        ExcludedApplicationsTextBox.Text = settings.ExcludedApplications;
-        HotKeyButton.Content = GlobalHotKey.TryNormalizeShortcut(settings.GlobalHotKey, out var normalizedShortcut)
-            ? normalizedShortcut
-            : new AppSettings().GlobalHotKey;
-        var defaults = new AppSettings();
-        PasteShortcutButton.Content = PanelShortcut.NormalizeOrDefault(settings.PasteShortcut, defaults.PasteShortcut);
-        PlainTextPasteShortcutButton.Content = PanelShortcut.NormalizeOrDefault(settings.PlainTextPasteShortcut, defaults.PlainTextPasteShortcut);
-        PreviewShortcutButton.Content = PanelShortcut.NormalizeOrDefault(settings.PreviewShortcut, defaults.PreviewShortcut);
-        PinShortcutButton.Content = PanelShortcut.NormalizeOrDefault(settings.PinShortcut, defaults.PinShortcut);
-        DeleteShortcutButton.Content = PanelShortcut.NormalizeOrDefault(settings.DeleteShortcut, defaults.DeleteShortcut);
-        PasteAsFileShortcutButton.Content = PanelShortcut.NormalizeOrDefault(settings.PasteAsFileShortcut, defaults.PasteAsFileShortcut);
-        SelectComboItem(LanguageComboBox, settings.Language);
-        SelectComboItem(ThemeComboBox, settings.ThemeMode);
-        SelectComboItem(RetentionDaysComboBox, settings.RetentionDays.ToString());
-        SelectComboItem(MaxEntriesComboBox, settings.MaxHistoryEntries.ToString());
-    }
-
-    private void ApplyThemeSettings(string themeMode)
-    {
-        SettingsRoot.RequestedTheme = themeMode switch
-        {
-            "Dark" => ElementTheme.Dark,
-            "Light" => ElementTheme.Light,
-            _ => ElementTheme.Default
-        };
-
-    }
-
-    // 原生标题栏不继承设置页内容区的主题，需要单独同步颜色。
-    private void ApplyNativeTitleBarTheme()
-    {
-        if (_appWindow is null)
-        {
-            return;
-        }
-
-        var titleBar = _appWindow.TitleBar;
-        titleBar.BackgroundColor = null;
-        titleBar.InactiveBackgroundColor = null;
-        titleBar.ForegroundColor = null;
-        titleBar.InactiveForegroundColor = null;
-        titleBar.ButtonBackgroundColor = Colors.Transparent;
-        titleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
-        titleBar.ButtonForegroundColor = null;
-        titleBar.ButtonInactiveForegroundColor = null;
-        titleBar.ButtonHoverBackgroundColor = null;
-        titleBar.ButtonHoverForegroundColor = null;
-        titleBar.ButtonPressedBackgroundColor = null;
-        titleBar.ButtonPressedForegroundColor = null;
-    }
-
-    private static void SelectComboItem(ComboBox comboBox, string value)
-    {
-        comboBox.SelectedItem = comboBox.Items
-            .OfType<ComboBoxItem>()
-            .FirstOrDefault(item => string.Equals(GetComboItemValue(item), value, StringComparison.Ordinal))
-            ?? comboBox.Items[0];
-    }
-
-    private static string GetSelectedValue(ComboBox comboBox)
-    {
-        return comboBox.SelectedItem is ComboBoxItem item ? GetComboItemValue(item) : string.Empty;
-    }
-
-    private static string GetComboItemValue(ComboBoxItem item)
-    {
-        return item.Tag?.ToString() ?? item.Content?.ToString() ?? string.Empty;
-    }
-
-    // 语言切换后重新绑定选中项，让 ComboBox 的内容呈现器立即使用新的本地化文本。
-    private static void RefreshComboBoxSelection(ComboBox comboBox)
-    {
-        if (comboBox.SelectedItem is not { } selectedItem)
-        {
-            return;
-        }
-
-        comboBox.SelectedItem = null;
-        comboBox.SelectedItem = selectedItem;
-    }
-
-    private static IReadOnlyList<RunningProcessItem> GetRunningProcesses()
-    {
-        // 进程列表去重后按有窗口的应用优先排序，便于选择排除规则。
-        var processItems = new Dictionary<string, RunningProcessItem>(StringComparer.OrdinalIgnoreCase);
-        foreach (var process in Process.GetProcesses())
-        {
-            using (process)
-            {
-                if (process.Id == Environment.ProcessId)
-                {
-                    continue;
-                }
-
-                string processName;
-                try
-                {
-                    processName = process.ProcessName;
-                }
-                catch (ArgumentException)
-                {
-                    continue;
-                }
-                catch (InvalidOperationException)
-                {
-                    continue;
-                }
-                catch (Win32Exception)
-                {
-                    continue;
-                }
-
-                if (string.IsNullOrWhiteSpace(processName))
-                {
-                    continue;
-                }
-
-                var windowTitle = string.Empty;
-                try
-                {
-                    windowTitle = process.MainWindowTitle;
-                }
-                catch (ArgumentException)
-                {
-                }
-                catch (InvalidOperationException)
-                {
-                }
-                catch (Win32Exception)
-                {
-                }
-
-                if (!processItems.TryGetValue(processName, out var existingItem)
-                    || (string.IsNullOrWhiteSpace(existingItem.WindowTitle)
-                        && !string.IsNullOrWhiteSpace(windowTitle)))
-                {
-                    processItems[processName] = new RunningProcessItem(processName, windowTitle);
-                }
-            }
-        }
-
-        return processItems.Values
-            .OrderByDescending(item => !string.IsNullOrWhiteSpace(item.WindowTitle))
-            .ThenBy(item => item.DisplayName, StringComparer.CurrentCultureIgnoreCase)
-            .ToArray();
-    }
-
-    private static IReadOnlyList<RunningProcessItem> FilterRunningProcesses(
-        IReadOnlyList<RunningProcessItem> processItems,
-        string? searchText)
-    {
-        if (string.IsNullOrWhiteSpace(searchText))
-        {
-            return processItems;
-        }
-
-        var query = searchText.Trim();
-        return processItems
-            .Where(item => item.ProcessName.Contains(query, StringComparison.CurrentCultureIgnoreCase)
-                           || item.WindowTitle.Contains(query, StringComparison.CurrentCultureIgnoreCase))
-            .ToArray();
-    }
-
-    private async void SelectExcludedApplicationButton_Click(object sender, RoutedEventArgs e)
-    {
-        // 进程枚举放到后台线程，避免进程较多时阻塞设置窗口。
-        IReadOnlyList<RunningProcessItem> processItems;
-        try
-        {
-            processItems = await Task.Run(GetRunningProcesses);
-        }
-        catch (Exception exception) when (exception is Win32Exception or InvalidOperationException or UnauthorizedAccessException)
-        {
-            await ShowMessageAsync(AppLocalization.GetString("ProcessReadFailed"), exception.Message);
-            return;
-        }
-
-        if (processItems.Count == 0)
-        {
-            await ShowMessageAsync(
-                AppLocalization.GetString("NoProcessesTitle"),
-                AppLocalization.GetString("NoProcessesMessage"));
-            return;
-        }
-
-        var searchBox = new TextBox
-        {
-            PlaceholderText = AppLocalization.GetString("ProcessSearchPlaceholder"),
-            MinWidth = 460
-        };
-        var processList = new ListView
-        {
-            ItemsSource = processItems,
-            DisplayMemberPath = nameof(RunningProcessItem.DisplayName),
-            SelectionMode = ListViewSelectionMode.Multiple,
-            MaxHeight = 420,
-            MinWidth = 460
-        };
-        var emptyResultText = new TextBlock
-        {
-            Text = AppLocalization.GetString("NoMatchingProcesses"),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            Margin = new Thickness(0, 24, 0, 16),
-            Visibility = Visibility.Collapsed
-        };
-        var content = new StackPanel
-        {
-            Spacing = 8
-        };
-        content.Children.Add(searchBox);
-        content.Children.Add(processList);
-        content.Children.Add(emptyResultText);
-
-        var dialog = new ContentDialog
-        {
-            Title = AppLocalization.GetString("SelectExcludedAppsTitle"),
-            Content = content,
-            PrimaryButtonText = AppLocalization.GetString("Add"),
-            CloseButtonText = AppLocalization.GetString("Cancel"),
-            DefaultButton = ContentDialogButton.Primary,
-            IsPrimaryButtonEnabled = false,
-            XamlRoot = SettingsRoot.XamlRoot
-        };
-        var selectedProcessNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var isRestoringSelection = false;
-
-        void UpdatePrimaryButton()
-        {
-            dialog.IsPrimaryButtonEnabled = selectedProcessNames.Count > 0;
-            dialog.PrimaryButtonText = selectedProcessNames.Count == 0
-                ? AppLocalization.GetString("Add")
-                : AppLocalization.Format("AddSelectedCount", selectedProcessNames.Count);
-        }
-
-        processList.SelectionChanged += (_, args) =>
-        {
-            if (isRestoringSelection)
-            {
-                return;
-            }
-
-            foreach (var item in args.AddedItems.OfType<RunningProcessItem>())
-            {
-                selectedProcessNames.Add(item.ProcessName);
-            }
-
-            foreach (var item in args.RemovedItems.OfType<RunningProcessItem>())
-            {
-                selectedProcessNames.Remove(item.ProcessName);
-            }
-
-            UpdatePrimaryButton();
-        };
-        searchBox.TextChanged += (_, _) =>
-        {
-            var filteredItems = FilterRunningProcesses(processItems, searchBox.Text);
-            isRestoringSelection = true;
-            processList.ItemsSource = filteredItems;
-            foreach (var item in filteredItems.Where(item => selectedProcessNames.Contains(item.ProcessName)))
-            {
-                processList.SelectedItems.Add(item);
-            }
-
-            isRestoringSelection = false;
-            processList.Visibility = filteredItems.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
-            emptyResultText.Visibility = filteredItems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            UpdatePrimaryButton();
-        };
-
-        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
-        {
-            return;
-        }
-
-        AddExcludedApplications(selectedProcessNames);
-    }
-
-    private void AddExcludedApplications(IEnumerable<string> processNames)
-    {
-        // 合并手动输入和选择结果，并统一去掉 .exe 后缀。
-        var values = new List<string>();
-        var knownProcessNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var configuredValues = ExcludedApplicationsTextBox.Text.Split(
-            [';', ',', '\r', '\n'],
-            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-
-        foreach (var value in configuredValues.Concat(processNames))
-        {
-            var processName = NormalizeProcessName(value);
-            if (!string.IsNullOrWhiteSpace(processName) && knownProcessNames.Add(processName))
-            {
-                values.Add(processName);
-            }
-        }
-
-        ExcludedApplicationsTextBox.Text = string.Join("; ", values);
-        ApplyCurrentSettings();
-    }
-
-    private static string NormalizeProcessName(string value)
-    {
-        var processName = value.Trim();
-        return processName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-            ? processName[..^4]
-            : processName;
-    }
-
-    private void AttachSettingHandlers()
-    {
-        StartWithWindowsToggleSwitch.Toggled += SettingToggleSwitch_Changed;
-        AutoHideToggleSwitch.Toggled += SettingToggleSwitch_Changed;
-        MonitorTextToggleSwitch.Toggled += SettingToggleSwitch_Changed;
-        MonitorImagesToggleSwitch.Toggled += SettingToggleSwitch_Changed;
-        ImageOcrToggleSwitch.Toggled += SettingToggleSwitch_Changed;
-        MonitorFilesToggleSwitch.Toggled += SettingToggleSwitch_Changed;
-        ThemeComboBox.SelectionChanged += SettingComboBox_Changed;
-        LanguageComboBox.SelectionChanged += SettingComboBox_Changed;
-        RetentionDaysComboBox.SelectionChanged += SettingComboBox_Changed;
-        MaxEntriesComboBox.SelectionChanged += SettingComboBox_Changed;
-        ExcludedApplicationsTextBox.LostFocus += SettingTextBox_LostFocus;
-    }
-
-    private void SettingToggleSwitch_Changed(object sender, RoutedEventArgs e)
-    {
-        ApplyCurrentSettings();
-    }
-
-    private void SettingComboBox_Changed(object sender, SelectionChangedEventArgs e)
-    {
-        if (_isRefreshingLocalization)
-        {
-            return;
-        }
-
-        ApplyCurrentSettings();
-    }
-
-    private void SettingTextBox_LostFocus(object sender, RoutedEventArgs e)
-    {
-        ApplyCurrentSettings();
-    }
-
-    private void ShortcutButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not Button button)
-        {
-            return;
-        }
-
-        BeginShortcutCapture(button);
-    }
-
-    private void ShortcutButton_LostFocus(object sender, RoutedEventArgs e)
-    {
-        if (ReferenceEquals(_capturingShortcutButton, sender))
-        {
-            CancelShortcutCapture();
-        }
-    }
-
-    private void ShortcutButton_KeyDown(object sender, KeyRoutedEventArgs e)
-    {
-        if (sender is not Button button)
-        {
-            return;
-        }
-
         e.Handled = true;
-        if (e.Key == Windows.System.VirtualKey.Escape)
-        {
-            CancelShortcutCapture();
-            return;
-        }
-
-        string shortcut;
-        if (ReferenceEquals(button, HotKeyButton))
-        {
-            if (!GlobalHotKey.TryFormatShortcut(
-                    (uint)e.Key,
-                    IsVirtualKeyDown(VirtualKeyControl),
-                    IsVirtualKeyDown(VirtualKeyAlt),
-                    IsVirtualKeyDown(VirtualKeyShift),
-                    IsVirtualKeyDown(VirtualKeyLeftWindows) || IsVirtualKeyDown(VirtualKeyRightWindows),
-                    out shortcut))
-            {
-                return;
-            }
-        }
-        else if (!PanelShortcut.TryFormat(
-                     e.Key,
-                     IsVirtualKeyDown(VirtualKeyControl),
-                     IsVirtualKeyDown(VirtualKeyAlt),
-                     IsVirtualKeyDown(VirtualKeyShift),
-                     out shortcut))
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (key is Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt or Key.LeftShift or Key.RightShift or Key.LWin or Key.RWin)
         {
             return;
         }
 
-        button.Content = shortcut;
-        _capturingShortcutButton = null;
-        _capturingShortcutValue = null;
-        ApplyCurrentSettings();
+        var virtualKey = (uint)KeyInterop.VirtualKeyFromKey(key);
+        if (GlobalHotKey.TryFormatShortcut(
+                virtualKey,
+                Keyboard.Modifiers.HasFlag(ModifierKeys.Control),
+                Keyboard.Modifiers.HasFlag(ModifierKeys.Alt),
+                Keyboard.Modifiers.HasFlag(ModifierKeys.Shift),
+                Keyboard.IsKeyDown(Key.LWin) || Keyboard.IsKeyDown(Key.RWin),
+                out var shortcut))
+        {
+            HotKeyBox.Text = shortcut;
+        }
     }
 
-    private void BeginShortcutCapture(Button button)
+    private async void ExportButton_Click(object sender, RoutedEventArgs e)
     {
-        if (ReferenceEquals(_capturingShortcutButton, button))
-        {
-            button.Focus(FocusState.Programmatic);
-            return;
-        }
-
-        if (_capturingShortcutButton is not null
-            && !ReferenceEquals(_capturingShortcutButton, button))
-        {
-            CancelShortcutCapture();
-        }
-
-        _capturingShortcutButton = button;
-        _capturingShortcutValue = button.Content?.ToString() ?? string.Empty;
-        button.Content = AppLocalization.GetString("ShortcutPlaceholder");
-        button.Focus(FocusState.Programmatic);
-    }
-
-    private void CancelShortcutCapture()
-    {
-        if (_capturingShortcutButton is null)
+        var dialog = new SaveFileDialog { Filter = "PasteOrbit Backup (*.pobackup)|*.pobackup", FileName = "PasteOrbit.pobackup" };
+        if (dialog.ShowDialog(this) != true)
         {
             return;
         }
 
-        _capturingShortcutButton.Content = _capturingShortcutValue ?? string.Empty;
-        _capturingShortcutButton = null;
-        _capturingShortcutValue = null;
-    }
-
-    private string GetShortcutValue(Button button)
-    {
-        return ReferenceEquals(_capturingShortcutButton, button)
-            ? _capturingShortcutValue ?? string.Empty
-            : button.Content?.ToString() ?? string.Empty;
-    }
-
-    private string GetCurrentHotKey()
-    {
-        return GlobalHotKey.TryNormalizeShortcut(GetShortcutValue(HotKeyButton), out var normalizedShortcut)
-            ? normalizedShortcut
-            : new AppSettings().GlobalHotKey;
-    }
-
-    private static bool IsVirtualKeyDown(int virtualKey)
-    {
-        return (GetKeyState(virtualKey) & 0x8000) != 0;
-    }
-
-    private AppSettings ReadCurrentSettings()
-    {
-        return new AppSettings
-        {
-            StartWithWindows = StartWithWindowsToggleSwitch.IsOn,
-            AutoHideOnDeactivate = AutoHideToggleSwitch.IsOn,
-            MonitorText = MonitorTextToggleSwitch.IsOn,
-            MonitorImages = MonitorImagesToggleSwitch.IsOn,
-            EnableImageOcr = ImageOcrToggleSwitch.IsOn,
-            MonitorFiles = MonitorFilesToggleSwitch.IsOn,
-            ExcludedApplications = ExcludedApplicationsTextBox.Text.Trim(),
-            GlobalHotKey = GetCurrentHotKey(),
-            PasteShortcut = GetShortcutValue(PasteShortcutButton),
-            PlainTextPasteShortcut = GetShortcutValue(PlainTextPasteShortcutButton),
-            PreviewShortcut = GetShortcutValue(PreviewShortcutButton),
-            PinShortcut = GetShortcutValue(PinShortcutButton),
-            DeleteShortcut = GetShortcutValue(DeleteShortcutButton),
-            PasteAsFileShortcut = GetShortcutValue(PasteAsFileShortcutButton),
-            Language = GetSelectedLanguage(),
-            ThemeMode = GetSelectedValue(ThemeComboBox),
-            RetentionDays = int.Parse(GetSelectedValue(RetentionDaysComboBox)),
-            MaxHistoryEntries = int.Parse(GetSelectedValue(MaxEntriesComboBox)),
-            SkippedUpdateVersion = _settings.SkippedUpdateVersion
-        };
-    }
-
-    private string GetSelectedLanguage()
-    {
-        var selectedLanguage = GetSelectedValue(LanguageComboBox);
-        return string.Equals(selectedLanguage, "System", StringComparison.Ordinal)
-            ? string.Empty
-            : selectedLanguage;
-    }
-
-    internal void RefreshLocalization()
-    {
-        var themeValue = GetSelectedValue(ThemeComboBox);
-        var languageValue = GetSelectedValue(LanguageComboBox);
-
-        Title = AppLocalization.GetString("SettingsWindowTitle");
-        SettingsTitleBar.Title = AppLocalization.GetString("SettingsTitleBarTitle");
-        AutomationProperties.SetName(
-            SettingsTitleBar,
-            AppLocalization.GetString("SettingsTitleBarAutomationName"));
-
-        GeneralNavigationItem.Content = AppLocalization.GetString("SettingsGeneralNavigationContent");
-        HotKeyNavigationItem.Content = AppLocalization.GetString("SettingsHotKeyNavigationContent");
-        HistoryNavigationItem.Content = AppLocalization.GetString("SettingsHistoryNavigationContent");
-        PrivacyNavigationItem.Content = AppLocalization.GetString("SettingsPrivacyNavigationContent");
-
-        StartupSectionText.Text = AppLocalization.GetString("SettingsStartupSectionText");
-        MonitoringSectionText.Text = AppLocalization.GetString("SettingsMonitoringSectionText");
-        AppearanceSectionText.Text = AppLocalization.GetString("SettingsAppearanceSectionText");
-        HotKeySectionText.Text = AppLocalization.GetString("SettingsHotKeySectionText");
-        HistorySectionText.Text = AppLocalization.GetString("SettingsHistorySectionText");
-        PrivacySectionText.Text = AppLocalization.GetString("SettingsPrivacySectionText");
-
-        SetCard(StartupCard, "SettingsStartupCardHeader", "SettingsStartupCardDescription");
-        SetCard(AutoHideCard, "SettingsAutoHideCardHeader", "SettingsAutoHideCardDescription");
-        SetCard(MonitorTextCard, "SettingsMonitorTextCardHeader", "SettingsMonitorTextCardDescription");
-        SetCard(MonitorImagesCard, "SettingsMonitorImagesCardHeader", "SettingsMonitorImagesCardDescription");
-        SetCard(ImageOcrCard, "SettingsImageOcrCardHeader", "SettingsImageOcrCardDescription");
-        SetCard(MonitorFilesCard, "SettingsMonitorFilesCardHeader", "SettingsMonitorFilesCardDescription");
-        SetCard(ThemeCard, "SettingsThemeCardHeader", "SettingsThemeCardDescription");
-        SetCard(LanguageCard, "SettingsLanguageCardHeader", "SettingsLanguageCardDescription");
-        SetCard(UpdateCard, "SettingsUpdateCardHeader", "SettingsUpdateCardDescription");
-        SetCard(GlobalHotKeyCard, "SettingsGlobalHotKeyCardHeader", "SettingsGlobalHotKeyCardDescription");
-        SetCard(PasteShortcutCard, "SettingsPasteShortcutCardHeader");
-        SetCard(PlainTextShortcutCard, "SettingsPlainTextShortcutCardHeader");
-        SetCard(PreviewShortcutCard, "SettingsPreviewShortcutCardHeader");
-        SetCard(PinShortcutCard, "SettingsPinShortcutCardHeader");
-        SetCard(DeleteShortcutCard, "SettingsDeleteShortcutCardHeader");
-        SetCard(PasteAsFileShortcutCard, "SettingsPasteAsFileShortcutCardHeader");
-        SetCard(RetentionCard, "SettingsRetentionCardHeader", "SettingsRetentionCardDescription");
-        SetCard(MaxEntriesCard, "SettingsMaxEntriesCardHeader", "SettingsMaxEntriesCardDescription");
-        SetCard(ExcludedAppsCard, "SettingsExcludedAppsCardHeader", "SettingsExcludedAppsCardDescription");
-        SetCard(BackupCard, "SettingsBackupCardHeader", "SettingsBackupCardDescription");
-
-        ThemeSystemOption.Content = AppLocalization.GetString("ThemeSystemOptionContent");
-        ThemeLightOption.Content = AppLocalization.GetString("ThemeLightOptionContent");
-        ThemeDarkOption.Content = AppLocalization.GetString("ThemeDarkOptionContent");
-        LanguageSystemOption.Content = AppLocalization.GetString("LanguageSystemOptionContent");
-        LanguageChineseOption.Content = AppLocalization.GetString("LanguageChineseOptionContent");
-        LanguageEnglishOption.Content = AppLocalization.GetString("LanguageEnglishOptionContent");
-
-        if (_capturingShortcutButton is not null)
-        {
-            _capturingShortcutButton.Content = AppLocalization.GetString("ShortcutPlaceholder");
-        }
-        ShortcutHintText.Text = AppLocalization.GetString("SettingsShortcutHintText");
-        PinnedRetentionHintText.Text = AppLocalization.GetString("SettingsPinnedRetentionHintText");
-        ExcludedApplicationsTextBox.PlaceholderText = AppLocalization.GetString("ExcludedApplicationsTextBoxPlaceholder");
-        SelectProcessButton.Content = AppLocalization.GetString("SelectProcessButtonContent");
-        CheckForUpdatesButton.Content = AppLocalization.GetString("CheckForUpdatesButtonContent");
-        ExportBackupButton.Content = AppLocalization.GetString("ExportBackupButtonContent");
-        RestoreBackupButton.Content = AppLocalization.GetString("RestoreBackupButtonContent");
-        ProtectionTitleText.Text = AppLocalization.GetString("SettingsProtectionTitleText");
-        ProtectionDescriptionText.Text = AppLocalization.GetString("SettingsProtectionDescriptionText");
-        RestoreDefaultsButton.Content = AppLocalization.GetString("RestoreDefaultsButtonContent");
-
-        var toggleOnContent = AppLocalization.GetString("ToggleOnContent");
-        var toggleOffContent = AppLocalization.GetString("ToggleOffContent");
-        SetToggleContent(StartWithWindowsToggleSwitch, toggleOnContent, toggleOffContent);
-        SetToggleContent(AutoHideToggleSwitch, toggleOnContent, toggleOffContent);
-        SetToggleContent(MonitorTextToggleSwitch, toggleOnContent, toggleOffContent);
-        SetToggleContent(MonitorImagesToggleSwitch, toggleOnContent, toggleOffContent);
-        SetToggleContent(ImageOcrToggleSwitch, toggleOnContent, toggleOffContent);
-        SetToggleContent(MonitorFilesToggleSwitch, toggleOnContent, toggleOffContent);
-
-        _isRefreshingLocalization = true;
         try
         {
-            SelectComboItem(ThemeComboBox, themeValue);
-            SelectComboItem(LanguageComboBox, languageValue);
-            RefreshComboBoxSelection(ThemeComboBox);
-            RefreshComboBoxSelection(LanguageComboBox);
-        }
-        finally
-        {
-            _isRefreshingLocalization = false;
-        }
-    }
-
-    private static void SetCard(SettingsCard card, string headerKey, string? descriptionKey = null)
-    {
-        card.Header = AppLocalization.GetString(headerKey);
-        card.Description = descriptionKey is null
-            ? string.Empty
-            : AppLocalization.GetString(descriptionKey);
-    }
-
-    // 显式设置开关文案，语言切换时同步更新。
-    private static void SetToggleContent(ToggleSwitch toggleSwitch, string onContent, string offContent)
-    {
-        toggleSwitch.OnContent = onContent;
-        toggleSwitch.OffContent = offContent;
-    }
-
-    private void ApplyCurrentSettings()
-    {
-        if (_isLoadingSettings)
-        {
-            return;
-        }
-
-        var newSettings = ReadCurrentSettings();
-        var languageChanged = !string.Equals(
-            newSettings.Language,
-            _appliedLanguage,
-            StringComparison.Ordinal);
-        try
-        {
-            // 先保存规范化后的设置，再通知主窗口应用运行时变化。
-            ApplyStartWithWindows(newSettings.StartWithWindows);
-            _store.Save(newSettings);
-            if (languageChanged)
-            {
-                AppLocalization.SetLanguage(newSettings.Language);
-            }
-
-            ApplyThemeSettings(newSettings.ThemeMode);
-            SettingsChanged?.Invoke(newSettings);
-            _settings = newSettings;
-            _appliedLanguage = newSettings.Language;
-            if (languageChanged)
-            {
-                RefreshLocalization();
-            }
-        }
-        catch (IOException)
-        {
-            _ = ShowSaveErrorAsync();
-        }
-        catch (UnauthorizedAccessException)
-        {
-            _ = ShowSaveErrorAsync();
-        }
-        catch (SecurityException)
-        {
-            _ = ShowSaveErrorAsync();
-        }
-        catch (InvalidOperationException)
-        {
-            _ = ShowSaveErrorAsync();
-        }
-    }
-
-    private void SettingsNavigation_SelectionChanged(
-        NavigationView sender,
-        NavigationViewSelectionChangedEventArgs args)
-    {
-        if (!_isInitialized
-            || args.SelectedItem is not NavigationViewItem item)
-        {
-            return;
-        }
-
-        var selected = item.Tag?.ToString();
-        if (!string.IsNullOrEmpty(selected)
-            && !_isNavigatingBack
-            && _currentPageTag is not null
-            && !string.Equals(_currentPageTag, selected, StringComparison.Ordinal))
-        {
-            // 只记录用户主动切换的页面，返回操作不会再次压入历史。
-            _navigationHistory.Push(_currentPageTag);
-        }
-
-        _currentPageTag = selected;
-        GeneralPanel.Visibility = selected == "General" ? Visibility.Visible : Visibility.Collapsed;
-        HotKeyPanel.Visibility = selected == "HotKey" ? Visibility.Visible : Visibility.Collapsed;
-        HistoryPanel.Visibility = selected == "History" ? Visibility.Visible : Visibility.Collapsed;
-        PrivacyPanel.Visibility = selected == "Privacy" ? Visibility.Visible : Visibility.Collapsed;
-    }
-
-    private void RestoreDefaultsButton_Click(object sender, RoutedEventArgs e)
-    {
-        _isLoadingSettings = true;
-        LoadSettings(new AppSettings(), includeSystemStartup: false);
-        _isLoadingSettings = false;
-        ApplyCurrentSettings();
-    }
-
-    private async void CheckForUpdatesButton_Click(object sender, RoutedEventArgs e)
-    {
-        // 禁止重复请求，避免同时下载多个更新包。
-        if (_isCheckingForUpdates)
-        {
-            return;
-        }
-
-        _isCheckingForUpdates = true;
-        CheckForUpdatesButton.IsEnabled = false;
-        try
-        {
-            var result = await _checkForUpdates();
-            await ShowUpdateResultAsync(result);
+            await _backup.ExportAsync(dialog.FileName);
+            MessageBox.Show("备份已导出。", "PasteOrbit", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception exception)
         {
-            Debug.WriteLine($"检查更新失败：{exception}");
-            try
-            {
-                if (SettingsRoot.XamlRoot is not null)
-                {
-                    await ShowMessageAsync(
-                        AppLocalization.GetString("UpdateCheckFailedTitle"),
-                        AppLocalization.GetString("UpdateCheckFailedMessage"));
-                }
-            }
-            catch (Exception dialogException)
-            {
-                Debug.WriteLine($"显示更新检查失败提示失败：{dialogException}");
-            }
-        }
-        finally
-        {
-            _isCheckingForUpdates = false;
-            CheckForUpdatesButton.IsEnabled = true;
+            MessageBox.Show(exception.Message, "PasteOrbit", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
-    private async Task ShowUpdateResultAsync(UpdateCheckResult? result)
+    private async void RestoreButton_Click(object sender, RoutedEventArgs e)
     {
-        if (result is null)
-        {
-            await ShowMessageAsync(
-                AppLocalization.GetString("UpdateCheckFailedTitle"),
-                AppLocalization.GetString("UpdateCheckFailedMessage"));
-            return;
-        }
-
-        if (!result.IsUpdateAvailable)
-        {
-            await ShowMessageAsync(
-                AppLocalization.GetString("UpdateNoUpdateTitle"),
-                AppLocalization.Format("UpdateNoUpdateMessage", result.CurrentVersion));
-            return;
-        }
-
-        var content = new StackPanel
-        {
-            Spacing = 8
-        };
-        content.Children.Add(new TextBlock
-        {
-            Text = AppLocalization.Format(
-                "UpdateAvailableMessage",
-                result.LatestVersion,
-                result.CurrentVersion),
-            TextWrapping = TextWrapping.Wrap
-        });
-        if (!string.IsNullOrWhiteSpace(result.ReleaseNotes))
-        {
-            content.Children.Add(new TextBlock
-            {
-                Text = AppLocalization.GetString("UpdateReleaseNotesLabel"),
-                Margin = new Thickness(0, 8, 0, 0)
-            });
-            content.Children.Add(new ScrollViewer
-            {
-                Content = new TextBlock
-                {
-                    Text = result.ReleaseNotes,
-                    TextWrapping = TextWrapping.Wrap
-                },
-                MaxHeight = 260,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto
-            });
-        }
-
-        var dialog = new ContentDialog
-        {
-            Title = AppLocalization.GetString("UpdateAvailableTitle"),
-            Content = content,
-            PrimaryButtonText = result.CanAutoUpdate
-                ? AppLocalization.GetString("DownloadUpdateButton")
-                : AppLocalization.GetString("DoNotRemindUpdateButton"),
-            SecondaryButtonText = result.CanAutoUpdate
-                ? AppLocalization.GetString("DoNotRemindUpdateButton")
-                : string.Empty,
-            CloseButtonText = AppLocalization.GetString("Later"),
-            DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = SettingsRoot.XamlRoot
-        };
-        var dialogResult = await dialog.ShowAsync();
-        if (dialogResult == ContentDialogResult.Primary && result.CanAutoUpdate)
-        {
-            if (SettingsRoot.XamlRoot is { } xamlRoot)
-            {
-                await _applyUpdate(result, xamlRoot);
-            }
-
-            return;
-        }
-
-        if ((dialogResult == ContentDialogResult.Primary && !result.CanAutoUpdate)
-            || dialogResult == ContentDialogResult.Secondary)
-        {
-            _settings.SkippedUpdateVersion = result.ReleaseTag;
-            try
-            {
-                _store.Save(_settings);
-            }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-            {
-                Debug.WriteLine($"保存忽略更新版本失败：{exception}");
-            }
-        }
-    }
-
-    private async void ExportBackupButton_Click(object sender, RoutedEventArgs e)
-    {
-        var picker = new FileSavePicker
-        {
-            SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
-            SuggestedFileName = $"PasteOrbit-{DateTime.Now:yyyyMMdd-HHmmss}"
-        };
-        picker.FileTypeChoices.Add(AppLocalization.GetString("EncryptedBackupFileType"), [".pobackup"]);
-        InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
-        var file = await picker.PickSaveFileAsync();
-        if (file is null)
+        var dialog = new OpenFileDialog { Filter = "PasteOrbit Backup (*.pobackup)|*.pobackup" };
+        if (dialog.ShowDialog(this) != true
+            || MessageBox.Show("恢复会替换当前历史和设置，是否继续？", "PasteOrbit", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
         {
             return;
         }
 
         try
         {
-            await _exportBackup(file.Path);
-            await ShowMessageAsync(
-                AppLocalization.GetString("BackupExportedTitle"),
-                AppLocalization.GetString("BackupExportedMessage"));
+            await _backup.RestoreAsync(dialog.FileName);
+            MessageBox.Show("恢复完成，请重新启动 PasteOrbit。", "PasteOrbit", MessageBoxButton.OK, MessageBoxImage.Information);
+            _app.ExitApplication();
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or CryptographicException)
+        catch (Exception exception)
         {
-            await ShowMessageAsync(AppLocalization.GetString("BackupExportFailed"), exception.Message);
-        }
-    }
-
-    private async void RestoreBackupButton_Click(object sender, RoutedEventArgs e)
-    {
-        var picker = new FileOpenPicker
-        {
-            SuggestedStartLocation = PickerLocationId.DocumentsLibrary
-        };
-        picker.FileTypeFilter.Add(".pobackup");
-        InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
-        var file = await picker.PickSingleFileAsync();
-        if (file is null)
-        {
-            return;
-        }
-
-        var confirmation = new ContentDialog
-        {
-            Title = AppLocalization.GetString("RestoreBackupTitle"),
-            Content = AppLocalization.GetString("RestoreBackupMessage"),
-            PrimaryButtonText = AppLocalization.GetString("Restore"),
-            CloseButtonText = AppLocalization.GetString("Cancel"),
-            DefaultButton = ContentDialogButton.Close,
-            XamlRoot = SettingsRoot.XamlRoot
-        };
-        if (await confirmation.ShowAsync() != ContentDialogResult.Primary)
-        {
-            return;
-        }
-
-        try
-        {
-            await _restoreBackup(file.Path);
-            var restoredSettings = _store.Load();
-            ApplyStartWithWindows(restoredSettings.StartWithWindows);
-            _isLoadingSettings = true;
-            LoadSettings(restoredSettings, includeSystemStartup: false);
-            _isLoadingSettings = false;
-            ApplyThemeSettings(restoredSettings.ThemeMode);
-            await ShowMessageAsync(
-                AppLocalization.GetString("RestoreCompletedTitle"),
-                AppLocalization.GetString("RestoreCompletedMessage"));
-        }
-        catch (Exception exception) when (exception is IOException
-                                           or UnauthorizedAccessException
-                                           or CryptographicException
-                                           or InvalidDataException)
-        {
-            await ShowMessageAsync(AppLocalization.GetString("RestoreFailed"), exception.Message);
+            MessageBox.Show(exception.Message, "PasteOrbit", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
-    private async Task ShowMessageAsync(string title, string message)
-    {
-        var dialog = new ContentDialog
-        {
-            Title = title,
-            Content = message,
-            CloseButtonText = AppLocalization.GetString("Ok"),
-            XamlRoot = SettingsRoot.XamlRoot
-        };
-        await dialog.ShowAsync();
-    }
-
-    private async Task ShowSaveErrorAsync()
-    {
-        var dialog = new ContentDialog
-        {
-            Title = "PasteOrbit",
-            Content = AppLocalization.GetString("SettingsSaveFailed"),
-            CloseButtonText = AppLocalization.GetString("Ok"),
-            XamlRoot = SettingsRoot.XamlRoot
-        };
-        await dialog.ShowAsync();
-    }
-
-    private static bool IsStartWithWindowsEnabled()
+    private async void UpdateButton_Click(object sender, RoutedEventArgs e)
     {
         try
         {
-            using var key = Registry.CurrentUser.OpenSubKey(StartupRunKey, writable: false);
-            return key?.GetValue(StartupValueName) is string value
-                && value.Contains("PasteOrbit", StringComparison.OrdinalIgnoreCase);
+            using var service = new UpdateCheckService();
+            var update = await service.CheckAsync();
+            MessageBox.Show(update is { IsUpdateAvailable: true } ? $"发现新版本 {update.LatestVersion}" : "当前已是最新版本。",
+                "PasteOrbit", MessageBoxButton.OK, MessageBoxImage.Information);
         }
-        catch (SecurityException)
+        catch (Exception exception)
         {
-            return false;
+            MessageBox.Show(exception.Message, "PasteOrbit", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 
-    private static void ApplyStartWithWindows(bool enabled)
+    private void ResetButton_Click(object sender, RoutedEventArgs e) => LoadSettings(new AppSettings());
+
+    private static void SetStartup(bool enabled)
     {
-        using var key = Registry.CurrentUser.CreateSubKey(StartupRunKey, writable: true)
-            ?? throw new InvalidOperationException(AppLocalization.GetString("StartupRegistryOpenFailed"));
+        using var key = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run");
         if (enabled)
         {
-            var processPath = Environment.ProcessPath
-                ?? throw new InvalidOperationException(AppLocalization.GetString("ApplicationPathUnavailable"));
-            key.SetValue(StartupValueName, $"\"{processPath}\"");
+            key.SetValue("PasteOrbit", $"\"{Environment.ProcessPath}\"");
         }
         else
         {
-            key.DeleteValue(StartupValueName, throwOnMissingValue: false);
+            key.DeleteValue("PasteOrbit", throwOnMissingValue: false);
         }
     }
-
-    private void SettingsNavigation_BackRequested(NavigationView sender, NavigationViewBackRequestedEventArgs args)
-    {
-        NavigateBack();
-    }
-
-    private void SettingsTitleBar_BackRequested(TitleBar sender, object args)
-    {
-        NavigateBack();
-    }
-
-    private void SettingsTitleBar_PaneToggleRequested(TitleBar sender, object args)
-    {
-        SettingsNavigation.IsPaneOpen = !SettingsNavigation.IsPaneOpen;
-    }
-
-    private void NavigateBack()
-    {
-        // 常规页是导航根页面，返回根页面时直接关闭设置窗口。
-        if (_navigationHistory.Count == 0)
-        {
-            Close();
-            return;
-        }
-
-        var previousTag = _navigationHistory.Pop();
-        var previousItem = SettingsNavigation.MenuItems
-            .OfType<NavigationViewItem>()
-            .FirstOrDefault(item => string.Equals(item.Tag?.ToString(), previousTag, StringComparison.Ordinal));
-        if (previousItem is null)
-        {
-            Close();
-            return;
-        }
-
-        _isNavigatingBack = true;
-        try
-        {
-            SettingsNavigation.SelectedItem = previousItem;
-        }
-        finally
-        {
-            _isNavigatingBack = false;
-        }
-    }
-
-    [DllImport("user32.dll")]
-    private static extern short GetKeyState(int virtualKey);
-
 }

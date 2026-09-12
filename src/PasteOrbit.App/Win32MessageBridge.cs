@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 namespace PasteOrbit.App;
 
 /// <summary>
-/// 在 WinUI 窗口的 HWND 上安装轻量消息桥，供剪切板监听和全局快捷键共用。
+/// 在 WPF 窗口的 HWND 上安装轻量消息桥，供剪切板监听和全局快捷键共用。
 /// </summary>
 public sealed class Win32MessageBridge : IDisposable
 {
@@ -27,7 +27,7 @@ public sealed class Win32MessageBridge : IDisposable
         _previousWndProc = SetWindowLongPtr(_handle, GwlWndProc, Marshal.GetFunctionPointerForDelegate(_windowProc));
         if (_previousWndProc == IntPtr.Zero)
         {
-            throw new InvalidOperationException("无法安装 WinUI 窗口消息桥。");
+            throw new InvalidOperationException("无法安装 WPF 窗口消息桥。");
         }
     }
 
