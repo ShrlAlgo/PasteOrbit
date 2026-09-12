@@ -15,7 +15,9 @@ internal sealed record ClipboardTextContent(string Text, string? Html, string? R
     public byte[] Serialize()
     {
         // 前缀用于区分新格式和历史版本中的纯文本字节。
-        var payload = JsonSerializer.SerializeToUtf8Bytes(this);
+        var payload = JsonSerializer.SerializeToUtf8Bytes(
+            this,
+            AppJsonSerializerContext.Default.ClipboardTextContent);
         var content = GC.AllocateUninitializedArray<byte>(PayloadPrefixBytes.Length + payload.Length);
         PayloadPrefixBytes.CopyTo(content, 0);
         payload.CopyTo(content, PayloadPrefixBytes.Length);
@@ -31,7 +33,9 @@ internal sealed record ClipboardTextContent(string Text, string? Html, string? R
             return new ClipboardTextContent(Encoding.UTF8.GetString(content), null, null);
         }
 
-        var payload = JsonSerializer.Deserialize<ClipboardTextContent>(content.AsSpan(PayloadPrefixBytes.Length));
+        var payload = JsonSerializer.Deserialize(
+            content.AsSpan(PayloadPrefixBytes.Length),
+            AppJsonSerializerContext.Default.ClipboardTextContent);
         return payload is null || string.IsNullOrEmpty(payload.Text)
             ? throw new InvalidDataException(AppLocalization.GetString("RichTextClipboardInvalid"))
             : payload;

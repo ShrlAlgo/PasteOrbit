@@ -35,4 +35,12 @@
     <AppendPlatformToOutputPath>false</AppendPlatformToOutputPath>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(PublishAot)' == 'true'">
+    <!-- C#/WinRT 为 Native AOT 生成泛型接口适配代码时需要 unsafe。 -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PublishTrimmed>true</PublishTrimmed>
+    <CsWinRTAotOptimizerEnabled>true</CsWinRTAotOptimizerEnabled>
+    <DefineConstants>$(DefineConstants);PASTEORBIT_NATIVEAOT</DefineConstants>
+  </PropertyGroup>
+
 </Project>

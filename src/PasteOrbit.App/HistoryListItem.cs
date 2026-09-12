@@ -11,7 +11,8 @@ namespace PasteOrbit.App;
 /// <summary>
 /// 历史记录卡片的数据适配器，负责延迟加载预览和通知界面刷新。
 /// </summary>
-public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
+[WinRT.GeneratedBindableCustomProperty]
+public sealed partial class HistoryListItem : INotifyPropertyChanged, IDisposable
 {
     private static readonly SemaphoreSlim ThumbnailLoadGate = new(1, 1);
 

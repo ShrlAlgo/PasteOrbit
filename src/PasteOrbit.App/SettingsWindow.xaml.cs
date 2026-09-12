@@ -52,7 +52,8 @@ public sealed partial class SettingsWindow : Window
     private string? _currentPageTag;
     private bool _isNavigatingBack;
 
-    private sealed record RunningProcessItem(string ProcessName, string WindowTitle)
+    [WinRT.GeneratedBindableCustomProperty]
+    private sealed partial record RunningProcessItem(string ProcessName, string WindowTitle)
     {
         public string DisplayName => string.IsNullOrWhiteSpace(WindowTitle)
             ? ProcessName

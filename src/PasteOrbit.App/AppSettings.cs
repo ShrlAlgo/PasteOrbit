@@ -48,8 +48,6 @@ public sealed class AppSettings
 
 public sealed class AppSettingsStore
 {
-    private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = true };
-
     public AppSettingsStore(string path)
     {
         Path = path;
@@ -63,7 +61,9 @@ public sealed class AppSettingsStore
         {
             // 读取失败时使用默认设置，避免配置文件阻止应用启动。
             var settings = File.Exists(Path)
-                ? JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(Path)) ?? new AppSettings()
+                ? JsonSerializer.Deserialize(
+                    File.ReadAllText(Path),
+                    AppSettingsJsonSerializerContext.Default.AppSettings) ?? new AppSettings()
                 : new AppSettings();
             settings.ThemeMode = settings.ThemeMode switch
             {
@@ -88,7 +88,9 @@ public sealed class AppSettingsStore
         // 先写入临时文件，再原子替换正式配置，避免中断时留下半份 JSON。
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path)!);
         var temporaryPath = $"{Path}.tmp";
-        File.WriteAllText(temporaryPath, JsonSerializer.Serialize(settings, SerializerOptions));
+        File.WriteAllText(
+            temporaryPath,
+            JsonSerializer.Serialize(settings, AppSettingsJsonSerializerContext.Default.AppSettings));
         File.Move(temporaryPath, Path, true);
     }
 }

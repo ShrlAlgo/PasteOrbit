@@ -82,6 +82,10 @@ internal static class ExplorerFilePaste
 
     private static string? TryGetCurrentFolderPath(IntPtr targetWindow)
     {
+#if PASTEORBIT_NATIVEAOT
+        // Shell.Application 依赖运行时 IDispatch，Native AOT 下不执行该路径。
+        return null;
+#else
         // 通过 Shell.Application 获取目标资源管理器窗口对应的文件夹路径。
         if (!IsExplorerWindow(targetWindow))
         {
@@ -173,6 +177,7 @@ internal static class ExplorerFilePaste
         }
 
         return null;
+#endif
     }
 
     private static bool IsExplorerWindow(IntPtr targetWindow)

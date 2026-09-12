@@ -3,7 +3,9 @@ param(
     [ValidatePattern('^\d+\.\d+\.\d+(?:\.\d+)?$')]
     [string]$Version,
 
-    [switch]$NoArchive
+    [switch]$NoArchive,
+
+    [switch]$NativeAot
 )
 
 $ErrorActionPreference = 'Stop'
@@ -12,12 +14,13 @@ $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $projectPath = Join-Path $repositoryRoot 'src\PasteOrbit.App\PasteOrbit.App.csproj'
 $buildOutputDirectory = Join-Path $repositoryRoot 'src\PasteOrbit.App\bin\Release\net8.0-windows10.0.26100.0'
 $artifactsDirectory = Join-Path $repositoryRoot 'artifacts'
-$publishDirectory = Join-Path $artifactsDirectory 'PasteOrbit-win-x64'
+$packageSuffix = if ($NativeAot) { 'win-x64-aot' } else { 'win-x64' }
+$publishDirectory = Join-Path $artifactsDirectory "PasteOrbit-$packageSuffix"
 $archiveName = if ([string]::IsNullOrWhiteSpace($Version)) {
-    'PasteOrbit-win-x64.zip'
+    "PasteOrbit-$packageSuffix.zip"
 }
 else {
-    "PasteOrbit-$Version-win-x64.zip"
+    "PasteOrbit-$Version-$packageSuffix.zip"
 }
 $archivePath = Join-Path $artifactsDirectory $archiveName
 
@@ -49,12 +52,20 @@ $publishArguments = @(
     $projectPath,
     '--configuration', 'Release',
     '--runtime', 'win-x64',
-    '--self-contained', 'false',
+    '--self-contained', $(if ($NativeAot) { 'true' } else { 'false' }),
     '--output', $publishDirectory,
     '-p:WindowsAppSDKSelfContained=false',
     '-p:DebugType=None',
     '-p:DebugSymbols=false'
 )
+if ($NativeAot) {
+    # Native AOT 独立发布不改变默认的 framework-dependent 发布产物。
+    $publishArguments += @(
+        '-p:PublishAot=true',
+        '-p:PublishTrimmed=true',
+        '-p:CsWinRTAotOptimizerEnabled=true'
+    )
+}
 if (-not [string]::IsNullOrWhiteSpace($Version)) {
     $publishArguments += "-p:Version=$Version"
 }

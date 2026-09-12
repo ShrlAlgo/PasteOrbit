@@ -753,6 +753,10 @@ public sealed partial class MainWindow : Window
     {
         caretBounds = null;
         controlBounds = null;
+#if PASTEORBIT_NATIVEAOT
+        // Native AOT 不提供传统 COM 互操作，定位继续使用 Win32 插入符和窗口边界回退。
+        return;
+#else
         IUiAutomation? automation = null;
         IUiAutomationElement? focusedElement = null;
         IUiAutomationTextPattern2? textPattern = null;
@@ -850,6 +854,7 @@ public sealed partial class MainWindow : Window
             ReleaseComObject(focusedElement);
             ReleaseComObject(automation);
         }
+#endif
     }
 
     private static bool TryGetAutomationRectangle(double[]? rectangles, out MonitorRect bounds)
@@ -1659,6 +1664,10 @@ public sealed partial class MainWindow : Window
 
     private static bool TryRestoreAutomationFocus(PasteTargetSnapshot pasteTarget)
     {
+#if PASTEORBIT_NATIVEAOT
+        // Native AOT 使用 ClipboardPlayback 的 Win32 前台窗口恢复路径。
+        return false;
+#else
         if (!pasteTarget.HasInputBounds)
         {
             return false;
@@ -1721,6 +1730,7 @@ public sealed partial class MainWindow : Window
             ReleaseComObject(inputElement);
             ReleaseComObject(automation);
         }
+#endif
     }
 
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
@@ -2076,7 +2086,9 @@ public sealed partial class MainWindow : Window
                 case ClipboardContentKind.Files:
                 {
                     var content = await Task.Run(() => _repository.LoadContent(selected.Item.Id));
-                    var paths = JsonSerializer.Deserialize<string[]>(content) ?? [];
+                    var paths = JsonSerializer.Deserialize(
+                                    content,
+                                    AppJsonSerializerContext.Default.StringArray) ?? [];
                     contentControl = CreateTextPreview(string.Join(Environment.NewLine, paths));
                     break;
                 }

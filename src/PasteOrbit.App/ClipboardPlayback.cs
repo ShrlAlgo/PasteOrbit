@@ -136,7 +136,9 @@ public static class ClipboardPlayback
                 package.SetBitmap(RandomAccessStreamReference.CreateFromStream(_clipboardStream));
                 break;
             case ClipboardContentKind.Files:
-                var paths = JsonSerializer.Deserialize<string[]>(content)
+                var paths = JsonSerializer.Deserialize(
+                                content,
+                                AppJsonSerializerContext.Default.StringArray)
                     ?? throw new InvalidDataException(AppLocalization.GetString("FileClipboardInvalid"));
                 var storageItems = new List<IStorageItem>();
                 foreach (var path in paths)

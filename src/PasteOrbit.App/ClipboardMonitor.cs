@@ -222,7 +222,9 @@ public sealed class ClipboardMonitor : IDisposable
                     return new ClipboardCapture(
                         ClipboardContentKind.Files,
                         string.Join(Environment.NewLine, paths.Select(Path.GetFileName)),
-                        JsonSerializer.SerializeToUtf8Bytes(paths),
+                        JsonSerializer.SerializeToUtf8Bytes(
+                            paths,
+                            AppJsonSerializerContext.Default.StringArray),
                         sourceApplication);
                 }
             }

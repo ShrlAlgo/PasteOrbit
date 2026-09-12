@@ -26,7 +26,7 @@ public sealed record UpdateCheckResult(
 /// <summary>
 /// 查询 GitHub 最新版本并按 Release 资产下载更新安装包。
 /// </summary>
-public sealed class UpdateCheckService : IDisposable
+public sealed partial class UpdateCheckService : IDisposable
 {
     private static readonly Uri LatestReleaseEndpoint = new(
         "https://api.github.com/repos/ShrlAlgo/PasteOrbit/releases/latest");
@@ -59,8 +59,9 @@ public sealed class UpdateCheckService : IDisposable
         response.EnsureSuccessStatusCode();
 
         await using var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        var release = await JsonSerializer.DeserializeAsync<GitHubReleasePayload>(
+        var release = await JsonSerializer.DeserializeAsync(
             responseStream,
+            UpdateJsonSerializerContext.Default.GitHubReleasePayload,
             cancellationToken: cancellationToken);
         if (release is null
             || !TryParseReleaseVersion(release.TagName, out var latestVersion)
@@ -299,4 +300,9 @@ public sealed class UpdateCheckService : IDisposable
         [property: JsonPropertyName("name")] string? Name,
         [property: JsonPropertyName("size")] long Size,
         [property: JsonPropertyName("browser_download_url")] string? BrowserDownloadUrl);
+
+    [JsonSerializable(typeof(GitHubReleasePayload))]
+    private sealed partial class UpdateJsonSerializerContext : JsonSerializerContext
+    {
+    }
 }
