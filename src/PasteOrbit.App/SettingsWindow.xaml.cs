@@ -138,6 +138,7 @@ public sealed partial class SettingsWindow : Window
         CancelShortcutCapture();
         StartWithWindowsToggleSwitch.IsOn = settings.StartWithWindows
             || (includeSystemStartup && IsStartWithWindowsEnabled());
+        RunAsAdministratorToggleSwitch.IsOn = settings.RunAsAdministrator;
         AutoHideToggleSwitch.IsOn = settings.AutoHideOnDeactivate;
         MonitorTextToggleSwitch.IsOn = settings.MonitorText;
         MonitorImagesToggleSwitch.IsOn = settings.MonitorImages;
@@ -454,6 +455,7 @@ public sealed partial class SettingsWindow : Window
     private void AttachSettingHandlers()
     {
         StartWithWindowsToggleSwitch.Toggled += SettingToggleSwitch_Changed;
+        RunAsAdministratorToggleSwitch.Toggled += SettingToggleSwitch_Changed;
         AutoHideToggleSwitch.Toggled += SettingToggleSwitch_Changed;
         MonitorTextToggleSwitch.Toggled += SettingToggleSwitch_Changed;
         MonitorImagesToggleSwitch.Toggled += SettingToggleSwitch_Changed;
@@ -469,6 +471,25 @@ public sealed partial class SettingsWindow : Window
 
     private void SettingToggleSwitch_Changed(object sender, RoutedEventArgs e)
     {
+        var shouldRestartAsAdministrator = ReferenceEquals(sender, RunAsAdministratorToggleSwitch)
+            && RunAsAdministratorToggleSwitch.IsOn
+            && !_settings.RunAsAdministrator;
+        ApplyCurrentSettings();
+
+        if (!shouldRestartAsAdministrator || !_settings.RunAsAdministrator)
+        {
+            return;
+        }
+
+        if (Application.Current is App app && app.RestartAsAdministrator())
+        {
+            return;
+        }
+
+        // UAC 被取消或提权进程未能启动时，保留当前实例并撤销设置。
+        _isLoadingSettings = true;
+        RunAsAdministratorToggleSwitch.IsOn = false;
+        _isLoadingSettings = false;
         ApplyCurrentSettings();
     }
 
@@ -605,6 +626,7 @@ public sealed partial class SettingsWindow : Window
         return new AppSettings
         {
             StartWithWindows = StartWithWindowsToggleSwitch.IsOn,
+            RunAsAdministrator = RunAsAdministratorToggleSwitch.IsOn,
             AutoHideOnDeactivate = AutoHideToggleSwitch.IsOn,
             MonitorText = MonitorTextToggleSwitch.IsOn,
             MonitorImages = MonitorImagesToggleSwitch.IsOn,
@@ -661,6 +683,10 @@ public sealed partial class SettingsWindow : Window
         AboutSectionText.Text = AppLocalization.GetString("SettingsAboutSectionText");
 
         SetCard(StartupCard, "SettingsStartupCardHeader", "SettingsStartupCardDescription");
+        SetCard(
+            RunAsAdministratorCard,
+            "SettingsRunAsAdministratorCardHeader",
+            "SettingsRunAsAdministratorCardDescription");
         SetCard(AutoHideCard, "SettingsAutoHideCardHeader", "SettingsAutoHideCardDescription");
         SetCard(MonitorTextCard, "SettingsMonitorTextCardHeader", "SettingsMonitorTextCardDescription");
         SetCard(MonitorImagesCard, "SettingsMonitorImagesCardHeader", "SettingsMonitorImagesCardDescription");
@@ -715,6 +741,7 @@ public sealed partial class SettingsWindow : Window
         var toggleOnContent = AppLocalization.GetString("ToggleOnContent");
         var toggleOffContent = AppLocalization.GetString("ToggleOffContent");
         SetToggleContent(StartWithWindowsToggleSwitch, toggleOnContent, toggleOffContent);
+        SetToggleContent(RunAsAdministratorToggleSwitch, toggleOnContent, toggleOffContent);
         SetToggleContent(AutoHideToggleSwitch, toggleOnContent, toggleOffContent);
         SetToggleContent(MonitorTextToggleSwitch, toggleOnContent, toggleOffContent);
         SetToggleContent(MonitorImagesToggleSwitch, toggleOnContent, toggleOffContent);

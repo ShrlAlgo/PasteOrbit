@@ -27,6 +27,8 @@ public sealed class AppSettings
 
     public bool StartWithWindows { get; set; }
 
+    public bool RunAsAdministrator { get; set; }
+
     public bool AutoHideOnDeactivate { get; set; } = true;
 
     public bool MonitorText { get; set; } = true;

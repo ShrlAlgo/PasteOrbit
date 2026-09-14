@@ -241,6 +241,8 @@
   <data name="GitHubProjectButtonText" xml:space="preserve"><value>打开 GitHub</value></data>
   <data name="SettingsStartupCardHeader" xml:space="preserve"><value>开机自动启动</value></data>
   <data name="SettingsStartupCardDescription" xml:space="preserve"><value>登录 Windows 后自动运行 PasteOrbit</value></data>
+  <data name="SettingsRunAsAdministratorCardHeader" xml:space="preserve"><value>默认以管理员身份运行</value></data>
+  <data name="SettingsRunAsAdministratorCardDescription" xml:space="preserve"><value>启动时请求管理员权限，以便在高权限窗口中接管快捷键</value></data>
   <data name="SettingsAutoHideCardHeader" xml:space="preserve"><value>失去焦点时自动隐藏</value></data>
   <data name="SettingsAutoHideCardDescription" xml:space="preserve"><value>窗口失去焦点后自动收起历史面板</value></data>
   <data name="SettingsMonitorTextCardHeader" xml:space="preserve"><value>监听文本</value></data>

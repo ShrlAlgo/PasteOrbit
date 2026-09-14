@@ -169,6 +169,14 @@
                                 <ToggleSwitch x:Name="StartWithWindowsToggleSwitch" />
                             </toolkit:SettingsCard>
                             <toolkit:SettingsCard
+                                x:Name="RunAsAdministratorCard"
+                                Margin="0,0,0,8"
+                                ContentAlignment="Right"
+                                Description="启动时请求管理员权限，以便在高权限窗口中接管快捷键"
+                                Header="默认以管理员身份运行">
+                                <ToggleSwitch x:Name="RunAsAdministratorToggleSwitch" />
+                            </toolkit:SettingsCard>
+                            <toolkit:SettingsCard
                                 x:Name="AutoHideCard"
                                 x:Uid="SettingsAutoHideCard"
                                 Margin="0,0,0,8"

@@ -241,6 +241,8 @@
   <data name="GitHubProjectButtonText" xml:space="preserve"><value>Open GitHub</value></data>
   <data name="SettingsStartupCardHeader" xml:space="preserve"><value>Start with Windows</value></data>
   <data name="SettingsStartupCardDescription" xml:space="preserve"><value>Run PasteOrbit automatically after signing in to Windows</value></data>
+  <data name="SettingsRunAsAdministratorCardHeader" xml:space="preserve"><value>Run as administrator by default</value></data>
+  <data name="SettingsRunAsAdministratorCardDescription" xml:space="preserve"><value>Request administrator privileges at startup to handle shortcuts in elevated windows</value></data>
   <data name="SettingsAutoHideCardHeader" xml:space="preserve"><value>Hide when focus is lost</value></data>
   <data name="SettingsAutoHideCardDescription" xml:space="preserve"><value>Collapse the history panel after it loses focus</value></data>
   <data name="SettingsMonitorTextCardHeader" xml:space="preserve"><value>Monitor text</value></data>

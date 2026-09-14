@@ -1,4 +1,7 @@
+using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Security.Principal;
 using System.Threading;
 using Microsoft.Windows.Globalization;
 using Microsoft.UI.Xaml;
@@ -11,6 +14,7 @@ namespace PasteOrbit.App;
 public partial class App : Application
 {
     private const string SingleInstanceMutexName = @"Local\PasteOrbit.SingleInstance";
+    private const string ElevatedRestartArgument = "--elevated-restart";
     private static readonly IntPtr HwndBroadcast = new(-1);
     internal static readonly uint ShowExistingInstanceMessage = RegisterWindowMessage("PasteOrbit.ShowExistingInstance");
     // 在应用覆盖语言前记录系统首选语言，运行时切回“跟随系统”时仍能恢复到正确资源。
@@ -18,7 +22,9 @@ public partial class App : Application
 
     private MainWindow? _mainWindow;
     private Mutex? _singleInstanceMutex;
-    private readonly bool _isPrimaryInstance;
+    private readonly bool _shouldRunAsAdministrator;
+    private readonly bool _isElevatedRestart;
+    private bool _ownsSingleInstance;
     private bool _isExiting;
 
     public App()
@@ -27,26 +33,44 @@ public partial class App : Application
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PasteOrbit",
             "settings.json");
-        var language = new AppSettingsStore(settingsPath).Load().Language;
-        if (!string.IsNullOrEmpty(language))
+        var settings = new AppSettingsStore(settingsPath).Load();
+        if (!string.IsNullOrEmpty(settings.Language))
         {
-            ApplicationLanguages.PrimaryLanguageOverride = language;
+            ApplicationLanguages.PrimaryLanguageOverride = settings.Language;
         }
 
+        _shouldRunAsAdministrator = settings.RunAsAdministrator;
+        _isElevatedRestart = Environment.GetCommandLineArgs().Contains(
+            ElevatedRestartArgument,
+            StringComparer.OrdinalIgnoreCase);
         InitializeComponent();
         _singleInstanceMutex = new Mutex(true, SingleInstanceMutexName, out var createdNew);
-        _isPrimaryInstance = createdNew;
+        _ownsSingleInstance = createdNew;
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         // 非主实例只发送唤醒消息，不重复创建托盘、监听器和窗口。
-        if (!_isPrimaryInstance)
+        if (!_ownsSingleInstance && _isElevatedRestart)
+        {
+            _ownsSingleInstance = WaitForPreviousInstance();
+        }
+
+        if (!_ownsSingleInstance)
         {
             // 第二个实例只负责唤醒首个实例，随后立即退出，不创建窗口和后台服务。
             PostMessage(HwndBroadcast, ShowExistingInstanceMessage, IntPtr.Zero, IntPtr.Zero);
             _singleInstanceMutex?.Dispose();
             _singleInstanceMutex = null;
+            Environment.Exit(0);
+            return;
+        }
+
+        if (_shouldRunAsAdministrator
+            && !IsRunningAsAdministrator()
+            && TryStartElevatedInstance())
+        {
+            ReleaseSingleInstance();
             Environment.Exit(0);
             return;
         }
@@ -70,6 +94,72 @@ public partial class App : Application
         _mainWindow?.ExitApplication();
     }
 
+    internal bool RestartAsAdministrator()
+    {
+        if (IsRunningAsAdministrator())
+        {
+            return true;
+        }
+
+        if (!TryStartElevatedInstance())
+        {
+            return false;
+        }
+
+        ExitApplication();
+        return true;
+    }
+
+    private bool WaitForPreviousInstance()
+    {
+        try
+        {
+            // 提权实例等待原实例完成资源释放，避免被单实例检查提前关闭。
+            return _singleInstanceMutex?.WaitOne(TimeSpan.FromSeconds(10)) == true;
+        }
+        catch (AbandonedMutexException)
+        {
+            return true;
+        }
+    }
+
+    private static bool IsRunningAsAdministrator()
+    {
+        using var identity = WindowsIdentity.GetCurrent();
+        var principal = new WindowsPrincipal(identity);
+        return principal.IsInRole(WindowsBuiltInRole.Administrator);
+    }
+
+    private static bool TryStartElevatedInstance()
+    {
+        var processPath = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(processPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = processPath,
+                Arguments = ElevatedRestartArgument,
+                WorkingDirectory = AppContext.BaseDirectory,
+                UseShellExecute = true,
+                Verb = "runas"
+            });
+            return true;
+        }
+        catch (Win32Exception)
+        {
+            return false;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
     private void ReleaseSingleInstance()
     {
         if (_singleInstanceMutex is null)
@@ -87,6 +177,7 @@ public partial class App : Application
 
         _singleInstanceMutex.Dispose();
         _singleInstanceMutex = null;
+        _ownsSingleInstance = false;
     }
 
     private static string ResolveSystemLanguage()
