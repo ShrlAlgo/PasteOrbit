@@ -134,6 +134,17 @@
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
             </NavigationView.MenuItems>
+            <NavigationView.FooterMenuItems>
+                <NavigationViewItem
+                    x:Name="AboutNavigationItem"
+                    x:Uid="SettingsAboutNavigation"
+                    Content="关于"
+                    Tag="About">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE946;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.FooterMenuItems>
             <NavigationView.Content>
                 <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                     <Grid Margin="42,26,42,24">
@@ -274,19 +285,6 @@
                                         Tag="en-US" />
                                 </ComboBox>
                             </toolkit:SettingsCard>
-                            <toolkit:SettingsCard
-                                x:Name="UpdateCard"
-                                x:Uid="SettingsUpdateCard"
-                                Margin="0,0,0,8"
-                                ContentAlignment="Right"
-                                Description="检查 PasteOrbit 是否有新版本"
-                                Header="软件更新">
-                                <Button
-                                    x:Name="CheckForUpdatesButton"
-                                    x:Uid="CheckForUpdatesButton"
-                                    Click="CheckForUpdatesButton_Click"
-                                    Content="检查更新" />
-                            </toolkit:SettingsCard>
                         </StackPanel>
 
                         <StackPanel x:Name="HotKeyPanel" Visibility="Collapsed">
@@ -313,6 +311,15 @@
                                     KeyDown="ShortcutButton_KeyDown"
                                     LostFocus="ShortcutButton_LostFocus"
                                     Style="{StaticResource ShortcutButtonStyle}" />
+                            </toolkit:SettingsCard>
+                            <toolkit:SettingsCard
+                                x:Name="InterceptWinVCard"
+                                x:Uid="SettingsInterceptWinVCard"
+                                Margin="0,0,0,8"
+                                ContentAlignment="Right"
+                                Description="使用 Win + V 打开 PasteOrbit，并阻止系统剪切板历史弹出"
+                                Header="接管 Win + V">
+                                <ToggleSwitch x:Name="InterceptWinVToggleSwitch" />
                             </toolkit:SettingsCard>
                             <toolkit:SettingsCard
                                 x:Name="PasteShortcutCard"
@@ -512,6 +519,93 @@
                                 Foreground="{ThemeResource TextSecondaryBrush}"
                                 Text="剪切板正文使用当前 Windows 用户凭据加密，其他用户无法直接读取。"
                                 TextWrapping="Wrap" />
+                        </StackPanel>
+
+                        <StackPanel x:Name="AboutPanel" Visibility="Collapsed">
+                            <TextBlock
+                                x:Name="AboutSectionText"
+                                x:Uid="SettingsAboutSection"
+                                FontSize="18"
+                                FontWeight="SemiBold"
+                                Text="关于" />
+                            <Border
+                                Height="1"
+                                Margin="0,8,0,4"
+                                Background="{ThemeResource BorderBrush}" />
+                            <StackPanel
+                                Margin="0,20,0,24"
+                                HorizontalAlignment="Center"
+                                Spacing="8">
+                                <Image
+                                    Width="72"
+                                    Height="72"
+                                    HorizontalAlignment="Center"
+                                    Source="ms-appx:///Assets/PasteOrbit.ico" />
+                                <TextBlock
+                                    HorizontalAlignment="Center"
+                                    FontSize="24"
+                                    FontWeight="SemiBold"
+                                    Text="PasteOrbit" />
+                                <TextBlock
+                                    x:Name="AboutVersionText"
+                                    HorizontalAlignment="Center"
+                                    Foreground="{ThemeResource TextSecondaryBrush}"
+                                    Text="版本" />
+                            </StackPanel>
+                            <TextBlock
+                                x:Name="AboutDescriptionText"
+                                Margin="8,0,8,18"
+                                HorizontalAlignment="Center"
+                                Foreground="{ThemeResource TextSecondaryBrush}"
+                                Text="本地剪切板历史管理工具，支持文本、图片、文件、搜索、置顶和 OCR。"
+                                TextAlignment="Center"
+                                TextWrapping="Wrap" />
+                            <toolkit:SettingsCard
+                                x:Name="GitHubProjectCard"
+                                Margin="0,0,0,8"
+                                ContentAlignment="Right"
+                                Description="查看源代码、提交问题或了解项目进展"
+                                Header="GitHub 项目主页">
+                                <Button
+                                    x:Name="GitHubProjectButton"
+                                    Click="GitHubProjectButton_Click">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Viewbox Width="16" Height="16">
+                                            <Path
+                                                Data="M8,0 C3.58,0 0,3.64 0,8 C0,11.54 2.29,14.53 5.47,15.59 C5.87,15.66 6.02,15.42 6.02,15.21 C6.02,15.02 6.01,14.39 6.01,13.72 C4,14.09 3.48,13.23 3.32,12.78 C3.23,12.55 2.84,11.84 2.5,11.66 C2.22,11.51 1.82,11.13 2.49,11.12 C3.12,11.11 3.57,11.7 3.72,11.94 C4.44,13.15 5.59,12.81 6.05,12.6 C6.12,12.08 6.33,11.73 6.56,11.53 C4.78,11.33 2.92,10.64 2.92,7.58 C2.92,6.71 3.23,5.99 3.74,5.43 C3.66,5.23 3.38,4.41 3.82,3.31 C3.82,3.31 4.49,3.1 6.02,4.13 C6.66,3.95 7.34,3.86 8.02,3.86 C8.7,3.86 9.38,3.95 10.02,4.13 C11.55,3.09 12.22,3.31 12.22,3.31 C12.66,4.41 12.38,5.23 12.3,5.43 C12.81,5.99 13.12,6.7 13.12,7.58 C13.12,10.65 11.25,11.33 9.47,11.53 C9.76,11.78 10.01,12.26 10.01,13.01 C10.01,14.08 10,14.94 10,15.21 C10,15.42 10.15,15.67 10.55,15.59 C13.71,14.53 16,11.53 16,8 C16,3.64 12.42,0 8,0 Z"
+                                                Fill="{ThemeResource TextPrimaryBrush}"
+                                                Stretch="Uniform" />
+                                        </Viewbox>
+                                        <TextBlock x:Name="GitHubProjectButtonText" Text="打开 GitHub" />
+                                    </StackPanel>
+                                </Button>
+                            </toolkit:SettingsCard>
+                            <toolkit:SettingsCard
+                                x:Name="UpdateCard"
+                                x:Uid="SettingsUpdateCard"
+                                Margin="0,0,0,8"
+                                ContentAlignment="Right"
+                                Description="检查 PasteOrbit 是否有新版本"
+                                Header="软件更新">
+                                <Button
+                                    x:Name="CheckForUpdatesButton"
+                                    x:Uid="CheckForUpdatesButton"
+                                    Click="CheckForUpdatesButton_Click"
+                                    Content="检查更新" />
+                            </toolkit:SettingsCard>
+                            <TextBlock
+                                x:Name="AboutPrivacyText"
+                                Margin="8,14,8,0"
+                                Foreground="{ThemeResource TextSecondaryBrush}"
+                                Text="剪切板数据保存在本机，并使用当前 Windows 用户凭据保护。"
+                                TextAlignment="Center"
+                                TextWrapping="Wrap" />
+                            <TextBlock
+                                x:Name="AboutCopyrightText"
+                                Margin="8,8,8,0"
+                                HorizontalAlignment="Center"
+                                Foreground="{ThemeResource TextSecondaryBrush}"
+                                Text="© 2026 PasteOrbit contributors" />
                         </StackPanel>
                     </Grid>
                 </ScrollViewer>

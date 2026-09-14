@@ -50,6 +50,7 @@
   <data name="SettingsHotKeyNavigation.Content" xml:space="preserve"><value>快捷键</value></data>
   <data name="SettingsHistoryNavigation.Content" xml:space="preserve"><value>历史记录</value></data>
   <data name="SettingsPrivacyNavigation.Content" xml:space="preserve"><value>隐私与安全</value></data>
+  <data name="SettingsAboutNavigation.Content" xml:space="preserve"><value>关于</value></data>
   <data name="SettingsStartupSection.Text" xml:space="preserve"><value>启动与窗口</value></data>
   <data name="SettingsStartupCard.Header" xml:space="preserve"><value>开机自动启动</value></data>
   <data name="SettingsStartupCard.Description" xml:space="preserve"><value>登录 Windows 后自动运行 PasteOrbit</value></data>
@@ -68,6 +69,8 @@
   <data name="SettingsHotKeySection.Text" xml:space="preserve"><value>快捷键</value></data>
   <data name="SettingsGlobalHotKeyCard.Header" xml:space="preserve"><value>打开剪切板历史</value></data>
   <data name="SettingsGlobalHotKeyCard.Description" xml:space="preserve"><value>全局快捷键，必须包含修饰键</value></data>
+  <data name="SettingsInterceptWinVCard.Header" xml:space="preserve"><value>接管 Win + V</value></data>
+  <data name="SettingsInterceptWinVCard.Description" xml:space="preserve"><value>使用 Win + V 打开 PasteOrbit，并阻止系统剪切板历史弹出</value></data>
   <data name="SettingsPasteShortcutCard.Header" xml:space="preserve"><value>粘贴选中记录</value></data>
   <data name="SettingsPlainTextShortcutCard.Header" xml:space="preserve"><value>粘贴为纯文本</value></data>
   <data name="SettingsPreviewShortcutCard.Header" xml:space="preserve"><value>展开或收起预览</value></data>
@@ -82,6 +85,7 @@
   <data name="SettingsMaxEntriesCard.Description" xml:space="preserve"><value>达到上限时优先清理未置顶记录</value></data>
   <data name="SettingsPinnedRetentionHint.Text" xml:space="preserve"><value>置顶记录不参与自动过期和数量清理。</value></data>
   <data name="SettingsPrivacySection.Text" xml:space="preserve"><value>隐私与安全</value></data>
+  <data name="SettingsAboutSection.Text" xml:space="preserve"><value>关于</value></data>
   <data name="SettingsExcludedAppsCard.Header" xml:space="preserve"><value>不记录指定应用</value></data>
   <data name="SettingsExcludedAppsCard.Description" xml:space="preserve"><value>填写进程名或从当前运行进程中选择，多个进程用分号分隔</value></data>
   <data name="ExcludedApplicationsTextBox.PlaceholderText" xml:space="preserve"><value>进程名，用分号分隔</value></data>
@@ -191,6 +195,7 @@
   <data name="GlobalHotKeyAlreadyRegistered" xml:space="preserve"><value>全局快捷键已注册。</value></data>
   <data name="GlobalHotKeyWrongMessageBridge" xml:space="preserve"><value>快捷键只能在注册它的窗口消息桥上重新配置。</value></data>
   <data name="GlobalHotKeyRegistrationFailedWithReason" xml:space="preserve"><value>快捷键 {0} 无法注册：{1}</value></data>
+  <data name="WindowsClipboardShortcutUnavailable" xml:space="preserve"><value>无法接管 Win + V：{0}</value></data>
   <data name="GlobalHotKeyEmpty" xml:space="preserve"><value>快捷键不能为空。</value></data>
   <data name="GlobalHotKeyNeedsModifierAndKey" xml:space="preserve"><value>快捷键至少需要一个修饰键和一个按键。</value></data>
   <data name="UnsupportedModifier" xml:space="preserve"><value>不支持的修饰键：{0}。</value></data>
@@ -219,12 +224,21 @@
   <data name="SettingsHotKeyNavigationContent" xml:space="preserve"><value>快捷键</value></data>
   <data name="SettingsHistoryNavigationContent" xml:space="preserve"><value>历史记录</value></data>
   <data name="SettingsPrivacyNavigationContent" xml:space="preserve"><value>隐私与安全</value></data>
+  <data name="SettingsAboutNavigationContent" xml:space="preserve"><value>关于</value></data>
   <data name="SettingsStartupSectionText" xml:space="preserve"><value>启动与窗口</value></data>
   <data name="SettingsMonitoringSectionText" xml:space="preserve"><value>剪切板监听</value></data>
   <data name="SettingsAppearanceSectionText" xml:space="preserve"><value>外观</value></data>
   <data name="SettingsHotKeySectionText" xml:space="preserve"><value>快捷键</value></data>
   <data name="SettingsHistorySectionText" xml:space="preserve"><value>历史记录</value></data>
   <data name="SettingsPrivacySectionText" xml:space="preserve"><value>隐私与安全</value></data>
+  <data name="SettingsAboutSectionText" xml:space="preserve"><value>关于</value></data>
+  <data name="AboutVersionText" xml:space="preserve"><value>版本 {0}</value></data>
+  <data name="AboutDescriptionText" xml:space="preserve"><value>本地剪切板历史管理工具，支持文本、图片、文件、搜索、置顶和 OCR。</value></data>
+  <data name="AboutPrivacyText" xml:space="preserve"><value>剪切板数据保存在本机，并使用当前 Windows 用户凭据保护。</value></data>
+  <data name="AboutCopyrightText" xml:space="preserve"><value>© 2026 PasteOrbit contributors</value></data>
+  <data name="GitHubProjectCardHeader" xml:space="preserve"><value>GitHub 项目主页</value></data>
+  <data name="GitHubProjectCardDescription" xml:space="preserve"><value>查看源代码、提交问题或了解项目进展</value></data>
+  <data name="GitHubProjectButtonText" xml:space="preserve"><value>打开 GitHub</value></data>
   <data name="SettingsStartupCardHeader" xml:space="preserve"><value>开机自动启动</value></data>
   <data name="SettingsStartupCardDescription" xml:space="preserve"><value>登录 Windows 后自动运行 PasteOrbit</value></data>
   <data name="SettingsAutoHideCardHeader" xml:space="preserve"><value>失去焦点时自动隐藏</value></data>
@@ -246,6 +260,8 @@
   <data name="CheckForUpdatesButtonContent" xml:space="preserve"><value>检查更新</value></data>
   <data name="SettingsGlobalHotKeyCardHeader" xml:space="preserve"><value>打开剪切板历史</value></data>
   <data name="SettingsGlobalHotKeyCardDescription" xml:space="preserve"><value>全局快捷键，必须包含修饰键</value></data>
+  <data name="SettingsInterceptWinVCardHeader" xml:space="preserve"><value>接管 Win + V</value></data>
+  <data name="SettingsInterceptWinVCardDescription" xml:space="preserve"><value>使用 Win + V 打开 PasteOrbit，并阻止系统剪切板历史弹出</value></data>
   <data name="SettingsPasteShortcutCardHeader" xml:space="preserve"><value>粘贴选中记录</value></data>
   <data name="SettingsPlainTextShortcutCardHeader" xml:space="preserve"><value>粘贴为纯文本</value></data>
   <data name="SettingsPreviewShortcutCardHeader" xml:space="preserve"><value>展开或收起预览</value></data>
@@ -301,9 +317,5 @@
   <data name="PasteOcrTextMenuItemText" xml:space="preserve"><value>粘贴识别文字</value></data>
   <data name="PasteAsFileMenuItemText" xml:space="preserve"><value>粘贴为文件</value></data>
   <data name="DeleteRecordMenuItemText" xml:space="preserve"><value>删除记录</value></data>
-  <data name="MainGitHubButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>打开 PasteOrbit GitHub 仓库</value></data>
-  <data name="MainGitHubButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>GitHub</value></data>
-  <data name="MainGitHubButtonAutomationName" xml:space="preserve"><value>打开 PasteOrbit GitHub 仓库</value></data>
-  <data name="MainGitHubButtonTooltip" xml:space="preserve"><value>GitHub</value></data>
   <data name="DoNotRemindUpdateButton" xml:space="preserve"><value>不再提示</value></data>
 </root>

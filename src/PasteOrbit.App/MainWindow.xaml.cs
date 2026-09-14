@@ -20,8 +20,6 @@ using PasteOrbit.Core;
 
 using Windows.Graphics;
 using Windows.Storage.Streams;
-using Launcher = Windows.System.Launcher;
-
 using WinRT.Interop;
 
 using VirtualKey = Windows.System.VirtualKey;
@@ -68,6 +66,7 @@ public sealed partial class MainWindow : Window
     private readonly AppSettingsStore _settingsStore;
     private readonly ClipboardHistory _history;
     private readonly GlobalHotKey _hotKey = new();
+    private readonly WindowsClipboardShortcut _windowsClipboardShortcut = new();
     private readonly ClipboardMonitor _monitor = new();
     private readonly ClipboardRepository _repository;
     private readonly ImageOcrService _ocrService;
@@ -165,6 +164,7 @@ public sealed partial class MainWindow : Window
         _monitor.Captured += Monitor_Captured;
         _monitor.CaptureFailed += Monitor_CaptureFailed;
         _hotKey.Pressed += HotKey_Pressed;
+        _windowsClipboardShortcut.Pressed += WindowsClipboardShortcut_Pressed;
         RefreshHistory();
     }
 
@@ -233,6 +233,8 @@ public sealed partial class MainWindow : Window
             StatusText.Text = AppLocalization.Format("InitializationFailed", exception.Message);
         }
 
+        ApplyWindowsClipboardShortcut(_settings.InterceptWindowsClipboardShortcut);
+
         PositionWindow();
     }
 
@@ -248,6 +250,7 @@ public sealed partial class MainWindow : Window
         _trayIcon?.Dispose();
         _monitor.Dispose();
         _ocrService.Dispose();
+        _windowsClipboardShortcut.Dispose();
         _hotKey.Dispose();
         _messageBridge?.Dispose();
         Close();
@@ -325,6 +328,17 @@ public sealed partial class MainWindow : Window
 
         EnqueueOnUi(() =>
         {
+            PositionWindow();
+            ShowPanel(activatePanel: true);
+        });
+    }
+
+    private void WindowsClipboardShortcut_Pressed(IntPtr foregroundWindow)
+    {
+        // 低级键盘回调不执行 UIAutomation 和窗口操作。
+        _dispatcherQueue?.TryEnqueue(() =>
+        {
+            CapturePasteTarget(foregroundWindow);
             PositionWindow();
             ShowPanel(activatePanel: true);
         });
@@ -550,6 +564,7 @@ public sealed partial class MainWindow : Window
         _trayIcon?.Dispose();
         _monitor.Dispose();
         _ocrService.Dispose();
+        _windowsClipboardShortcut.Dispose();
         _hotKey.Dispose();
         _messageBridge?.Dispose();
         DisposeDisplayItems();
@@ -1514,12 +1529,6 @@ public sealed partial class MainWindow : Window
         ToolTipService.SetToolTip(
             WindowPinToggle,
             AppLocalization.GetString("MainWindowPinToggleTooltip"));
-        AutomationProperties.SetName(
-            GitHubButton,
-            AppLocalization.GetString("MainGitHubButtonAutomationName"));
-        ToolTipService.SetToolTip(
-            GitHubButton,
-            AppLocalization.GetString("MainGitHubButtonTooltip"));
         AutomationProperties.SetName(
             SearchBox,
             AppLocalization.GetString("MainSearchBoxAutomationName"));
@@ -2531,18 +2540,6 @@ public sealed partial class MainWindow : Window
         OpenSettings();
     }
 
-    private async void GitHubButton_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            await Launcher.LaunchUriAsync(new Uri("https://github.com/ShrlAlgo/PasteOrbit"));
-        }
-        catch (Exception exception)
-        {
-            System.Diagnostics.Debug.WriteLine($"打开 GitHub 仓库失败：{exception}");
-        }
-    }
-
     private void OpenSettings()
     {
         if (_settingsWindow is not null)
@@ -2864,6 +2861,14 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        var windowsClipboardShortcutApplied = true;
+        if (settings.InterceptWindowsClipboardShortcut
+            != _settings.InterceptWindowsClipboardShortcut)
+        {
+            windowsClipboardShortcutApplied = ApplyWindowsClipboardShortcut(
+                settings.InterceptWindowsClipboardShortcut);
+        }
+
         _settings = settings;
         UpdateExcludedApplications();
         ApplyThemeSettings();
@@ -2877,7 +2882,27 @@ public sealed partial class MainWindow : Window
             RefreshHistory();
         }
 
-        StatusText.Text = AppLocalization.GetString("SettingsApplied");
+        if (windowsClipboardShortcutApplied)
+        {
+            StatusText.Text = AppLocalization.GetString("SettingsApplied");
+        }
+    }
+
+    private bool ApplyWindowsClipboardShortcut(bool enabled)
+    {
+        if (!enabled)
+        {
+            _windowsClipboardShortcut.Stop();
+            return true;
+        }
+
+        if (!_windowsClipboardShortcut.TryStart(out var error))
+        {
+            StatusText.Text = AppLocalization.Format("WindowsClipboardShortcutUnavailable", error);
+            return false;
+        }
+
+        return true;
     }
 
     private static void NormalizePanelShortcuts(AppSettings settings)

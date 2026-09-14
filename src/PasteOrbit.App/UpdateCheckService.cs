@@ -181,7 +181,7 @@ public sealed class UpdateCheckService : IDisposable
         _httpClient.Dispose();
     }
 
-    private static Version ResolveCurrentVersion()
+    internal static Version ResolveCurrentVersion()
     {
         // 优先读取发布流水线写入的版本号，再回退到程序集版本。
         var assembly = Assembly.GetEntryAssembly();

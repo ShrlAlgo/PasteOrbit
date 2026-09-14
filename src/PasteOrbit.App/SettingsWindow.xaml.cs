@@ -144,6 +144,7 @@ public sealed partial class SettingsWindow : Window
         ImageOcrToggleSwitch.IsOn = settings.EnableImageOcr;
         MonitorFilesToggleSwitch.IsOn = settings.MonitorFiles;
         ExcludedApplicationsTextBox.Text = settings.ExcludedApplications;
+        InterceptWinVToggleSwitch.IsOn = settings.InterceptWindowsClipboardShortcut;
         HotKeyButton.Content = GlobalHotKey.TryNormalizeShortcut(settings.GlobalHotKey, out var normalizedShortcut)
             ? normalizedShortcut
             : new AppSettings().GlobalHotKey;
@@ -458,6 +459,7 @@ public sealed partial class SettingsWindow : Window
         MonitorImagesToggleSwitch.Toggled += SettingToggleSwitch_Changed;
         ImageOcrToggleSwitch.Toggled += SettingToggleSwitch_Changed;
         MonitorFilesToggleSwitch.Toggled += SettingToggleSwitch_Changed;
+        InterceptWinVToggleSwitch.Toggled += SettingToggleSwitch_Changed;
         ThemeComboBox.SelectionChanged += SettingComboBox_Changed;
         LanguageComboBox.SelectionChanged += SettingComboBox_Changed;
         RetentionDaysComboBox.SelectionChanged += SettingComboBox_Changed;
@@ -610,6 +612,7 @@ public sealed partial class SettingsWindow : Window
             MonitorFiles = MonitorFilesToggleSwitch.IsOn,
             ExcludedApplications = ExcludedApplicationsTextBox.Text.Trim(),
             GlobalHotKey = GetCurrentHotKey(),
+            InterceptWindowsClipboardShortcut = InterceptWinVToggleSwitch.IsOn,
             PasteShortcut = GetShortcutValue(PasteShortcutButton),
             PlainTextPasteShortcut = GetShortcutValue(PlainTextPasteShortcutButton),
             PreviewShortcut = GetShortcutValue(PreviewShortcutButton),
@@ -647,6 +650,7 @@ public sealed partial class SettingsWindow : Window
         HotKeyNavigationItem.Content = AppLocalization.GetString("SettingsHotKeyNavigationContent");
         HistoryNavigationItem.Content = AppLocalization.GetString("SettingsHistoryNavigationContent");
         PrivacyNavigationItem.Content = AppLocalization.GetString("SettingsPrivacyNavigationContent");
+        AboutNavigationItem.Content = AppLocalization.GetString("SettingsAboutNavigationContent");
 
         StartupSectionText.Text = AppLocalization.GetString("SettingsStartupSectionText");
         MonitoringSectionText.Text = AppLocalization.GetString("SettingsMonitoringSectionText");
@@ -654,6 +658,7 @@ public sealed partial class SettingsWindow : Window
         HotKeySectionText.Text = AppLocalization.GetString("SettingsHotKeySectionText");
         HistorySectionText.Text = AppLocalization.GetString("SettingsHistorySectionText");
         PrivacySectionText.Text = AppLocalization.GetString("SettingsPrivacySectionText");
+        AboutSectionText.Text = AppLocalization.GetString("SettingsAboutSectionText");
 
         SetCard(StartupCard, "SettingsStartupCardHeader", "SettingsStartupCardDescription");
         SetCard(AutoHideCard, "SettingsAutoHideCardHeader", "SettingsAutoHideCardDescription");
@@ -665,6 +670,7 @@ public sealed partial class SettingsWindow : Window
         SetCard(LanguageCard, "SettingsLanguageCardHeader", "SettingsLanguageCardDescription");
         SetCard(UpdateCard, "SettingsUpdateCardHeader", "SettingsUpdateCardDescription");
         SetCard(GlobalHotKeyCard, "SettingsGlobalHotKeyCardHeader", "SettingsGlobalHotKeyCardDescription");
+        SetCard(InterceptWinVCard, "SettingsInterceptWinVCardHeader", "SettingsInterceptWinVCardDescription");
         SetCard(PasteShortcutCard, "SettingsPasteShortcutCardHeader");
         SetCard(PlainTextShortcutCard, "SettingsPlainTextShortcutCardHeader");
         SetCard(PreviewShortcutCard, "SettingsPreviewShortcutCardHeader");
@@ -675,6 +681,7 @@ public sealed partial class SettingsWindow : Window
         SetCard(MaxEntriesCard, "SettingsMaxEntriesCardHeader", "SettingsMaxEntriesCardDescription");
         SetCard(ExcludedAppsCard, "SettingsExcludedAppsCardHeader", "SettingsExcludedAppsCardDescription");
         SetCard(BackupCard, "SettingsBackupCardHeader", "SettingsBackupCardDescription");
+        SetCard(GitHubProjectCard, "GitHubProjectCardHeader", "GitHubProjectCardDescription");
 
         ThemeSystemOption.Content = AppLocalization.GetString("ThemeSystemOptionContent");
         ThemeLightOption.Content = AppLocalization.GetString("ThemeLightOptionContent");
@@ -692,6 +699,13 @@ public sealed partial class SettingsWindow : Window
         ExcludedApplicationsTextBox.PlaceholderText = AppLocalization.GetString("ExcludedApplicationsTextBoxPlaceholder");
         SelectProcessButton.Content = AppLocalization.GetString("SelectProcessButtonContent");
         CheckForUpdatesButton.Content = AppLocalization.GetString("CheckForUpdatesButtonContent");
+        GitHubProjectButtonText.Text = AppLocalization.GetString("GitHubProjectButtonText");
+        AboutVersionText.Text = AppLocalization.Format(
+            "AboutVersionText",
+            UpdateCheckService.ResolveCurrentVersion());
+        AboutDescriptionText.Text = AppLocalization.GetString("AboutDescriptionText");
+        AboutPrivacyText.Text = AppLocalization.GetString("AboutPrivacyText");
+        AboutCopyrightText.Text = AppLocalization.GetString("AboutCopyrightText");
         ExportBackupButton.Content = AppLocalization.GetString("ExportBackupButtonContent");
         RestoreBackupButton.Content = AppLocalization.GetString("RestoreBackupButtonContent");
         ProtectionTitleText.Text = AppLocalization.GetString("SettingsProtectionTitleText");
@@ -706,6 +720,7 @@ public sealed partial class SettingsWindow : Window
         SetToggleContent(MonitorImagesToggleSwitch, toggleOnContent, toggleOffContent);
         SetToggleContent(ImageOcrToggleSwitch, toggleOnContent, toggleOffContent);
         SetToggleContent(MonitorFilesToggleSwitch, toggleOnContent, toggleOffContent);
+        SetToggleContent(InterceptWinVToggleSwitch, toggleOnContent, toggleOffContent);
 
         _isRefreshingLocalization = true;
         try
@@ -810,6 +825,19 @@ public sealed partial class SettingsWindow : Window
         HotKeyPanel.Visibility = selected == "HotKey" ? Visibility.Visible : Visibility.Collapsed;
         HistoryPanel.Visibility = selected == "History" ? Visibility.Visible : Visibility.Collapsed;
         PrivacyPanel.Visibility = selected == "Privacy" ? Visibility.Visible : Visibility.Collapsed;
+        AboutPanel.Visibility = selected == "About" ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async void GitHubProjectButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await Launcher.LaunchUriAsync(new Uri("https://github.com/ShrlAlgo/PasteOrbit"));
+        }
+        catch (Exception exception)
+        {
+            System.Diagnostics.Debug.WriteLine($"打开 GitHub 仓库失败：{exception}");
+        }
     }
 
     private void RestoreDefaultsButton_Click(object sender, RoutedEventArgs e)
@@ -1106,6 +1134,7 @@ public sealed partial class SettingsWindow : Window
 
         var previousTag = _navigationHistory.Pop();
         var previousItem = SettingsNavigation.MenuItems
+            .Concat(SettingsNavigation.FooterMenuItems)
             .OfType<NavigationViewItem>()
             .FirstOrDefault(item => string.Equals(item.Tag?.ToString(), previousTag, StringComparison.Ordinal));
         if (previousItem is null)

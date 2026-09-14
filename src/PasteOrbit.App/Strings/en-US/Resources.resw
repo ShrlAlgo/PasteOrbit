@@ -50,6 +50,7 @@
   <data name="SettingsHotKeyNavigation.Content" xml:space="preserve"><value>Shortcuts</value></data>
   <data name="SettingsHistoryNavigation.Content" xml:space="preserve"><value>History</value></data>
   <data name="SettingsPrivacyNavigation.Content" xml:space="preserve"><value>Privacy &amp; security</value></data>
+  <data name="SettingsAboutNavigation.Content" xml:space="preserve"><value>About</value></data>
   <data name="SettingsStartupSection.Text" xml:space="preserve"><value>Startup and window</value></data>
   <data name="SettingsStartupCard.Header" xml:space="preserve"><value>Launch at startup</value></data>
   <data name="SettingsStartupCard.Description" xml:space="preserve"><value>Run PasteOrbit automatically after signing in to Windows</value></data>
@@ -68,6 +69,8 @@
   <data name="SettingsHotKeySection.Text" xml:space="preserve"><value>Shortcuts</value></data>
   <data name="SettingsGlobalHotKeyCard.Header" xml:space="preserve"><value>Open clipboard history</value></data>
   <data name="SettingsGlobalHotKeyCard.Description" xml:space="preserve"><value>Global shortcut that must include a modifier key</value></data>
+  <data name="SettingsInterceptWinVCard.Header" xml:space="preserve"><value>Take over Win + V</value></data>
+  <data name="SettingsInterceptWinVCard.Description" xml:space="preserve"><value>Open PasteOrbit with Win + V and prevent Windows clipboard history from appearing</value></data>
   <data name="SettingsPasteShortcutCard.Header" xml:space="preserve"><value>Paste selected item</value></data>
   <data name="SettingsPlainTextShortcutCard.Header" xml:space="preserve"><value>Paste as plain text</value></data>
   <data name="SettingsPreviewShortcutCard.Header" xml:space="preserve"><value>Expand or collapse preview</value></data>
@@ -82,6 +85,7 @@
   <data name="SettingsMaxEntriesCard.Description" xml:space="preserve"><value>Remove unpinned items first when the limit is reached</value></data>
   <data name="SettingsPinnedRetentionHint.Text" xml:space="preserve"><value>Pinned items are excluded from automatic expiration and count limits.</value></data>
   <data name="SettingsPrivacySection.Text" xml:space="preserve"><value>Privacy &amp; security</value></data>
+  <data name="SettingsAboutSection.Text" xml:space="preserve"><value>About</value></data>
   <data name="SettingsExcludedAppsCard.Header" xml:space="preserve"><value>Excluded applications</value></data>
   <data name="SettingsExcludedAppsCard.Description" xml:space="preserve"><value>Enter process names or select running processes. Separate multiple names with semicolons.</value></data>
   <data name="ExcludedApplicationsTextBox.PlaceholderText" xml:space="preserve"><value>Process names separated by semicolons</value></data>
@@ -191,6 +195,7 @@
   <data name="GlobalHotKeyAlreadyRegistered" xml:space="preserve"><value>The global shortcut is already registered.</value></data>
   <data name="GlobalHotKeyWrongMessageBridge" xml:space="preserve"><value>The shortcut can only be reconfigured on its registered window message bridge.</value></data>
   <data name="GlobalHotKeyRegistrationFailedWithReason" xml:space="preserve"><value>Shortcut {0} could not be registered: {1}</value></data>
+  <data name="WindowsClipboardShortcutUnavailable" xml:space="preserve"><value>Win + V could not be taken over: {0}</value></data>
   <data name="GlobalHotKeyEmpty" xml:space="preserve"><value>The shortcut cannot be empty.</value></data>
   <data name="GlobalHotKeyNeedsModifierAndKey" xml:space="preserve"><value>The shortcut requires at least one modifier and one key.</value></data>
   <data name="UnsupportedModifier" xml:space="preserve"><value>Unsupported modifier: {0}.</value></data>
@@ -219,12 +224,21 @@
   <data name="SettingsHotKeyNavigationContent" xml:space="preserve"><value>Shortcuts</value></data>
   <data name="SettingsHistoryNavigationContent" xml:space="preserve"><value>History</value></data>
   <data name="SettingsPrivacyNavigationContent" xml:space="preserve"><value>Privacy &amp; security</value></data>
+  <data name="SettingsAboutNavigationContent" xml:space="preserve"><value>About</value></data>
   <data name="SettingsStartupSectionText" xml:space="preserve"><value>Startup and window</value></data>
   <data name="SettingsMonitoringSectionText" xml:space="preserve"><value>Clipboard monitoring</value></data>
   <data name="SettingsAppearanceSectionText" xml:space="preserve"><value>Appearance</value></data>
   <data name="SettingsHotKeySectionText" xml:space="preserve"><value>Shortcuts</value></data>
   <data name="SettingsHistorySectionText" xml:space="preserve"><value>History</value></data>
   <data name="SettingsPrivacySectionText" xml:space="preserve"><value>Privacy &amp; security</value></data>
+  <data name="SettingsAboutSectionText" xml:space="preserve"><value>About</value></data>
+  <data name="AboutVersionText" xml:space="preserve"><value>Version {0}</value></data>
+  <data name="AboutDescriptionText" xml:space="preserve"><value>A local clipboard history manager for text, images, files, search, pinned items, and OCR.</value></data>
+  <data name="AboutPrivacyText" xml:space="preserve"><value>Clipboard data stays on this device and is protected with the current Windows user credentials.</value></data>
+  <data name="AboutCopyrightText" xml:space="preserve"><value>© 2026 PasteOrbit contributors</value></data>
+  <data name="GitHubProjectCardHeader" xml:space="preserve"><value>GitHub project</value></data>
+  <data name="GitHubProjectCardDescription" xml:space="preserve"><value>View the source code, report issues, or follow project development</value></data>
+  <data name="GitHubProjectButtonText" xml:space="preserve"><value>Open GitHub</value></data>
   <data name="SettingsStartupCardHeader" xml:space="preserve"><value>Start with Windows</value></data>
   <data name="SettingsStartupCardDescription" xml:space="preserve"><value>Run PasteOrbit automatically after signing in to Windows</value></data>
   <data name="SettingsAutoHideCardHeader" xml:space="preserve"><value>Hide when focus is lost</value></data>
@@ -246,6 +260,8 @@
   <data name="CheckForUpdatesButtonContent" xml:space="preserve"><value>Check for updates</value></data>
   <data name="SettingsGlobalHotKeyCardHeader" xml:space="preserve"><value>Open clipboard history</value></data>
   <data name="SettingsGlobalHotKeyCardDescription" xml:space="preserve"><value>Global shortcut; must include a modifier key</value></data>
+  <data name="SettingsInterceptWinVCardHeader" xml:space="preserve"><value>Take over Win + V</value></data>
+  <data name="SettingsInterceptWinVCardDescription" xml:space="preserve"><value>Open PasteOrbit with Win + V and prevent Windows clipboard history from appearing</value></data>
   <data name="SettingsPasteShortcutCardHeader" xml:space="preserve"><value>Paste selected item</value></data>
   <data name="SettingsPlainTextShortcutCardHeader" xml:space="preserve"><value>Paste as plain text</value></data>
   <data name="SettingsPreviewShortcutCardHeader" xml:space="preserve"><value>Expand or collapse preview</value></data>
@@ -301,9 +317,5 @@
   <data name="PasteOcrTextMenuItemText" xml:space="preserve"><value>Paste recognized text</value></data>
   <data name="PasteAsFileMenuItemText" xml:space="preserve"><value>Paste as file</value></data>
   <data name="DeleteRecordMenuItemText" xml:space="preserve"><value>Delete item</value></data>
-  <data name="MainGitHubButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Open PasteOrbit GitHub repository</value></data>
-  <data name="MainGitHubButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>GitHub</value></data>
-  <data name="MainGitHubButtonAutomationName" xml:space="preserve"><value>Open PasteOrbit GitHub repository</value></data>
-  <data name="MainGitHubButtonTooltip" xml:space="preserve"><value>GitHub</value></data>
   <data name="DoNotRemindUpdateButton" xml:space="preserve"><value>Don't remind me again</value></data>
 </root>

@@ -11,6 +11,8 @@ public sealed class AppSettings
 
     public string GlobalHotKey { get; set; } = "Alt + V";
 
+    public bool InterceptWindowsClipboardShortcut { get; set; }
+
     public string PasteShortcut { get; set; } = "Enter";
 
     public string PlainTextPasteShortcut { get; set; } = "Shift + Enter";
