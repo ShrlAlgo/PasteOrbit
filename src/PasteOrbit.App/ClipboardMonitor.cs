@@ -207,25 +207,11 @@ public sealed class ClipboardMonitor : IDisposable
 
     private static async Task<ClipboardCapture?> ReadClipboardAsync()
     {
-        // 按文件、图片、富文本、纯文本的优先级读取，保留原始格式信息。
+        // 截图工具可能同时提供位图和临时文件；优先保存位图，文件列表仅作后备。
         var sourceApplication = GetSourceProcessName();
         try
         {
             var data = Clipboard.GetContent();
-
-            if (data.Contains(StandardDataFormats.StorageItems))
-            {
-                var items = await data.GetStorageItemsAsync();
-                var paths = items.Select(item => item.Path).Where(path => !string.IsNullOrWhiteSpace(path)).ToArray();
-                if (paths.Length > 0)
-                {
-                    return new ClipboardCapture(
-                        ClipboardContentKind.Files,
-                        string.Join(Environment.NewLine, paths.Select(Path.GetFileName)),
-                        JsonSerializer.SerializeToUtf8Bytes(paths),
-                        sourceApplication);
-                }
-            }
 
             if (data.Contains(StandardDataFormats.Bitmap))
             {
@@ -238,6 +224,20 @@ public sealed class ClipboardMonitor : IDisposable
                         ClipboardContentKind.Image,
                         AppLocalization.GetString("ImageContent"),
                         content,
+                        sourceApplication);
+                }
+            }
+
+            if (data.Contains(StandardDataFormats.StorageItems))
+            {
+                var items = await data.GetStorageItemsAsync();
+                var paths = items.Select(item => item.Path).Where(path => !string.IsNullOrWhiteSpace(path)).ToArray();
+                if (paths.Length > 0)
+                {
+                    return new ClipboardCapture(
+                        ClipboardContentKind.Files,
+                        string.Join(Environment.NewLine, paths.Select(Path.GetFileName)),
+                        JsonSerializer.SerializeToUtf8Bytes(paths),
                         sourceApplication);
                 }
             }
