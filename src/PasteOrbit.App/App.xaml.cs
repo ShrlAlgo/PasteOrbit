@@ -1,6 +1,6 @@
-using System.Threading;
 using System.Windows;
-using System.Windows.Forms;
+using System.Windows.Interop;
+using System.Windows.Media;
 
 using PasteOrbit.Core;
 
@@ -64,6 +64,7 @@ public partial class App : System.Windows.Application
 
     private void OnStartup(object sender, StartupEventArgs e)
     {
+        RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
         _instanceMutex = new Mutex(true, MutexName, out var isFirstInstance);
         if (!isFirstInstance)
         {
