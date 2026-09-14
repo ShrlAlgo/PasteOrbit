@@ -7,4 +7,5 @@ public sealed record ClipboardCapture(
     ClipboardContentKind Kind,
     string SearchText,
     byte[] Content,
-    string? SourceApplication);
+    string? SourceApplication,
+    byte[]? Thumbnail = null);

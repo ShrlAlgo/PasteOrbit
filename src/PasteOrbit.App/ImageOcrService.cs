@@ -1,3 +1,4 @@
+using System.Runtime;
 using System.Threading.Channels;
 using Windows.Graphics.Imaging;
 using Windows.Media.Ocr;
@@ -69,61 +70,91 @@ internal sealed class ImageOcrService : IDisposable
 
         _queue.Writer.TryComplete();
         _cancellation.Cancel();
-        _cancellation.Dispose();
+        if (_worker is null || _worker.IsCompleted)
+        {
+            _cancellation.Dispose();
+        }
+        else
+        {
+            // 消费者退出后再释放令牌源，避免关闭时与排队任务竞争。
+            _ = _worker.ContinueWith(
+                _ => _cancellation.Dispose(),
+                TaskScheduler.Default);
+        }
     }
 
     private async Task ProcessQueueAsync()
     {
+        var cancellationToken = _cancellation.Token;
         try
         {
-            OcrEngine? engine = null;
-            await foreach (var id in _queue.Reader.ReadAllAsync(_cancellation.Token))
+            while (await _queue.Reader.WaitToReadAsync(cancellationToken))
             {
-                try
+                OcrEngine? engine = OcrEngine.TryCreateFromUserProfileLanguages();
+                if (engine is null)
                 {
-                    // 首个 OCR 任务到达后再加载 Windows OCR 运行时，避免应用启动时无效驻留。
-                    engine ??= OcrEngine.TryCreateFromUserProfileLanguages();
-                    if (engine is null)
-                    {
-                        _queue.Writer.TryComplete();
-                        lock (_pendingSyncRoot)
-                        {
-                            _pendingIds.Clear();
-                        }
-
-                        RecognitionFailed?.Invoke(new InvalidOperationException(
-                            "Windows OCR language support is unavailable for the current user."));
-                        return;
-                    }
-
-                    var content = _loadContent(id);
-                    var text = await RecognizeAsync(engine, content);
-                    Recognized?.Invoke(id, text);
-                }
-                catch (KeyNotFoundException)
-                {
-                    // 用户可能在任务排队期间删除了记录。
-                }
-                catch (OperationCanceledException) when (_cancellation.IsCancellationRequested)
-                {
-                    return;
-                }
-                catch (Exception exception)
-                {
-                    RecognitionFailed?.Invoke(exception);
-                }
-                finally
-                {
+                    _queue.Writer.TryComplete();
                     lock (_pendingSyncRoot)
                     {
-                        _pendingIds.Remove(id);
+                        _pendingIds.Clear();
+                    }
+
+                    RecognitionFailed?.Invoke(new InvalidOperationException(
+                        "Windows OCR language support is unavailable for the current user."));
+                    return;
+                }
+
+                while (_queue.Reader.TryRead(out var id))
+                {
+                    try
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        await RecognizeItemAsync(engine, id);
+                    }
+                    catch (KeyNotFoundException)
+                    {
+                        // 用户可能在任务排队期间删除了记录。
+                    }
+                    catch (OperationCanceledException) when (_cancellation.IsCancellationRequested)
+                    {
+                        return;
+                    }
+                    catch (Exception exception)
+                    {
+                        RecognitionFailed?.Invoke(exception);
+                    }
+                    finally
+                    {
+                        lock (_pendingSyncRoot)
+                        {
+                            _pendingIds.Remove(id);
+                        }
                     }
                 }
+
+                // 队列排空后解除引擎引用；运行库是否卸载由 Windows 管理。
+                engine = null;
+                ReleaseImageProcessingMemory();
             }
         }
         catch (OperationCanceledException) when (_cancellation.IsCancellationRequested)
         {
         }
+    }
+
+    private async Task RecognizeItemAsync(OcrEngine engine, Guid id)
+    {
+        var content = _loadContent(id);
+        var text = await RecognizeAsync(engine, content);
+        Recognized?.Invoke(id, text);
+    }
+
+    private static void ReleaseImageProcessingMemory()
+    {
+        GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+        GC.WaitForPendingFinalizers();
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
     }
 
     private static async Task<string> RecognizeAsync(OcrEngine engine, byte[] content)

@@ -18,7 +18,7 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
 
     private readonly DispatcherQueue _dispatcherQueue;
     private Task? _thumbnailLoadTask;
-    private IRandomAccessStream? _thumbnailStream;
+    private CancellationTokenSource? _thumbnailLoadCancellation;
     private BitmapImage? _thumbnail;
     private string _formatLabel = string.Empty;
     private string _quickPasteLabel = string.Empty;
@@ -36,7 +36,7 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
         _metadata = item.Kind switch
         {
             ClipboardContentKind.Text => AppLocalization.Format("CharacterCount", item.SearchTextLength),
-            ClipboardContentKind.Image => AppLocalization.GetString("ContentTypeImage"),
+            ClipboardContentKind.Image => CreateImageMetadata(item),
             ClipboardContentKind.Files => AppLocalization.GetString("ContentTypeFiles"),
             _ => string.Empty
         };
@@ -161,9 +161,9 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
         OnPropertyChanged(nameof(FormatBadgeVisibility));
     }
 
-    public Task EnsureThumbnailLoadedAsync(Func<Guid, byte[]> loadContent)
+    public Task EnsureThumbnailLoadedAsync(Func<Guid, byte[]?> loadThumbnail)
     {
-        ArgumentNullException.ThrowIfNull(loadContent);
+        ArgumentNullException.ThrowIfNull(loadThumbnail);
         if (_disposed || Item.Kind != ClipboardContentKind.Image)
         {
             return Task.CompletedTask;
@@ -176,16 +176,23 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
         }
 
         // 容器复用或快速滚动时，避免同一记录同时读取多次。
-        _thumbnailLoadTask ??= LoadThumbnailAsync(loadContent);
+        if (_thumbnailLoadTask is null)
+        {
+            var cancellation = new CancellationTokenSource();
+            _thumbnailLoadCancellation = cancellation;
+            _thumbnailLoadTask = LoadThumbnailAsync(loadThumbnail, cancellation);
+        }
+
         return _thumbnailLoadTask;
     }
 
     public void UnloadThumbnail()
     {
         _thumbnailRequested = false;
+        _thumbnailLoadCancellation?.Cancel();
+        _thumbnailLoadCancellation = null;
+        _thumbnailLoadTask = null;
         Thumbnail = null;
-        _thumbnailStream?.Dispose();
-        _thumbnailStream = null;
     }
 
     public void Dispose()
@@ -194,31 +201,39 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
         UnloadThumbnail();
     }
 
-    private async Task LoadThumbnailAsync(Func<Guid, byte[]> loadContent)
+    private async Task LoadThumbnailAsync(
+        Func<Guid, byte[]?> loadThumbnail,
+        CancellationTokenSource cancellation)
     {
+        var cancellationToken = cancellation.Token;
         try
         {
             // 图片解码会产生与原图尺寸相关的临时位图，串行处理避免多张大图同时占用内存。
-            await ThumbnailLoadGate.WaitAsync();
+            await ThumbnailLoadGate.WaitAsync(cancellationToken);
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (_disposed || !_thumbnailRequested)
                 {
                     return;
                 }
 
-                var content = await Task.Run(() => loadContent(Item.Id));
-                if (_disposed || !_thumbnailRequested)
+                var content = await Task.Run(() => loadThumbnail(Item.Id), cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (_disposed || !_thumbnailRequested || content is null || content.Length == 0)
                 {
                     return;
                 }
 
-                await RunOnUiThreadAsync(() => LoadImagePreviewAsync(content));
+                await RunOnUiThreadAsync(() => LoadImagePreviewAsync(content, cancellationToken));
             }
             finally
             {
                 ThumbnailLoadGate.Release();
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
         }
         catch (Exception)
         {
@@ -238,7 +253,13 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
         }
         finally
         {
-            _thumbnailLoadTask = null;
+            if (ReferenceEquals(_thumbnailLoadCancellation, cancellation))
+            {
+                _thumbnailLoadCancellation = null;
+                _thumbnailLoadTask = null;
+            }
+
+            cancellation.Dispose();
         }
     }
 
@@ -267,64 +288,60 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
         return false;
     }
 
-    private async Task LoadImagePreviewAsync(byte[] content)
+    private async Task LoadImagePreviewAsync(byte[] content, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (_disposed)
         {
             return;
         }
 
-        var size = $"{Math.Max(1, content.Length / 1024d):0.#} KB";
-        Metadata = Item.OcrTextLength == 0
-            ? size
-            : AppLocalization.Format("ImageMetadataWithOcr", size, Item.OcrTextLength);
         if (!_thumbnailRequested)
         {
             return;
         }
 
-        var thumbnailStream = new InMemoryRandomAccessStream();
-        try
+        using var thumbnailStream = new InMemoryRandomAccessStream();
+        using (var output = thumbnailStream.GetOutputStreamAt(0))
+        using (var writer = new DataWriter(output))
         {
-            using (var output = thumbnailStream.GetOutputStreamAt(0))
-            using (var writer = new DataWriter(output))
-            {
-                writer.WriteBytes(content);
-                await writer.StoreAsync();
-                await writer.FlushAsync();
-            }
-
-            thumbnailStream.Seek(0);
-            var decoder = await BitmapDecoder.CreateAsync(thumbnailStream);
-            var decodeScale = Math.Min(
-                600d / Math.Max(1u, decoder.PixelWidth),
-                112d / Math.Max(1u, decoder.PixelHeight));
-            var thumbnail = new BitmapImage();
-            if (decodeScale < 1d)
-            {
-                // 按卡片实际尺寸的 2 倍解码，同时限制长图和宽图的像素驻留。
-                thumbnail.DecodePixelWidth = Math.Max(
-                    1,
-                    (int)Math.Round(decoder.PixelWidth * decodeScale));
-            }
-
-            thumbnailStream.Seek(0);
-            await thumbnail.SetSourceAsync(thumbnailStream);
-            if (_disposed || !_thumbnailRequested)
-            {
-                thumbnailStream.Dispose();
-                return;
-            }
-
-            _thumbnailStream?.Dispose();
-            _thumbnailStream = thumbnailStream;
-            Thumbnail = thumbnail;
+            writer.WriteBytes(content);
+            await writer.StoreAsync();
+            await writer.FlushAsync();
         }
-        catch
+
+        cancellationToken.ThrowIfCancellationRequested();
+        thumbnailStream.Seek(0);
+        var decoder = await BitmapDecoder.CreateAsync(thumbnailStream);
+        var decodeScale = Math.Min(
+            600d / Math.Max(1u, decoder.PixelWidth),
+            112d / Math.Max(1u, decoder.PixelHeight));
+        var thumbnail = new BitmapImage();
+        if (decodeScale < 1d)
         {
-            thumbnailStream.Dispose();
-            throw;
+            // 按卡片实际尺寸的 2 倍解码，同时限制长图和宽图的像素驻留。
+            thumbnail.DecodePixelWidth = Math.Max(
+                1,
+                (int)Math.Round(decoder.PixelWidth * decodeScale));
         }
+
+        thumbnailStream.Seek(0);
+        await thumbnail.SetSourceAsync(thumbnailStream);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_disposed || !_thumbnailRequested)
+        {
+            return;
+        }
+
+        Thumbnail = thumbnail;
+    }
+
+    private static string CreateImageMetadata(ClipboardHistoryEntry item)
+    {
+        var size = $"{Math.Max(1, item.ContentSize / 1024d):0.#} KB";
+        return item.OcrTextLength == 0
+            ? size
+            : AppLocalization.Format("ImageMetadataWithOcr", size, item.OcrTextLength);
     }
 
     private Task RunOnUiThreadAsync(Func<Task> action)

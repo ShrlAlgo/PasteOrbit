@@ -5,6 +5,7 @@ using System.Text.Json;
 using Microsoft.UI.Dispatching;
 using PasteOrbit.Core;
 using Windows.ApplicationModel.DataTransfer;
+using Windows.Graphics.Imaging;
 using Windows.Storage;
 using Windows.Storage.Streams;
 
@@ -18,6 +19,8 @@ public sealed class ClipboardMonitor : IDisposable
     private const uint WmClipboardUpdate = 0x031D;
     private const uint CfUnicodeText = 13;
     private const int RetryCount = 3;
+    private const uint ThumbnailMaxWidth = 320;
+    private const uint ThumbnailMaxHeight = 180;
     private Win32MessageBridge? _bridge;
     private DispatcherQueue? _dispatcherQueue;
     private Timer? _pollTimer;
@@ -150,7 +153,7 @@ public sealed class ClipboardMonitor : IDisposable
         var checkForNewerContent = true;
         try
         {
-            while (Volatile.Read(ref _captureSuspended) == 0)
+            while (_bridge is not null && Volatile.Read(ref _captureSuspended) == 0)
             {
                 var sequence = GetClipboardSequenceNumber();
                 if (sequence == 0 || sequence == Volatile.Read(ref _clipboardSequence))
@@ -166,24 +169,27 @@ public sealed class ClipboardMonitor : IDisposable
                         capture = await ReadClipboardAsync();
                         break;
                     }
-                    catch (COMException) when (attempt < RetryCount - 1)
+                    catch (Exception exception) when (
+                        exception is COMException or InvalidOperationException or IOException
+                        && attempt < RetryCount - 1)
                     {
                         // 剪切板可能被来源程序短暂占用，有限重试避免阻塞 UI 线程。
                         await Task.Delay(40 * (attempt + 1));
                     }
                 }
 
-                if (Volatile.Read(ref _captureSuspended) != 0)
+                if (_bridge is null || Volatile.Read(ref _captureSuspended) != 0)
                 {
                     return;
                 }
 
                 // 只在读取完成后提交序列号；读取期间发生的新变化会在下一轮继续捕获。
-                Volatile.Write(ref _clipboardSequence, sequence);
                 if (capture is not null)
                 {
                     Captured?.Invoke(capture);
                 }
+
+                Volatile.Write(ref _clipboardSequence, sequence);
             }
         }
         catch (Exception exception)
@@ -209,14 +215,26 @@ public sealed class ClipboardMonitor : IDisposable
     {
         // 截图工具可能同时提供位图和临时文件；优先保存位图，文件列表仅作后备。
         var sourceApplication = GetSourceProcessName();
+        var hasBitmap = false;
         try
         {
             var data = Clipboard.GetContent();
 
-            if (data.Contains(StandardDataFormats.Bitmap))
+            hasBitmap = data.Contains(StandardDataFormats.Bitmap);
+            if (hasBitmap)
             {
                 var bitmapReference = await data.GetBitmapAsync();
                 using var stream = await bitmapReference.OpenReadAsync();
+                byte[]? thumbnail = null;
+                try
+                {
+                    thumbnail = await CreateThumbnailAsync(stream);
+                }
+                catch (Exception exception) when (exception is COMException or ArgumentException)
+                {
+                    // 损坏或不受支持的位图仍保存原图，卡片仅缺少缩略图。
+                }
+
                 var content = await ReadBytesAsync(stream);
                 if (content.Length > 0)
                 {
@@ -224,8 +242,11 @@ public sealed class ClipboardMonitor : IDisposable
                         ClipboardContentKind.Image,
                         AppLocalization.GetString("ImageContent"),
                         content,
-                        sourceApplication);
+                        sourceApplication,
+                        thumbnail);
                 }
+
+                throw new IOException("剪贴板图片尚未就绪。");
             }
 
             if (data.Contains(StandardDataFormats.StorageItems))
@@ -263,7 +284,23 @@ public sealed class ClipboardMonitor : IDisposable
         }
         catch (Exception exception) when (exception is COMException or InvalidOperationException)
         {
-            // 非打包 WinUI 桌面进程偶尔无法读取 WinRT DataPackage，继续尝试原生 Unicode 文本格式。
+            // 位图读取失败保留序列号，交给重试与轮询；不能降级成文本后标记成功。
+            if (hasBitmap)
+            {
+                throw;
+            }
+
+            var fallbackText = TryReadUnicodeText();
+            if (string.IsNullOrEmpty(fallbackText))
+            {
+                throw;
+            }
+
+            return new ClipboardCapture(
+                ClipboardContentKind.Text,
+                fallbackText,
+                new ClipboardTextContent(fallbackText, null, null).Serialize(),
+                sourceApplication);
         }
 
         var nativeText = TryReadUnicodeText();
@@ -320,6 +357,33 @@ public sealed class ClipboardMonitor : IDisposable
         using var input = stream.AsStreamForRead();
         await input.ReadExactlyAsync(content.AsMemory());
         return content;
+    }
+
+    private static async Task<byte[]> CreateThumbnailAsync(IRandomAccessStream source)
+    {
+        source.Seek(0);
+        var decoder = await BitmapDecoder.CreateAsync(source);
+        var scale = Math.Min(
+            1d,
+            Math.Min(
+                ThumbnailMaxWidth / (double)Math.Max(1u, decoder.PixelWidth),
+                ThumbnailMaxHeight / (double)Math.Max(1u, decoder.PixelHeight)));
+        var transform = new BitmapTransform
+        {
+            ScaledWidth = Math.Max(1u, (uint)Math.Round(decoder.PixelWidth * scale)),
+            ScaledHeight = Math.Max(1u, (uint)Math.Round(decoder.PixelHeight * scale))
+        };
+        using var bitmap = await decoder.GetSoftwareBitmapAsync(
+            BitmapPixelFormat.Bgra8,
+            BitmapAlphaMode.Premultiplied,
+            transform,
+            ExifOrientationMode.RespectExifOrientation,
+            ColorManagementMode.ColorManageToSRgb);
+        using var thumbnailStream = new InMemoryRandomAccessStream();
+        var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, thumbnailStream);
+        encoder.SetSoftwareBitmap(bitmap);
+        await encoder.FlushAsync();
+        return await ReadBytesAsync(thumbnailStream);
     }
 
     private static string? GetSourceProcessName()

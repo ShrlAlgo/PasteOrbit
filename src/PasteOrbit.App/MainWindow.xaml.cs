@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Runtime;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -73,6 +74,8 @@ public sealed partial class MainWindow : Window
     private readonly LocalBackupService _backupService;
     private readonly HashSet<string> _excludedApplications = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _historyQueryCancellation;
+    private CancellationTokenSource? _contentPreviewCancellation;
+    private int _imageMemoryReleaseVersion;
     private Task _historyLoadTask = Task.CompletedTask;
     private AppSettings _settings;
     private ClipboardContentKind? _selectedKind;
@@ -1739,8 +1742,22 @@ public sealed partial class MainWindow : Window
         ListViewBase sender,
         ContainerContentChangingEventArgs args)
     {
-        if (args.InRecycleQueue
-            || _isLoadingHistory
+        if (args.InRecycleQueue)
+        {
+            if (args.Item is HistoryListItem recycledItem)
+            {
+                if (ReferenceEquals(_previewedHistoryItem, recycledItem))
+                {
+                    CloseContentPreview();
+                }
+
+                recycledItem.UnloadThumbnail();
+            }
+
+            return;
+        }
+
+        if (_isLoadingHistory
             || args.ItemIndex < Math.Max(0, _displayItems.Count - HistoryLoadThreshold))
         {
             return;
@@ -1789,7 +1806,13 @@ public sealed partial class MainWindow : Window
             var query = new ClipboardHistoryQuery(SearchBox?.Text, _selectedKind);
             var deletedCount = await Task.Run(() => _history.DeleteMatching(query));
             await Task.Run(() => _repository.Compact(full: true));
+            CloseContentPreview();
+            _historyQueryCancellation?.Cancel();
+            DisposeDisplayItems();
             RefreshHistory();
+            await _historyLoadTask;
+            await Task.Yield();
+            ReleaseClearedHistoryMemory();
             StatusText.Text = AppLocalization.Format("CurrentListCleared", deletedCount);
         }
         catch (Exception)
@@ -1927,9 +1950,9 @@ public sealed partial class MainWindow : Window
             if (card.DataContext is HistoryListItem item)
             {
                 card.Tag = item;
-                if (item.Item.Kind == ClipboardContentKind.Image)
+                if (item.Item.Kind == ClipboardContentKind.Image && IsHistoryPanelVisible())
                 {
-                    await item.EnsureThumbnailLoadedAsync(_repository.LoadContent);
+                    await item.EnsureThumbnailLoadedAsync(_repository.LoadThumbnail);
                 }
             }
         }
@@ -1950,10 +1973,16 @@ public sealed partial class MainWindow : Window
 
         card.Tag = args.NewValue;
         ApplyCardLocalization(card);
-        if (args.NewValue is HistoryListItem { Item.Kind: ClipboardContentKind.Image } item)
+        if (args.NewValue is HistoryListItem { Item.Kind: ClipboardContentKind.Image } item
+            && IsHistoryPanelVisible())
         {
-            await item.EnsureThumbnailLoadedAsync(_repository.LoadContent);
+            await item.EnsureThumbnailLoadedAsync(_repository.LoadThumbnail);
         }
+    }
+
+    private bool IsHistoryPanelVisible()
+    {
+        return _handle != IntPtr.Zero && IsWindowVisible(_handle);
     }
 
     private async void RecordPreviewButton_Click(object sender, RoutedEventArgs e)
@@ -2034,6 +2063,12 @@ public sealed partial class MainWindow : Window
         }
 
         CloseContentPreview();
+        var cancellation = new CancellationTokenSource();
+        _contentPreviewCancellation = cancellation;
+        var cancellationToken = cancellation.Token;
+        var previewExpanded = false;
+        _previewedHistoryItem = selected;
+        _previewedHistoryCard = card;
 
         try
         {
@@ -2044,11 +2079,9 @@ public sealed partial class MainWindow : Window
                 case ClipboardContentKind.Text:
                 {
                     var content = await Task.Run(() =>
-                        ClipboardTextContent.Deserialize(_repository.LoadContent(selected.Item.Id)));
-                    if (!ReferenceEquals(card.DataContext, selected))
-                    {
-                        return;
-                    }
+                        ClipboardTextContent.Deserialize(_repository.LoadContent(selected.Item.Id)),
+                        cancellationToken);
+                    cancellationToken.ThrowIfCancellationRequested();
 
                     selected.UpdateTextFormatMetadata(content);
                     if (!string.IsNullOrEmpty(content.Rtf))
@@ -2065,11 +2098,7 @@ public sealed partial class MainWindow : Window
                 }
                 case ClipboardContentKind.Image:
                 {
-                    var image = await LoadExpandedImageAsync(selected.Item.Id);
-                    if (!ReferenceEquals(card.DataContext, selected))
-                    {
-                        return;
-                    }
+                    var image = await LoadExpandedImageAsync(selected.Item.Id, cancellationToken);
 
                     contentControl = new Image
                     {
@@ -2082,7 +2111,10 @@ public sealed partial class MainWindow : Window
                 }
                 case ClipboardContentKind.Files:
                 {
-                    var content = await Task.Run(() => _repository.LoadContent(selected.Item.Id));
+                    var content = await Task.Run(
+                        () => _repository.LoadContent(selected.Item.Id),
+                        cancellationToken);
+                    cancellationToken.ThrowIfCancellationRequested();
                     var paths = JsonSerializer.Deserialize<string[]>(content) ?? [];
                     contentControl = CreateTextPreview(string.Join(Environment.NewLine, paths));
                     break;
@@ -2091,7 +2123,8 @@ public sealed partial class MainWindow : Window
                     return;
             }
 
-            if (!ReferenceEquals(card.DataContext, selected))
+            if (!ReferenceEquals(_contentPreviewCancellation, cancellation)
+                || !ReferenceEquals(card.DataContext, selected))
             {
                 return;
             }
@@ -2100,24 +2133,40 @@ public sealed partial class MainWindow : Window
             preview.Visibility = Visibility.Visible;
             _previewedHistoryItem = selected;
             _previewedHistoryCard = card;
+            previewExpanded = true;
             SetCardPreviewButtonState(card, isExpanded: true);
 
             if (richText is not null && contentControl is RichEditBox richTextPreview)
             {
                 card.UpdateLayout();
                 await LoadRichTextPreviewAsync(richTextPreview, richText);
+                cancellationToken.ThrowIfCancellationRequested();
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
         }
         catch (Exception)
         {
-            CloseContentPreview();
-            StatusText.Text = AppLocalization.GetString("PreviewUnavailable");
+            if (ReferenceEquals(_contentPreviewCancellation, cancellation))
+            {
+                CloseContentPreview();
+                StatusText.Text = AppLocalization.GetString("PreviewUnavailable");
+            }
+        }
+        finally
+        {
+            if (!previewExpanded && ReferenceEquals(_contentPreviewCancellation, cancellation))
+            {
+                CloseContentPreview();
+            }
         }
     }
 
-    private async Task<BitmapImage> LoadExpandedImageAsync(Guid id)
+    private async Task<BitmapImage> LoadExpandedImageAsync(Guid id, CancellationToken cancellationToken)
     {
-        var content = await Task.Run(() => _repository.LoadContent(id));
+        var content = await Task.Run(() => _repository.LoadContent(id), cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         using var stream = new InMemoryRandomAccessStream();
         using (var output = stream.GetOutputStreamAt(0))
         using (var writer = new DataWriter(output))
@@ -2128,12 +2177,19 @@ public sealed partial class MainWindow : Window
         }
 
         stream.Seek(0);
+        var decoder = await Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(stream);
+        var scale = Math.Min(1d, Math.Min(
+            800d / Math.Max(1u, decoder.PixelWidth),
+            336d / Math.Max(1u, decoder.PixelHeight)));
         var image = new BitmapImage
         {
-            // 预览容器高度为 168，保留约 2 倍像素即可避免解码整张原图。
-            DecodePixelHeight = 336
+            // 同时限制宽高，避免超宽截图按高度缩放后产生巨大的解码表面。
+            DecodePixelWidth = Math.Max(1, (int)Math.Round(decoder.PixelWidth * scale)),
+            DecodePixelHeight = Math.Max(1, (int)Math.Round(decoder.PixelHeight * scale))
         };
+        stream.Seek(0);
         await image.SetSourceAsync(stream);
+        cancellationToken.ThrowIfCancellationRequested();
         return image;
     }
 
@@ -2193,16 +2249,54 @@ public sealed partial class MainWindow : Window
 
     private void CloseContentPreview()
     {
+        var hadImagePreview = _previewedHistoryItem?.Item.Kind == ClipboardContentKind.Image;
+        var cancellation = _contentPreviewCancellation;
+        _contentPreviewCancellation = null;
+        cancellation?.Cancel();
+        cancellation?.Dispose();
+
         if (_previewedHistoryCard is FrameworkElement card
             && TryGetCardPreviewElements(card, out var preview, out var host))
         {
             preview.Visibility = Visibility.Collapsed;
+            if (host.Content is Image image)
+            {
+                image.Source = null;
+            }
+
             host.Content = null;
             SetCardPreviewButtonState(card, isExpanded: false);
         }
 
         _previewedHistoryItem = null;
         _previewedHistoryCard = null;
+        if (hadImagePreview)
+        {
+            _ = ReleaseImageMemoryAfterCloseAsync();
+        }
+    }
+
+    private async Task ReleaseImageMemoryAfterCloseAsync()
+    {
+        // 合并连续关闭操作，先让 UI 解除图像绑定，再在后台回收无引用对象。
+        var version = ++_imageMemoryReleaseVersion;
+        await Task.Delay(500);
+        if (version != _imageMemoryReleaseVersion || _isExiting
+            || _contentPreviewCancellation is not null)
+        {
+            return;
+        }
+
+        await Task.Run(ReleaseClearedHistoryMemory);
+    }
+
+    private static void ReleaseClearedHistoryMemory()
+    {
+        // 用户主动清空后不保留大对象堆容量，立即归还已解除引用的历史内容。
+        GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+        GC.WaitForPendingFinalizers();
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
     }
 
     private static void SetCardPreviewButtonState(FrameworkElement card, bool isExpanded)
@@ -2973,6 +3067,11 @@ public sealed partial class MainWindow : Window
         // ListView 会复用内部 ScrollViewer，面板重新显示时显式定位到第一条记录。
         _dispatcherQueue?.TryEnqueue(() =>
         {
+            if (!IsHistoryPanelVisible())
+            {
+                return;
+            }
+
             if (_displayItems.Count > 0)
             {
                 HistoryList.ScrollIntoView(_displayItems[0], ScrollIntoViewAlignment.Leading);
@@ -2985,7 +3084,7 @@ public sealed partial class MainWindow : Window
                 if (item.Item.Kind == ClipboardContentKind.Image
                     && HistoryList.ContainerFromItem(item) is not null)
                 {
-                    _ = item.EnsureThumbnailLoadedAsync(_repository.LoadContent);
+                    _ = item.EnsureThumbnailLoadedAsync(_repository.LoadThumbnail);
                 }
             }
         });
@@ -2998,6 +3097,8 @@ public sealed partial class MainWindow : Window
         {
             item.UnloadThumbnail();
         }
+
+        _ = ReleaseImageMemoryAfterCloseAsync();
 
         if (!string.IsNullOrEmpty(SearchBox.Text))
         {

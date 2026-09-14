@@ -11,7 +11,7 @@ namespace PasteOrbit.Core;
 /// </summary>
 public sealed class ClipboardRepository
 {
-    private const int CurrentSchemaVersion = 2;
+    private const int CurrentSchemaVersion = 3;
     private const int MaxPreviewLength = 512;
     private const int MaxOcrPreviewLength = 256;
     private const int MaxPageSize = 200;
@@ -229,6 +229,18 @@ public sealed class ClipboardRepository
             : UserDataProtector.Unprotect(protectedContent);
     }
 
+    public byte[]? LoadThumbnail(Guid id)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT thumbnail FROM clipboard_items WHERE id = $id;";
+        command.Parameters.AddWithValue("$id", id.ToString("D"));
+        var protectedThumbnail = command.ExecuteScalar() as byte[];
+        return protectedThumbnail is null
+            ? null
+            : UserDataProtector.Unprotect(protectedThumbnail);
+    }
+
     public string? LoadOcrText(Guid id)
     {
         using var connection = OpenConnection();
@@ -417,7 +429,7 @@ public sealed class ClipboardRepository
         ReadOnlySpan<string> expectedColumns =
         [
             "storage_id", "id", "kind", "content_hash", "preview_text", "search_text_length",
-            "content", "content_size", "source_application", "created_at", "updated_at",
+            "content", "thumbnail", "content_size", "source_application", "created_at", "updated_at",
             "is_pinned", "ocr_preview", "ocr_text_length"
         ];
         var actualColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -462,6 +474,7 @@ public sealed class ClipboardRepository
                 preview_text BLOB NOT NULL,
                 search_text_length INTEGER NOT NULL,
                 content BLOB NOT NULL,
+                thumbnail BLOB NULL,
                 content_size INTEGER NOT NULL,
                 source_application BLOB NULL,
                 created_at INTEGER NOT NULL,
@@ -534,11 +547,11 @@ public sealed class ClipboardRepository
         command.CommandText = """
             INSERT INTO clipboard_items (
                 id, kind, content_hash, preview_text, search_text_length,
-                content, content_size, source_application, created_at, updated_at,
+                content, thumbnail, content_size, source_application, created_at, updated_at,
                 is_pinned, ocr_preview, ocr_text_length)
             VALUES (
                 $id, $kind, $content_hash, $preview_text, $search_text_length,
-                $content, $content_size, $source_application, $created_at, $updated_at,
+                $content, $thumbnail, $content_size, $source_application, $created_at, $updated_at,
                 0, NULL, 0);
             SELECT last_insert_rowid();
             """;
@@ -563,6 +576,7 @@ public sealed class ClipboardRepository
                 preview_text = $preview_text,
                 search_text_length = $search_text_length,
                 content = $content,
+                thumbnail = $thumbnail,
                 content_size = $content_size,
                 source_application = $source_application,
                 updated_at = $updated_at
@@ -591,6 +605,9 @@ public sealed class ClipboardRepository
         command.Parameters.Add("$preview_text", SqliteType.Blob).Value = UserDataProtector.ProtectText(previewText);
         command.Parameters.AddWithValue("$search_text_length", capture.SearchText.Length);
         command.Parameters.Add("$content", SqliteType.Blob).Value = UserDataProtector.Protect(capture.Content);
+        command.Parameters.Add("$thumbnail", SqliteType.Blob).Value = capture.Thumbnail is null
+            ? DBNull.Value
+            : UserDataProtector.Protect(capture.Thumbnail);
         command.Parameters.AddWithValue("$content_size", capture.Content.LongLength);
         command.Parameters.Add("$source_application", SqliteType.Blob).Value = capture.SourceApplication is null
             ? DBNull.Value
