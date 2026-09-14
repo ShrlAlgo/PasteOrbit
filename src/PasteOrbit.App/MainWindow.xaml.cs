@@ -33,8 +33,8 @@ namespace PasteOrbit.App;
 /// </summary>
 public sealed partial class MainWindow : Window
 {
-    private const int HistoryPageSize = 50;
-    private const int HistoryLoadThreshold = 10;
+    private const int HistoryPageSize = 30;
+    private const int HistoryLoadThreshold = 8;
     private const int SwHide = 0;
     private const int SwShow = 5;
     private const uint SwpNoSize = 0x0001;
@@ -72,7 +72,6 @@ public sealed partial class MainWindow : Window
     private readonly ClipboardRepository _repository;
     private readonly ImageOcrService _ocrService;
     private readonly LocalBackupService _backupService;
-    private readonly UpdateCheckService _updateCheckService = new();
     private readonly HashSet<string> _excludedApplications = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _historyQueryCancellation;
     private Task _historyLoadTask = Task.CompletedTask;
@@ -249,7 +248,6 @@ public sealed partial class MainWindow : Window
         _trayIcon?.Dispose();
         _monitor.Dispose();
         _ocrService.Dispose();
-        _updateCheckService.Dispose();
         _hotKey.Dispose();
         _messageBridge?.Dispose();
         Close();
@@ -2627,7 +2625,9 @@ public sealed partial class MainWindow : Window
 
     private async Task<UpdateCheckResult?> CheckForUpdatesAsync()
     {
-        return await _updateCheckService.CheckAsync();
+        // 更新检查是低频操作，请求结束后即释放网络资源，不在托盘进程中长期驻留。
+        using var updateCheckService = new UpdateCheckService();
+        return await updateCheckService.CheckAsync();
     }
 
     private async Task CheckForUpdatesOnStartupAsync()
@@ -2779,7 +2779,8 @@ public sealed partial class MainWindow : Window
                     progressBar.Value = value * 100;
                 }
             });
-            var installerPath = await _updateCheckService.DownloadInstallerAsync(result, progress);
+            using var updateCheckService = new UpdateCheckService();
+            var installerPath = await updateCheckService.DownloadInstallerAsync(result, progress);
 
             progressDialog.Hide();
             await progressDialogTask;

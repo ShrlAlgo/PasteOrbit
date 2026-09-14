@@ -20,13 +20,12 @@ internal sealed class ImageOcrService : IDisposable
     private readonly HashSet<Guid> _pendingIds = [];
     private readonly object _pendingSyncRoot = new();
     private readonly CancellationTokenSource _cancellation = new();
-    private readonly Task _worker;
+    private Task? _worker;
     private bool _disposed;
 
     public ImageOcrService(Func<Guid, byte[]> loadContent)
     {
         _loadContent = loadContent ?? throw new ArgumentNullException(nameof(loadContent));
-        _worker = Task.Run(ProcessQueueAsync);
     }
 
     public event Action<Guid, string>? Recognized;
@@ -42,6 +41,9 @@ internal sealed class ImageOcrService : IDisposable
             {
                 return;
             }
+
+            // OCR 消费者与引擎都延迟到首个图片任务，普通启动不创建后台任务。
+            _worker ??= Task.Run(ProcessQueueAsync);
         }
 
         if (!_queue.Writer.TryWrite(id))
@@ -74,24 +76,26 @@ internal sealed class ImageOcrService : IDisposable
     {
         try
         {
-            // OCR 引擎和读取循环只运行一个消费者，控制图片解码的并发度。
-            var engine = OcrEngine.TryCreateFromUserProfileLanguages();
-            if (engine is null)
-            {
-                _queue.Writer.TryComplete();
-                lock (_pendingSyncRoot)
-                {
-                    _pendingIds.Clear();
-                }
-                RecognitionFailed?.Invoke(new InvalidOperationException(
-                    "Windows OCR language support is unavailable for the current user."));
-                return;
-            }
-
+            OcrEngine? engine = null;
             await foreach (var id in _queue.Reader.ReadAllAsync(_cancellation.Token))
             {
                 try
                 {
+                    // 首个 OCR 任务到达后再加载 Windows OCR 运行时，避免应用启动时无效驻留。
+                    engine ??= OcrEngine.TryCreateFromUserProfileLanguages();
+                    if (engine is null)
+                    {
+                        _queue.Writer.TryComplete();
+                        lock (_pendingSyncRoot)
+                        {
+                            _pendingIds.Clear();
+                        }
+
+                        RecognitionFailed?.Invoke(new InvalidOperationException(
+                            "Windows OCR language support is unavailable for the current user."));
+                        return;
+                    }
+
                     var content = _loadContent(id);
                     var text = await RecognizeAsync(engine, content);
                     Recognized?.Invoke(id, text);

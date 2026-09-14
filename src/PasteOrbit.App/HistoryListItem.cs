@@ -4,6 +4,7 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media.Imaging;
 using PasteOrbit.Core;
+using Windows.Graphics.Imaging;
 using Windows.Storage.Streams;
 
 namespace PasteOrbit.App;
@@ -294,8 +295,20 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
             }
 
             thumbnailStream.Seek(0);
-            // 卡片图片恢复为原来的宽度约束，避免高宽比变化导致预览显示异常。
-            var thumbnail = new BitmapImage { DecodePixelWidth = 420 };
+            var decoder = await BitmapDecoder.CreateAsync(thumbnailStream);
+            var decodeScale = Math.Min(
+                600d / Math.Max(1u, decoder.PixelWidth),
+                112d / Math.Max(1u, decoder.PixelHeight));
+            var thumbnail = new BitmapImage();
+            if (decodeScale < 1d)
+            {
+                // 按卡片实际尺寸的 2 倍解码，同时限制长图和宽图的像素驻留。
+                thumbnail.DecodePixelWidth = Math.Max(
+                    1,
+                    (int)Math.Round(decoder.PixelWidth * decodeScale));
+            }
+
+            thumbnailStream.Seek(0);
             await thumbnail.SetSourceAsync(thumbnailStream);
             if (_disposed || !_thumbnailRequested)
             {
