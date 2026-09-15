@@ -70,7 +70,6 @@ public sealed partial class MainWindow : Window
     private readonly WindowsClipboardShortcut _windowsClipboardShortcut = new();
     private readonly ClipboardMonitor _monitor = new();
     private readonly ClipboardRepository _repository;
-    private readonly ImageOcrService _ocrService;
     private readonly LocalBackupService _backupService;
     private readonly HashSet<string> _excludedApplications = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _historyQueryCancellation;
@@ -149,9 +148,6 @@ public sealed partial class MainWindow : Window
         _repository = new ClipboardRepository(Path.Combine(dataDirectory, "history.db"));
         _history = new ClipboardHistory(_repository);
         _backupService = new LocalBackupService(_repository.DatabasePath, _settingsStore.Path);
-        _ocrService = new ImageOcrService(_repository.LoadContent);
-        _ocrService.Recognized += OcrService_Recognized;
-        _ocrService.RecognitionFailed += OcrService_RecognitionFailed;
 
         try
         {
@@ -252,7 +248,6 @@ public sealed partial class MainWindow : Window
         _settingsWindow?.Close();
         _trayIcon?.Dispose();
         _monitor.Dispose();
-        _ocrService.Dispose();
         _windowsClipboardShortcut.Dispose();
         _hotKey.Dispose();
         _messageBridge?.Dispose();
@@ -566,7 +561,6 @@ public sealed partial class MainWindow : Window
         _panelMonitorTimer?.Stop();
         _trayIcon?.Dispose();
         _monitor.Dispose();
-        _ocrService.Dispose();
         _windowsClipboardShortcut.Dispose();
         _hotKey.Dispose();
         _messageBridge?.Dispose();
@@ -1216,11 +1210,6 @@ public sealed partial class MainWindow : Window
                 CleanupHistory();
                 StatusText.Text = AppLocalization.Format("SavedItemCount", _history.Count);
                 RefreshHistory();
-                if (capture.Kind == ClipboardContentKind.Image
-                    && _settings.EnableImageOcr)
-                {
-                    _ocrService.Enqueue(item.Id);
-                }
             }
             catch (Exception)
             {
@@ -1235,36 +1224,6 @@ public sealed partial class MainWindow : Window
     private void Monitor_CaptureFailed(Exception exception)
     {
         EnqueueOnUi(() => StatusText.Text = AppLocalization.Format("ClipboardReadFailed", exception.Message));
-    }
-
-    private void OcrService_Recognized(Guid id, string text)
-    {
-        EnqueueOnUi(() =>
-        {
-            try
-            {
-                if (!_storageAvailable)
-                {
-                    return;
-                }
-
-                if (_history.SetOcrText(id, text) is not null)
-                {
-                    RefreshHistory();
-                }
-            }
-            catch (Exception exception)
-            {
-                // OCR 是增强功能，写入失败时保留原图片记录并继续监听。
-                System.Diagnostics.Debug.WriteLine($"OCR 结果保存失败：{exception}");
-            }
-        });
-    }
-
-    private static void OcrService_RecognitionFailed(Exception exception)
-    {
-        // 单张图片识别失败不应影响剪切板监听；调试输出用于排查缺失语言包或损坏图片。
-        System.Diagnostics.Debug.WriteLine($"OCR 识别失败：{exception}");
     }
 
     private bool IsCaptureEnabled(ClipboardContentKind kind)
@@ -1497,11 +1456,6 @@ public sealed partial class MainWindow : Window
         if (card.FindName("PastePlainTextMenuItem") is MenuFlyoutItem plainTextItem)
         {
             plainTextItem.Text = AppLocalization.GetString("PastePlainTextMenuItemText");
-        }
-
-        if (card.FindName("PasteOcrTextMenuItem") is MenuFlyoutItem ocrItem)
-        {
-            ocrItem.Text = AppLocalization.GetString("PasteOcrTextMenuItemText");
         }
 
         if (card.FindName("PasteAsFileMenuItem") is MenuFlyoutItem fileItem)
@@ -2001,50 +1955,6 @@ public sealed partial class MainWindow : Window
         if (GetHistoryListItem(sender) is HistoryListItem selected)
         {
             await PlayAsync(selected, plainTextOnly: true);
-        }
-    }
-
-    private async void RecordPasteOcrTextButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (GetHistoryListItem(sender) is not HistoryListItem selected
-            || selected.Item.OcrTextLength == 0)
-        {
-            return;
-        }
-
-        var pasteTarget = GetPasteTargetSnapshot();
-        _monitor.SuspendCapture();
-        try
-        {
-            var ocrText = await Task.Run(() => _history.LoadOcrText(selected.Item.Id));
-            if (string.IsNullOrEmpty(ocrText))
-            {
-                return;
-            }
-
-            HidePanel();
-            await Task.Delay(50);
-            var textItem = selected.Item with { Kind = ClipboardContentKind.Text };
-            var content = new ClipboardTextContent(ocrText, null, null).Serialize();
-            var pasted = await ClipboardPlayback.PlayAsync(
-                textItem,
-                content,
-                pasteTarget.TargetWindow,
-                () => TryRestoreAutomationFocus(pasteTarget),
-                plainTextOnly: true);
-            if (!pasted)
-            {
-                StatusText.Text = AppLocalization.GetString("ContentRestoredManualPaste");
-            }
-        }
-        catch (Exception)
-        {
-            StatusText.Text = AppLocalization.GetString("ContentRestoreFailed");
-        }
-        finally
-        {
-            await Task.Delay(150);
-            _monitor.ResumeCapture();
         }
     }
 

@@ -35,8 +35,6 @@ public sealed class AppSettings
 
     public bool MonitorImages { get; set; } = true;
 
-    public bool EnableImageOcr { get; set; } = true;
-
     public bool MonitorFiles { get; set; } = true;
 
     public string ExcludedApplications { get; set; } = "1Password; Bitwarden; KeePass; KeePassXC; mstsc; msrdc; Windows365";

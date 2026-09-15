@@ -215,15 +215,6 @@
                                 <ToggleSwitch x:Name="MonitorImagesToggleSwitch" />
                             </toolkit:SettingsCard>
                             <toolkit:SettingsCard
-                                x:Name="ImageOcrCard"
-                                x:Uid="SettingsImageOcrCard"
-                                Margin="0,0,0,8"
-                                ContentAlignment="Right"
-                                Description="使用 Windows OCR 提取新复制图片中的文字，并用于搜索"
-                                Header="自动识别图片文字">
-                                <ToggleSwitch x:Name="ImageOcrToggleSwitch" />
-                            </toolkit:SettingsCard>
-                            <toolkit:SettingsCard
                                 x:Name="MonitorFilesCard"
                                 x:Uid="SettingsMonitorFilesCard"
                                 Margin="0,0,0,8"
@@ -565,7 +556,7 @@
                                 Margin="8,0,8,18"
                                 HorizontalAlignment="Center"
                                 Foreground="{ThemeResource TextSecondaryBrush}"
-                                Text="本地剪切板历史管理工具，支持文本、图片、文件、搜索、置顶和 OCR。"
+                                Text="本地剪切板历史管理工具，支持文本、图片、文件、搜索和置顶。"
                                 TextAlignment="Center"
                                 TextWrapping="Wrap" />
                             <toolkit:SettingsCard

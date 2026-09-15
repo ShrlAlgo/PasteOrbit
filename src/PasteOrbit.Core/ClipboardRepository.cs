@@ -11,9 +11,8 @@ namespace PasteOrbit.Core;
 /// </summary>
 public sealed class ClipboardRepository
 {
-    private const int CurrentSchemaVersion = 3;
+    private const int CurrentSchemaVersion = 4;
     private const int MaxPreviewLength = 512;
-    private const int MaxOcrPreviewLength = 256;
     private const int MaxPageSize = 200;
     private readonly string _connectionString;
 
@@ -160,13 +159,11 @@ public sealed class ClipboardRepository
         Guid id;
         long createdAtUnixMilliseconds;
         bool isPinned;
-        string? ocrText;
         if (existing is null)
         {
             id = Guid.NewGuid();
             createdAtUnixMilliseconds = capturedAtUnixMilliseconds;
             isPinned = false;
-            ocrText = null;
             storageId = InsertItem(
                 connection,
                 transaction,
@@ -183,7 +180,6 @@ public sealed class ClipboardRepository
             id = existing.Id;
             createdAtUnixMilliseconds = existing.CreatedAtUnixMilliseconds;
             isPinned = existing.IsPinned;
-            ocrText = existing.OcrText;
             UpdateItem(
                 connection,
                 transaction,
@@ -198,7 +194,6 @@ public sealed class ClipboardRepository
             transaction,
             storageId,
             capture.SearchText,
-            ocrText,
             capture.SourceApplication);
         transaction.Commit();
 
@@ -212,8 +207,6 @@ public sealed class ClipboardRepository
             DateTimeOffset.FromUnixTimeMilliseconds(createdAtUnixMilliseconds),
             captured,
             isPinned,
-            CreateNullablePreview(ocrText, MaxOcrPreviewLength),
-            ocrText?.Length ?? 0,
             capture.Content.LongLength);
     }
 
@@ -239,64 +232,6 @@ public sealed class ClipboardRepository
         return protectedThumbnail is null
             ? null
             : UserDataProtector.Unprotect(protectedThumbnail);
-    }
-
-    public string? LoadOcrText(Guid id)
-    {
-        using var connection = OpenConnection();
-        using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT fts.ocr_text
-            FROM clipboard_items AS item
-            JOIN clipboard_items_fts AS fts ON fts.rowid = item.storage_id
-            WHERE item.id = $id;
-            """;
-        command.Parameters.AddWithValue("$id", id.ToString("D"));
-        var value = command.ExecuteScalar() as string;
-        return string.IsNullOrEmpty(value) ? null : value;
-    }
-
-    public ClipboardHistoryEntry? SetOcrText(Guid id, string ocrText)
-    {
-        ArgumentNullException.ThrowIfNull(ocrText);
-        using var connection = OpenConnection();
-        using var transaction = connection.BeginTransaction();
-        var stored = LoadStoredEntry(connection, transaction, id);
-        if (stored is null)
-        {
-            return null;
-        }
-
-        using (var command = connection.CreateCommand())
-        {
-            command.Transaction = transaction;
-            command.CommandText = """
-                UPDATE clipboard_items
-                SET ocr_preview = $ocr_preview,
-                    ocr_text_length = $ocr_text_length
-                WHERE storage_id = $storage_id;
-                """;
-            command.Parameters.Add("$ocr_preview", SqliteType.Blob).Value = string.IsNullOrEmpty(ocrText)
-                ? DBNull.Value
-                : UserDataProtector.ProtectText(CreatePreview(ocrText, MaxOcrPreviewLength));
-            command.Parameters.AddWithValue("$ocr_text_length", ocrText.Length);
-            command.Parameters.AddWithValue("$storage_id", stored.Entry.StorageId);
-            command.ExecuteNonQuery();
-        }
-
-        ReplaceSearchIndex(
-            connection,
-            transaction,
-            stored.Entry.StorageId,
-            stored.SearchText,
-            ocrText,
-            stored.Entry.SourceApplication);
-        transaction.Commit();
-        return stored.Entry with
-        {
-            OcrPreview = CreateNullablePreview(ocrText, MaxOcrPreviewLength),
-            OcrTextLength = ocrText.Length
-        };
     }
 
     public ClipboardHistoryEntry? SetPinned(Guid id, bool isPinned)
@@ -430,7 +365,7 @@ public sealed class ClipboardRepository
         [
             "storage_id", "id", "kind", "content_hash", "preview_text", "search_text_length",
             "content", "thumbnail", "content_size", "source_application", "created_at", "updated_at",
-            "is_pinned", "ocr_preview", "ocr_text_length"
+            "is_pinned"
         ];
         var actualColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         using (var schemaCommand = connection.CreateCommand())
@@ -479,9 +414,7 @@ public sealed class ClipboardRepository
                 source_application BLOB NULL,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
-                is_pinned INTEGER NOT NULL,
-                ocr_preview BLOB NULL,
-                ocr_text_length INTEGER NOT NULL
+                is_pinned INTEGER NOT NULL
             );
             CREATE INDEX IF NOT EXISTS ix_clipboard_items_order
                 ON clipboard_items(is_pinned DESC, updated_at DESC, storage_id DESC);
@@ -489,7 +422,6 @@ public sealed class ClipboardRepository
                 ON clipboard_items(kind, is_pinned DESC, updated_at DESC, storage_id DESC);
             CREATE VIRTUAL TABLE IF NOT EXISTS clipboard_items_fts USING fts5(
                 search_text,
-                ocr_text,
                 source_application,
                 full_pinyin,
                 pinyin_initials,
@@ -511,10 +443,8 @@ public sealed class ClipboardRepository
             SELECT item.storage_id,
                    item.id,
                    item.created_at,
-                   item.is_pinned,
-                   fts.ocr_text
+                   item.is_pinned
             FROM clipboard_items AS item
-            LEFT JOIN clipboard_items_fts AS fts ON fts.rowid = item.storage_id
             WHERE item.content_hash = $content_hash;
             """;
         command.Parameters.AddWithValue("$content_hash", contentHash);
@@ -528,8 +458,7 @@ public sealed class ClipboardRepository
             reader.GetInt64(0),
             Guid.Parse(reader.GetString(1)),
             reader.GetInt64(2),
-            reader.GetBoolean(3),
-            reader.IsDBNull(4) ? null : reader.GetString(4));
+            reader.GetBoolean(3));
     }
 
     private static long InsertItem(
@@ -548,11 +477,11 @@ public sealed class ClipboardRepository
             INSERT INTO clipboard_items (
                 id, kind, content_hash, preview_text, search_text_length,
                 content, thumbnail, content_size, source_application, created_at, updated_at,
-                is_pinned, ocr_preview, ocr_text_length)
+                is_pinned)
             VALUES (
                 $id, $kind, $content_hash, $preview_text, $search_text_length,
                 $content, $thumbnail, $content_size, $source_application, $created_at, $updated_at,
-                0, NULL, 0);
+                0);
             SELECT last_insert_rowid();
             """;
         AddCaptureParameters(command, id, capture, contentHash, previewText, updatedAtUnixMilliseconds);
@@ -620,7 +549,6 @@ public sealed class ClipboardRepository
         SqliteTransaction transaction,
         long storageId,
         string searchText,
-        string? ocrText,
         string? sourceApplication)
     {
         using (var deleteCommand = connection.CreateCommand())
@@ -631,21 +559,17 @@ public sealed class ClipboardRepository
             deleteCommand.ExecuteNonQuery();
         }
 
-        var searchableText = string.IsNullOrEmpty(ocrText)
-            ? searchText
-            : $"{searchText}\n{ocrText}";
-        var pinyin = PinyinSearchTerms.Create(searchableText);
+        var pinyin = PinyinSearchTerms.Create(searchText);
         using var insertCommand = connection.CreateCommand();
         insertCommand.Transaction = transaction;
         insertCommand.CommandText = """
             INSERT INTO clipboard_items_fts (
-                rowid, search_text, ocr_text, source_application, full_pinyin, pinyin_initials)
+                rowid, search_text, source_application, full_pinyin, pinyin_initials)
             VALUES (
-                $storage_id, $search_text, $ocr_text, $source_application, $full_pinyin, $pinyin_initials);
+                $storage_id, $search_text, $source_application, $full_pinyin, $pinyin_initials);
             """;
         insertCommand.Parameters.AddWithValue("$storage_id", storageId);
         insertCommand.Parameters.AddWithValue("$search_text", searchText);
-        insertCommand.Parameters.AddWithValue("$ocr_text", ocrText ?? string.Empty);
         insertCommand.Parameters.AddWithValue("$source_application", sourceApplication ?? string.Empty);
         insertCommand.Parameters.AddWithValue("$full_pinyin", pinyin?.FullPinyin ?? string.Empty);
         insertCommand.Parameters.AddWithValue("$pinyin_initials", pinyin?.Initials ?? string.Empty);
@@ -669,8 +593,6 @@ public sealed class ClipboardRepository
                    item.created_at,
                    item.updated_at,
                    item.is_pinned,
-                   item.ocr_preview,
-                   item.ocr_text_length,
                    item.content_size,
                    fts.search_text
             FROM clipboard_items AS item
@@ -680,7 +602,7 @@ public sealed class ClipboardRepository
         command.Parameters.AddWithValue("$id", id.ToString("D"));
         using var reader = command.ExecuteReader();
         return reader.Read()
-            ? new StoredEntry(ReadEntry(reader), reader.GetString(12))
+            ? new StoredEntry(ReadEntry(reader), reader.GetString(9))
             : null;
     }
 
@@ -766,8 +688,6 @@ public sealed class ClipboardRepository
                    item.created_at,
                    item.updated_at,
                    item.is_pinned,
-                   item.ocr_preview,
-                   item.ocr_text_length,
                    item.content_size
             FROM clipboard_items AS item
             """);
@@ -808,7 +728,6 @@ public sealed class ClipboardRepository
                 sql.Append("""
                      AND (
                          fts.search_text LIKE $like_query ESCAPE '\' COLLATE NOCASE
-                         OR fts.ocr_text LIKE $like_query ESCAPE '\' COLLATE NOCASE
                          OR fts.source_application LIKE $like_query ESCAPE '\' COLLATE NOCASE
                          OR fts.full_pinyin LIKE $like_query ESCAPE '\' COLLATE NOCASE
                          OR fts.pinyin_initials LIKE $like_query ESCAPE '\' COLLATE NOCASE)
@@ -864,9 +783,7 @@ public sealed class ClipboardRepository
             DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(6)),
             DateTimeOffset.FromUnixTimeMilliseconds(reader.GetInt64(7)),
             reader.GetBoolean(8),
-            reader.IsDBNull(9) ? null : UserDataProtector.UnprotectText((byte[])reader[9]),
-            reader.GetInt32(10),
-            reader.GetInt64(11));
+            reader.GetInt64(9));
     }
 
     private static string CreatePreview(string text, int maxLength)
@@ -874,11 +791,6 @@ public sealed class ClipboardRepository
         var length = Math.Min(text.Length, maxLength);
         var preview = text[..length].ReplaceLineEndings(" ");
         return text.Length > maxLength ? preview + "…" : preview;
-    }
-
-    private static string? CreateNullablePreview(string? text, int maxLength)
-    {
-        return string.IsNullOrEmpty(text) ? null : CreatePreview(text, maxLength);
     }
 
     private static string ComputeHash(ClipboardContentKind kind, byte[] content)
@@ -933,8 +845,7 @@ public sealed class ClipboardRepository
         long StorageId,
         Guid Id,
         long CreatedAtUnixMilliseconds,
-        bool IsPinned,
-        string? OcrText);
+        bool IsPinned);
 
     private sealed record StoredEntry(
         ClipboardHistoryEntry Entry,

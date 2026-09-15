@@ -13,6 +13,4 @@ public sealed record ClipboardHistoryEntry(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     bool IsPinned = false,
-    string? OcrPreview = null,
-    int OcrTextLength = 0,
     long ContentSize = 0);

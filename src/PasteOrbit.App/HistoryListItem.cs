@@ -32,7 +32,6 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
             ?? throw new InvalidOperationException(AppLocalization.GetString("HistoryDispatcherUnavailable"));
         Item = item;
         Preview = item.PreviewText;
-        OcrPreview = item.OcrPreview ?? string.Empty;
         _metadata = item.Kind switch
         {
             ClipboardContentKind.Text => AppLocalization.Format("CharacterCount", item.SearchTextLength),
@@ -47,12 +46,6 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
     public ClipboardHistoryEntry Item { get; }
 
     public string Preview { get; }
-
-    public string OcrPreview { get; }
-
-    public Visibility OcrTextVisibility => Item.OcrTextLength == 0
-        ? Visibility.Collapsed
-        : Visibility.Visible;
 
     public string Metadata
     {
@@ -339,9 +332,7 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
     private static string CreateImageMetadata(ClipboardHistoryEntry item)
     {
         var size = $"{Math.Max(1, item.ContentSize / 1024d):0.#} KB";
-        return item.OcrTextLength == 0
-            ? size
-            : AppLocalization.Format("ImageMetadataWithOcr", size, item.OcrTextLength);
+        return size;
     }
 
     private Task RunOnUiThreadAsync(Func<Task> action)

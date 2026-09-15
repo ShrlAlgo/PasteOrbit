@@ -11,7 +11,6 @@ PasteOrbit is a Windows desktop clipboard history manager.
 - Stores text, rich text, images, and file records.
 - Displays clipboard history near the active input position.
 - Supports filtering by content type and full-text search.
-- Supports image OCR and OCR text search.
 - Supports pasting as original content, plain text, or files.
 - Supports previews for text, images, and file records.
 - Supports pinning, deleting, and clearing unpinned records from the current list.
@@ -36,4 +35,3 @@ PasteOrbit is a Windows desktop clipboard history manager.
 - File records store file or folder paths without copying the original files.
 - Applications can be excluded from clipboard monitoring.
 - Local backups are protected by the current Windows user credentials.
-- OCR uses the recognition languages installed in Windows.

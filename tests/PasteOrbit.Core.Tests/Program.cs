@@ -50,7 +50,7 @@ static void VerifyLegacyDatabaseReset(string databasePath)
     currentConnection.Open();
     using var versionCommand = currentConnection.CreateCommand();
     versionCommand.CommandText = "PRAGMA user_version;";
-    Assert(Convert.ToInt32(versionCommand.ExecuteScalar()) == 3, "新数据库应写入当前结构版本");
+    Assert(Convert.ToInt32(versionCommand.ExecuteScalar()) == 4, "新数据库应写入当前结构版本");
 }
 
 static void VerifyHistoryStore(string databasePath)
@@ -107,12 +107,6 @@ static void VerifyHistoryStore(string databasePath)
             thumbnail),
         now.AddSeconds(5));
     Assert(repository.LoadThumbnail(image.Id)?.AsSpan().SequenceEqual(thumbnail) == true, "缩略图应按 ID 解密读取");
-    var recognized = history.SetOcrText(image.Id, "剪贴板中的识别文字");
-    Assert(recognized?.OcrPreview == "剪贴板中的识别文字", "OCR 更新应返回短预览");
-    Assert(history.LoadOcrText(image.Id) == "剪贴板中的识别文字", "完整 OCR 文本应按 ID 读取");
-    Assert(history.Search(new ClipboardHistoryQuery("识别文字"), null, 50).Items.Single().Id == image.Id, "搜索应匹配 OCR 文字");
-    Assert(history.Search(new ClipboardHistoryQuery("sbwz"), null, 50).Items.Single().Id == image.Id, "拼音搜索应匹配 OCR 首字母");
-
     var pinned = history.SetPinned(second.Id, true);
     Assert(pinned?.IsPinned == true, "记录应可置顶");
     var ordered = history.Search(new ClipboardHistoryQuery(), null, 50).Items;

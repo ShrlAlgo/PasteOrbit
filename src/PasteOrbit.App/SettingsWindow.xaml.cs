@@ -142,7 +142,6 @@ public sealed partial class SettingsWindow : Window
         AutoHideToggleSwitch.IsOn = settings.AutoHideOnDeactivate;
         MonitorTextToggleSwitch.IsOn = settings.MonitorText;
         MonitorImagesToggleSwitch.IsOn = settings.MonitorImages;
-        ImageOcrToggleSwitch.IsOn = settings.EnableImageOcr;
         MonitorFilesToggleSwitch.IsOn = settings.MonitorFiles;
         ExcludedApplicationsTextBox.Text = settings.ExcludedApplications;
         InterceptWinVToggleSwitch.IsOn = settings.InterceptWindowsClipboardShortcut;
@@ -459,7 +458,6 @@ public sealed partial class SettingsWindow : Window
         AutoHideToggleSwitch.Toggled += SettingToggleSwitch_Changed;
         MonitorTextToggleSwitch.Toggled += SettingToggleSwitch_Changed;
         MonitorImagesToggleSwitch.Toggled += SettingToggleSwitch_Changed;
-        ImageOcrToggleSwitch.Toggled += SettingToggleSwitch_Changed;
         MonitorFilesToggleSwitch.Toggled += SettingToggleSwitch_Changed;
         InterceptWinVToggleSwitch.Toggled += SettingToggleSwitch_Changed;
         ThemeComboBox.SelectionChanged += SettingComboBox_Changed;
@@ -630,7 +628,6 @@ public sealed partial class SettingsWindow : Window
             AutoHideOnDeactivate = AutoHideToggleSwitch.IsOn,
             MonitorText = MonitorTextToggleSwitch.IsOn,
             MonitorImages = MonitorImagesToggleSwitch.IsOn,
-            EnableImageOcr = ImageOcrToggleSwitch.IsOn,
             MonitorFiles = MonitorFilesToggleSwitch.IsOn,
             ExcludedApplications = ExcludedApplicationsTextBox.Text.Trim(),
             GlobalHotKey = GetCurrentHotKey(),
@@ -690,7 +687,6 @@ public sealed partial class SettingsWindow : Window
         SetCard(AutoHideCard, "SettingsAutoHideCardHeader", "SettingsAutoHideCardDescription");
         SetCard(MonitorTextCard, "SettingsMonitorTextCardHeader", "SettingsMonitorTextCardDescription");
         SetCard(MonitorImagesCard, "SettingsMonitorImagesCardHeader", "SettingsMonitorImagesCardDescription");
-        SetCard(ImageOcrCard, "SettingsImageOcrCardHeader", "SettingsImageOcrCardDescription");
         SetCard(MonitorFilesCard, "SettingsMonitorFilesCardHeader", "SettingsMonitorFilesCardDescription");
         SetCard(ThemeCard, "SettingsThemeCardHeader", "SettingsThemeCardDescription");
         SetCard(LanguageCard, "SettingsLanguageCardHeader", "SettingsLanguageCardDescription");
@@ -745,7 +741,6 @@ public sealed partial class SettingsWindow : Window
         SetToggleContent(AutoHideToggleSwitch, toggleOnContent, toggleOffContent);
         SetToggleContent(MonitorTextToggleSwitch, toggleOnContent, toggleOffContent);
         SetToggleContent(MonitorImagesToggleSwitch, toggleOnContent, toggleOffContent);
-        SetToggleContent(ImageOcrToggleSwitch, toggleOnContent, toggleOffContent);
         SetToggleContent(MonitorFilesToggleSwitch, toggleOnContent, toggleOffContent);
         SetToggleContent(InterceptWinVToggleSwitch, toggleOnContent, toggleOffContent);
 

@@ -396,15 +396,6 @@
                                                 Source="{Binding Thumbnail}"
                                                 Stretch="Uniform" />
                                             <TextBlock
-                                                Margin="0,4,0,0"
-                                                MaxLines="2"
-                                                FontSize="12"
-                                                Foreground="{ThemeResource TextSecondaryBrush}"
-                                                Text="{Binding OcrPreview}"
-                                                TextTrimming="CharacterEllipsis"
-                                                TextWrapping="Wrap"
-                                                Visibility="{Binding OcrTextVisibility}" />
-                                            <TextBlock
                                                 MaxLines="3"
                                                 Text="{Binding Preview}"
                                                 TextTrimming="CharacterEllipsis"
@@ -486,17 +477,6 @@
                                                             Visibility="{Binding PlainTextPasteVisibility}">
                                                             <MenuFlyoutItem.Icon>
                                                                 <FontIcon Glyph="&#xE8D2;" />
-                                                            </MenuFlyoutItem.Icon>
-                                                        </MenuFlyoutItem>
-                                                        <MenuFlyoutItem
-                                                            x:Name="PasteOcrTextMenuItem"
-                                                            x:Uid="PasteOcrTextMenuItem"
-                                                            Click="RecordPasteOcrTextButton_Click"
-                                                            Tag="{Binding}"
-                                                            Text="粘贴识别文字"
-                                                            Visibility="{Binding OcrTextVisibility}">
-                                                            <MenuFlyoutItem.Icon>
-                                                                <FontIcon Glyph="&#xE8C8;" />
                                                             </MenuFlyoutItem.Icon>
                                                         </MenuFlyoutItem>
                                                         <MenuFlyoutItem

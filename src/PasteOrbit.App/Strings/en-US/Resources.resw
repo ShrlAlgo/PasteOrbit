@@ -40,7 +40,6 @@
   <data name="RecordMoreButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>More actions</value></data>
   <data name="PastePlainTextMenuItem.Text" xml:space="preserve"><value>Paste as plain text</value></data>
   <data name="PasteAsFileMenuItem.Text" xml:space="preserve"><value>Paste as file</value></data>
-  <data name="PasteOcrTextMenuItem.Text" xml:space="preserve"><value>Paste recognized text</value></data>
   <data name="DeleteRecordMenuItem.Text" xml:space="preserve"><value>Delete item</value></data>
   <data name="EmptyHistoryText.Text" xml:space="preserve"><value>No clipboard history</value></data>
   <data name="SettingsWindowTitle" xml:space="preserve"><value>PasteOrbit Settings</value></data>
@@ -61,8 +60,6 @@
   <data name="SettingsMonitorTextCard.Description" xml:space="preserve"><value>Save text copied to the clipboard</value></data>
   <data name="SettingsMonitorImagesCard.Header" xml:space="preserve"><value>Monitor images</value></data>
   <data name="SettingsMonitorImagesCard.Description" xml:space="preserve"><value>Save images copied to the clipboard</value></data>
-  <data name="SettingsImageOcrCard.Header" xml:space="preserve"><value>Recognize image text automatically</value></data>
-  <data name="SettingsImageOcrCard.Description" xml:space="preserve"><value>Use Windows OCR to extract text from newly copied images and make it searchable</value></data>
   <data name="SettingsMonitorFilesCard.Header" xml:space="preserve"><value>Monitor files</value></data>
   <data name="SettingsMonitorFilesCard.Description" xml:space="preserve"><value>Save files copied to the clipboard</value></data>
   <data name="SettingsAppearanceSection.Text" xml:space="preserve"><value>Appearance</value></data>
@@ -106,7 +103,6 @@
   <data name="UnpinItem" xml:space="preserve"><value>Unpin item</value></data>
   <data name="PinItem" xml:space="preserve"><value>Pin item</value></data>
   <data name="ImagePreviewUnavailable" xml:space="preserve"><value>Image · Preview unavailable</value></data>
-  <data name="ImageMetadataWithOcr" xml:space="preserve"><value>{0} · OCR {1} chars</value></data>
   <data name="FileInfoUnavailable" xml:space="preserve"><value>Files · Information unavailable</value></data>
   <data name="PreviewDispatchUnavailable" xml:space="preserve"><value>The image preview update could not be dispatched.</value></data>
   <data name="FileCount" xml:space="preserve"><value>{0} files</value></data>
@@ -233,7 +229,7 @@
   <data name="SettingsPrivacySectionText" xml:space="preserve"><value>Privacy &amp; security</value></data>
   <data name="SettingsAboutSectionText" xml:space="preserve"><value>About</value></data>
   <data name="AboutVersionText" xml:space="preserve"><value>Version {0}</value></data>
-  <data name="AboutDescriptionText" xml:space="preserve"><value>A local clipboard history manager for text, images, files, search, pinned items, and OCR.</value></data>
+  <data name="AboutDescriptionText" xml:space="preserve"><value>A local clipboard history manager for text, images, files, search, and pinned items.</value></data>
   <data name="AboutPrivacyText" xml:space="preserve"><value>Clipboard data stays on this device and is protected with the current Windows user credentials.</value></data>
   <data name="AboutCopyrightText" xml:space="preserve"><value>© 2026 PasteOrbit contributors</value></data>
   <data name="GitHubProjectCardHeader" xml:space="preserve"><value>GitHub project</value></data>
@@ -249,8 +245,6 @@
   <data name="SettingsMonitorTextCardDescription" xml:space="preserve"><value>Record text copied to the clipboard</value></data>
   <data name="SettingsMonitorImagesCardHeader" xml:space="preserve"><value>Monitor images</value></data>
   <data name="SettingsMonitorImagesCardDescription" xml:space="preserve"><value>Record images copied to the clipboard</value></data>
-  <data name="SettingsImageOcrCardHeader" xml:space="preserve"><value>Recognize image text automatically</value></data>
-  <data name="SettingsImageOcrCardDescription" xml:space="preserve"><value>Use Windows OCR to extract text from copied images for search</value></data>
   <data name="SettingsMonitorFilesCardHeader" xml:space="preserve"><value>Monitor files</value></data>
   <data name="SettingsMonitorFilesCardDescription" xml:space="preserve"><value>Record files copied to the clipboard</value></data>
   <data name="SettingsThemeCardHeader" xml:space="preserve"><value>Theme</value></data>
@@ -316,7 +310,6 @@
   <data name="MainEmptyHistoryText" xml:space="preserve"><value>No clipboard history</value></data>
   <data name="RecordMoreButtonTooltip" xml:space="preserve"><value>More actions</value></data>
   <data name="PastePlainTextMenuItemText" xml:space="preserve"><value>Paste as plain text</value></data>
-  <data name="PasteOcrTextMenuItemText" xml:space="preserve"><value>Paste recognized text</value></data>
   <data name="PasteAsFileMenuItemText" xml:space="preserve"><value>Paste as file</value></data>
   <data name="DeleteRecordMenuItemText" xml:space="preserve"><value>Delete item</value></data>
   <data name="DoNotRemindUpdateButton" xml:space="preserve"><value>Don't remind me again</value></data>

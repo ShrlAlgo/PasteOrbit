@@ -40,16 +40,6 @@ public sealed class ClipboardHistory(ClipboardRepository repository)
         return _repository.SetPinned(id, isPinned);
     }
 
-    public ClipboardHistoryEntry? SetOcrText(Guid id, string ocrText)
-    {
-        return _repository.SetOcrText(id, ocrText);
-    }
-
-    public string? LoadOcrText(Guid id)
-    {
-        return _repository.LoadOcrText(id);
-    }
-
     public bool Remove(Guid id)
     {
         return _repository.Delete(id);
