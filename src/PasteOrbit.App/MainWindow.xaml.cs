@@ -1566,7 +1566,7 @@ public sealed partial class MainWindow : Window
         finally
         {
             await Task.Delay(150);
-            _monitor.ResumeCapture();
+            _monitor.ResumeCapture(capturePending: true);
         }
     }
 
@@ -1601,7 +1601,7 @@ public sealed partial class MainWindow : Window
         finally
         {
             await Task.Delay(150);
-            _monitor.ResumeCapture();
+            _monitor.ResumeCapture(capturePending: true);
         }
     }
 
@@ -1656,6 +1656,26 @@ public sealed partial class MainWindow : Window
             }
 
             var inputBounds = pasteTarget.InputBounds;
+            // 激活窗口后若编辑器已恢复焦点，保留其插入符和选区；网页控件可能属于渲染进程。
+            IUiAutomationElement? focusedElement = null;
+            try
+            {
+                if (GetForegroundWindow() == pasteTarget.TargetWindow
+                    && automation.GetFocusedElement(out focusedElement) >= 0
+                    && focusedElement is not null
+                    && focusedElement.GetCurrentPropertyValue(UiaHasKeyboardFocusPropertyId, out var focused) >= 0
+                    && Convert.ToBoolean(focused)
+                    && focusedElement.GetCurrentPropertyValue(UiaControlTypePropertyId, out var controlType) >= 0
+                    && Convert.ToInt32(controlType) is 50004 or 50030)
+                {
+                    return true;
+                }
+            }
+            finally
+            {
+                ReleaseComObject(focusedElement);
+            }
+
             var inputPoint = new NativePoint
             {
                 X = inputBounds.Left + Math.Max(1, inputBounds.Right - inputBounds.Left) / 2,

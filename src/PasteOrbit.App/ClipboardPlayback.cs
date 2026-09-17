@@ -21,6 +21,9 @@ public static class ClipboardPlayback
     private const ushort KeyControl = 0x11;
     private const ushort KeyV = 0x56;
     private static IRandomAccessStream? _clipboardStream;
+    private static uint _lastWrittenSequence;
+
+    internal static uint LastWrittenSequence => Volatile.Read(ref _lastWrittenSequence);
 
     public static async Task<bool> PlayAsync(
         ClipboardHistoryEntry item,
@@ -51,26 +54,45 @@ public static class ClipboardPlayback
             return false;
         }
 
-        if (!ActivateTargetWindow(targetWindow))
+        // 非激活面板保留了编辑器的原始焦点，避免再次按坐标定位破坏网页选区。
+        var targetAlreadyForeground = GetForegroundWindow() == targetWindow;
+        if (!targetAlreadyForeground && !ActivateTargetWindow(targetWindow))
         {
             return false;
         }
 
         await Task.Delay(80);
-        if (restoreInputFocus is not null)
+        if (!targetAlreadyForeground && restoreInputFocus is not null)
         {
             // UI Automation 不一定能操作 Java/Swing 等自绘输入控件。激活目标窗口后，系统通常会恢复其原有子控件焦点。
             _ = restoreInputFocus();
         }
 
         await Task.Delay(100);
+        // 热键修饰键尚未松开时不能叠加 Ctrl+V；超时保留剪贴板供手动粘贴。
+        for (var attempt = 0; PanelShortcut.HasAnyModifierDown(); attempt++)
+        {
+            if (attempt >= 100 || GetForegroundWindow() != targetWindow)
+            {
+                return false;
+            }
+
+            await Task.Delay(10);
+        }
+
+        if (GetForegroundWindow() != targetWindow)
+        {
+            return false;
+        }
+
+        var keyboardLayout = GetKeyboardLayout(GetWindowThreadProcessId(targetWindow, IntPtr.Zero));
         // 使用 SendInput 模拟用户粘贴，目标窗口不需要接入应用内部消息循环。
         var inputs = new[]
         {
-            CreateKeyInput(KeyControl, false),
-            CreateKeyInput(KeyV, false),
-            CreateKeyInput(KeyV, true),
-            CreateKeyInput(KeyControl, true)
+            CreateKeyInput(KeyControl, false, keyboardLayout),
+            CreateKeyInput(KeyV, false, keyboardLayout),
+            CreateKeyInput(KeyV, true, keyboardLayout),
+            CreateKeyInput(KeyControl, true, keyboardLayout)
         };
         return SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<Input>()) == inputs.Length;
     }
@@ -167,6 +189,8 @@ public static class ClipboardPlayback
 
         Clipboard.SetContent(package);
         Clipboard.Flush();
+        // 记录实际写回的版本，恢复监听时不能顺带忽略用户随后复制的新内容。
+        Volatile.Write(ref _lastWrittenSequence, GetClipboardSequenceNumber());
     }
 
     private static bool ActivateTargetWindow(IntPtr targetWindow)
@@ -206,7 +230,7 @@ public static class ClipboardPlayback
         }
     }
 
-    private static Input CreateKeyInput(ushort key, bool keyUp)
+    private static Input CreateKeyInput(ushort key, bool keyUp, IntPtr keyboardLayout)
     {
         return new Input
         {
@@ -216,6 +240,8 @@ public static class ClipboardPlayback
                 Keyboard = new KeyboardInput
                 {
                     VirtualKey = key,
+                    // 同时提供目标布局对应的扫描码，兼容读取物理按键信息的编辑器。
+                    ScanCode = (ushort)MapVirtualKeyEx(key, 0, keyboardLayout),
                     Flags = keyUp ? KeyUp : 0
                 }
             }
@@ -289,6 +315,18 @@ public static class ClipboardPlayback
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetForegroundWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetClipboardSequenceNumber();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetKeyboardLayout(uint threadId);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern uint MapVirtualKeyEx(uint code, uint mapType, IntPtr keyboardLayout);
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint SendInput(uint inputCount, Input[] inputs, int inputSize);

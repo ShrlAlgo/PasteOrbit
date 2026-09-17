@@ -38,7 +38,7 @@ public sealed class ClipboardMonitor : IDisposable
         Interlocked.Increment(ref _captureSuspended);
     }
 
-    public void ResumeCapture()
+    public void ResumeCapture(bool capturePending = false)
     {
         while (true)
         {
@@ -55,7 +55,16 @@ public sealed class ClipboardMonitor : IDisposable
 
             if (suspensionCount == 1)
             {
-                Volatile.Write(ref _clipboardSequence, GetClipboardSequenceNumber());
+                var sequence = GetClipboardSequenceNumber();
+                // 粘贴期间只跳过本程序写回的内容，用户新复制的内容需要补采集。
+                if (!capturePending || sequence == ClipboardPlayback.LastWrittenSequence)
+                {
+                    Volatile.Write(ref _clipboardSequence, sequence);
+                }
+                else
+                {
+                    RequestCapture();
+                }
             }
 
             return;
@@ -167,7 +176,13 @@ public sealed class ClipboardMonitor : IDisposable
                     try
                     {
                         capture = await ReadClipboardAsync();
-                        break;
+                        if (capture is not null || attempt >= RetryCount - 1)
+                        {
+                            break;
+                        }
+
+                        // 延迟提供的文本或截图可能暂时没有可读内容，空结果也需要重试。
+                        await Task.Delay(40 * (attempt + 1));
                     }
                     catch (Exception exception) when (
                         exception is COMException or InvalidOperationException or IOException
@@ -183,12 +198,15 @@ public sealed class ClipboardMonitor : IDisposable
                     return;
                 }
 
-                // 只在读取完成后提交序列号；读取期间发生的新变化会在下一轮继续捕获。
-                if (capture is not null)
+                if (capture is null)
                 {
-                    Captured?.Invoke(capture);
+                    // 不消费空结果的序列号，由轮询继续检查，避免立即递归重试。
+                    checkForNewerContent = false;
+                    return;
                 }
 
+                // 只在成功读取后提交序列号，读取期间的新变化会在下一轮继续捕获。
+                Captured?.Invoke(capture);
                 Volatile.Write(ref _clipboardSequence, sequence);
             }
         }
