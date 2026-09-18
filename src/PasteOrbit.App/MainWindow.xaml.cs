@@ -34,8 +34,11 @@ public sealed partial class MainWindow : Window
 {
     private const int HistoryPageSize = 30;
     private const int HistoryLoadThreshold = 8;
-    private const int ImagePreviewDecodeMaxWidth = 1600;
-    private const int ImagePreviewDecodeMaxPixels = 4_000_000;
+    private const int ImagePreviewInitialDecodeMaxWidth = 800;
+    private const int ImagePreviewInitialDecodeMaxPixels = 1_000_000;
+    private const int ImagePreviewHighResolutionDecodeMaxWidth = 1600;
+    private const int ImagePreviewHighResolutionDecodeMaxPixels = 4_000_000;
+    private const float ImagePreviewHighResolutionZoomThreshold = 1.25f;
     private const float ImagePreviewMinZoomFactor = 1f;
     private const float ImagePreviewMaxZoomFactor = 4f;
     private const float ImagePreviewZoomMultiplier = 1.25f;
@@ -2032,8 +2035,20 @@ public sealed partial class MainWindow : Window
                 }
                 case ClipboardContentKind.Image:
                 {
-                    var image = await LoadExpandedImageAsync(selected.Item.Id, cancellationToken);
-                    contentControl = CreateImagePreview(image);
+                    var imageId = selected.Item.Id;
+                    var image = await LoadExpandedImageAsync(
+                        imageId,
+                        ImagePreviewInitialDecodeMaxWidth,
+                        ImagePreviewInitialDecodeMaxPixels,
+                        cancellationToken);
+                    contentControl = CreateImagePreview(
+                        image,
+                        token => LoadExpandedImageAsync(
+                            imageId,
+                            ImagePreviewHighResolutionDecodeMaxWidth,
+                            ImagePreviewHighResolutionDecodeMaxPixels,
+                            token),
+                        cancellationToken);
                     break;
                 }
                 case ClipboardContentKind.Files:
@@ -2090,7 +2105,11 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async Task<BitmapImage> LoadExpandedImageAsync(Guid id, CancellationToken cancellationToken)
+    private async Task<BitmapImage> LoadExpandedImageAsync(
+        Guid id,
+        int maximumDecodeWidth,
+        int maximumDecodePixels,
+        CancellationToken cancellationToken)
     {
         var content = await Task.Run(() => _repository.LoadContent(id), cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
@@ -2100,8 +2119,8 @@ public sealed partial class MainWindow : Window
         var decoder = await Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(stream);
         var pixelWidth = Math.Max(1u, decoder.PixelWidth);
         var pixelHeight = Math.Max(1u, decoder.PixelHeight);
-        var widthScale = ImagePreviewDecodeMaxWidth / (double)pixelWidth;
-        var pixelBudgetScale = Math.Sqrt(ImagePreviewDecodeMaxPixels / ((double)pixelWidth * pixelHeight));
+        var widthScale = maximumDecodeWidth / (double)pixelWidth;
+        var pixelBudgetScale = Math.Sqrt(maximumDecodePixels / ((double)pixelWidth * pixelHeight));
         var scale = Math.Min(1d, Math.Min(widthScale, pixelBudgetScale));
         var image = new BitmapImage
         {
@@ -2115,7 +2134,10 @@ public sealed partial class MainWindow : Window
         return image;
     }
 
-    private static ScrollViewer CreateImagePreview(BitmapImage source)
+    private static ScrollViewer CreateImagePreview(
+        BitmapImage source,
+        Func<CancellationToken, Task<BitmapImage>> loadHighResolutionAsync,
+        CancellationToken cancellationToken)
     {
         var image = new Image
         {
@@ -2231,6 +2253,37 @@ public sealed partial class MainWindow : Window
             }
         };
         preview.Tapped += static (_, args) => args.Handled = true;
+        Task? highResolutionLoadTask = null;
+        preview.ViewChanged += (_, _) =>
+        {
+            if (preview.ZoomFactor < ImagePreviewHighResolutionZoomThreshold
+                || highResolutionLoadTask is not null
+                || cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            highResolutionLoadTask = UpgradeImageAsync();
+        };
+
+        async Task UpgradeImageAsync()
+        {
+            try
+            {
+                var highResolutionSource = await loadHighResolutionAsync(cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                image.Source = highResolutionSource;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+            }
+            catch (Exception exception)
+            {
+                highResolutionLoadTask = null;
+                System.Diagnostics.Debug.WriteLine($"加载高清图片预览失败：{exception}");
+            }
+        }
+
         preview.AddHandler(
             UIElement.PointerWheelChangedEvent,
             new PointerEventHandler(ImagePreview_PointerWheelChanged),
@@ -2345,9 +2398,14 @@ public sealed partial class MainWindow : Window
             {
                 image.Source = null;
             }
-            else if (host.Content is ScrollViewer { Content: Image previewImage })
+            else if (host.Content is ScrollViewer imagePreview)
             {
-                previewImage.Source = null;
+                if (imagePreview.Content is Image previewImage)
+                {
+                    previewImage.Source = null;
+                }
+
+                imagePreview.Content = null;
             }
 
             host.Content = null;
