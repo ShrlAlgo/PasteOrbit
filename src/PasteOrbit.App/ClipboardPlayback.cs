@@ -20,6 +20,8 @@ public static class ClipboardPlayback
     private const uint KeyUp = 0x0002;
     private const ushort KeyControl = 0x11;
     private const ushort KeyV = 0x56;
+    private const int TargetActivationDelayMilliseconds = 80;
+    private const int FocusRestoreDelayMilliseconds = 100;
     private static IRandomAccessStream? _clipboardStream;
     private static uint _lastWrittenSequence;
 
@@ -61,14 +63,20 @@ public static class ClipboardPlayback
             return false;
         }
 
-        await Task.Delay(80);
+        if (!targetAlreadyForeground)
+        {
+            await Task.Delay(TargetActivationDelayMilliseconds);
+        }
         if (!targetAlreadyForeground && restoreInputFocus is not null)
         {
             // UI Automation 不一定能操作 Java/Swing 等自绘输入控件。激活目标窗口后，系统通常会恢复其原有子控件焦点。
             _ = restoreInputFocus();
         }
 
-        await Task.Delay(100);
+        if (!targetAlreadyForeground && restoreInputFocus is not null)
+        {
+            await Task.Delay(FocusRestoreDelayMilliseconds);
+        }
         // 热键修饰键尚未松开时不能叠加 Ctrl+V；超时保留剪贴板供手动粘贴。
         for (var attempt = 0; PanelShortcut.HasAnyModifierDown(); attempt++)
         {

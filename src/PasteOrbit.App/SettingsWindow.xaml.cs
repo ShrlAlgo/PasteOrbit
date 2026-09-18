@@ -84,6 +84,7 @@ public sealed partial class SettingsWindow : Window
         _isLoadingSettings = false;
         RefreshLocalization();
         AttachSettingHandlers();
+        UpdateBackButtonState();
         SettingsNavigation.BackRequested += SettingsNavigation_BackRequested;
         Activated += SettingsWindow_Activated;
     }
@@ -848,6 +849,7 @@ public sealed partial class SettingsWindow : Window
         HistoryPanel.Visibility = selected == "History" ? Visibility.Visible : Visibility.Collapsed;
         PrivacyPanel.Visibility = selected == "Privacy" ? Visibility.Visible : Visibility.Collapsed;
         AboutPanel.Visibility = selected == "About" ? Visibility.Visible : Visibility.Collapsed;
+        UpdateBackButtonState();
     }
 
     private async void GitHubProjectButton_Click(object sender, RoutedEventArgs e)
@@ -1147,10 +1149,8 @@ public sealed partial class SettingsWindow : Window
 
     private void NavigateBack()
     {
-        // 常规页是导航根页面，返回根页面时直接关闭设置窗口。
         if (_navigationHistory.Count == 0)
         {
-            Close();
             return;
         }
 
@@ -1161,7 +1161,8 @@ public sealed partial class SettingsWindow : Window
             .FirstOrDefault(item => string.Equals(item.Tag?.ToString(), previousTag, StringComparison.Ordinal));
         if (previousItem is null)
         {
-            Close();
+            _navigationHistory.Clear();
+            UpdateBackButtonState();
             return;
         }
 
@@ -1173,7 +1174,13 @@ public sealed partial class SettingsWindow : Window
         finally
         {
             _isNavigatingBack = false;
+            UpdateBackButtonState();
         }
+    }
+
+    private void UpdateBackButtonState()
+    {
+        SettingsTitleBar.IsBackButtonEnabled = _navigationHistory.Count > 0;
     }
 
     [DllImport("user32.dll")]

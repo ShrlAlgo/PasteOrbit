@@ -1542,7 +1542,7 @@ public sealed partial class MainWindow : Window
         try
         {
             HidePanel();
-            await Task.Delay(50);
+            await Task.Delay(20);
             var content = await Task.Run(() => _repository.LoadContent(selected.Item.Id));
             var pasted = await ClipboardPlayback.PlayAsync(
                 selected.Item,
