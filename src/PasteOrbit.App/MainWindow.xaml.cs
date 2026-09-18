@@ -42,6 +42,7 @@ public sealed partial class MainWindow : Window
     private const float ImagePreviewMinZoomFactor = 1f;
     private const float ImagePreviewMaxZoomFactor = 4f;
     private const float ImagePreviewZoomMultiplier = 1.25f;
+    private const int HiddenPanelMemoryReleaseDelayMilliseconds = 10_000;
     private const int SwHide = 0;
     private const int SwShow = 5;
     private const uint SwpNoSize = 0x0001;
@@ -82,6 +83,7 @@ public sealed partial class MainWindow : Window
     private readonly HashSet<string> _excludedApplications = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _historyQueryCancellation;
     private CancellationTokenSource? _contentPreviewCancellation;
+    private CancellationTokenSource? _hiddenMemoryReleaseCancellation;
     private Task _historyLoadTask = Task.CompletedTask;
     private AppSettings _settings;
     private ClipboardContentKind? _selectedKind;
@@ -562,6 +564,7 @@ public sealed partial class MainWindow : Window
     private void MainWindow_Closed(object sender, WindowEventArgs args)
     {
         CancelHeaderDrag();
+        CancelHiddenMemoryRelease();
         _historyQueryCancellation?.Cancel();
         _historyQueryCancellation?.Dispose();
         _historyQueryCancellation = null;
@@ -2425,6 +2428,54 @@ public sealed partial class MainWindow : Window
         GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
     }
 
+    private void ScheduleHiddenMemoryRelease()
+    {
+        CancelHiddenMemoryRelease();
+        var cancellation = new CancellationTokenSource();
+        _hiddenMemoryReleaseCancellation = cancellation;
+        _ = ReleaseHiddenPanelMemoryAsync(cancellation);
+    }
+
+    private async Task ReleaseHiddenPanelMemoryAsync(CancellationTokenSource cancellation)
+    {
+        var cancellationToken = cancellation.Token;
+        try
+        {
+            await Task.Delay(HiddenPanelMemoryReleaseDelayMilliseconds, cancellationToken);
+            if (_isExiting || IsHistoryPanelVisible())
+            {
+                return;
+            }
+
+            await Task.Run(
+                static () => GC.Collect(
+                    GC.MaxGeneration,
+                    GCCollectionMode.Forced,
+                    blocking: false,
+                    compacting: false),
+                cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            if (ReferenceEquals(_hiddenMemoryReleaseCancellation, cancellation))
+            {
+                _hiddenMemoryReleaseCancellation = null;
+            }
+
+            cancellation.Dispose();
+        }
+    }
+
+    private void CancelHiddenMemoryRelease()
+    {
+        var cancellation = _hiddenMemoryReleaseCancellation;
+        _hiddenMemoryReleaseCancellation = null;
+        cancellation?.Cancel();
+    }
+
     private static void SetCardPreviewButtonState(FrameworkElement card, bool isExpanded)
     {
         if (card.FindName("RecordPreviewIcon") is FontIcon icon)
@@ -3150,6 +3201,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowPanel(bool activatePanel)
     {
+        CancelHiddenMemoryRelease();
         if (activatePanel)
         {
             _panelShownWithoutActivation = false;
@@ -3240,6 +3292,8 @@ public sealed partial class MainWindow : Window
                 SetWindowPos(_handle, HwndNotopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
             }
         }
+
+        ScheduleHiddenMemoryRelease();
     }
 
     private void PanelMonitorTimer_Tick(DispatcherQueueTimer sender, object args)
