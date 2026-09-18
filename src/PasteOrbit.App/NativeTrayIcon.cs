@@ -12,6 +12,7 @@ public sealed class NativeTrayIcon : IDisposable
     private const uint NifMessage = 0x00000001;
     private const uint NifIcon = 0x00000002;
     private const uint NifTip = 0x00000004;
+    private const uint NifShowTip = 0x00000080;
     private const uint NimAdd = 0x00000000;
     private const uint NimModify = 0x00000001;
     private const uint NimDelete = 0x00000002;
@@ -54,7 +55,7 @@ public sealed class NativeTrayIcon : IDisposable
             Size = (uint)Marshal.SizeOf<NotifyIconData>(),
             WindowHandle = bridge.Handle,
             Id = TrayIconId,
-            Flags = NifMessage | NifIcon | NifTip,
+            Flags = NifMessage | NifIcon | NifTip | NifShowTip,
             CallbackMessage = WmTrayCallback
         };
         _notifyIconData.SetTip(AppLocalization.GetString("TrayToolTip"));

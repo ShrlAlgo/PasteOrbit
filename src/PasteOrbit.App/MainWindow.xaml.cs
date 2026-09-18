@@ -34,6 +34,11 @@ public sealed partial class MainWindow : Window
 {
     private const int HistoryPageSize = 30;
     private const int HistoryLoadThreshold = 8;
+    private const int ImagePreviewDecodeMaxWidth = 1600;
+    private const int ImagePreviewDecodeMaxPixels = 4_000_000;
+    private const float ImagePreviewMinZoomFactor = 1f;
+    private const float ImagePreviewMaxZoomFactor = 4f;
+    private const float ImagePreviewZoomMultiplier = 1.25f;
     private const int SwHide = 0;
     private const int SwShow = 5;
     private const uint SwpNoSize = 0x0001;
@@ -74,7 +79,6 @@ public sealed partial class MainWindow : Window
     private readonly HashSet<string> _excludedApplications = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource? _historyQueryCancellation;
     private CancellationTokenSource? _contentPreviewCancellation;
-    private int _imageMemoryReleaseVersion;
     private Task _historyLoadTask = Task.CompletedTask;
     private AppSettings _settings;
     private ClipboardContentKind? _selectedKind;
@@ -2029,14 +2033,7 @@ public sealed partial class MainWindow : Window
                 case ClipboardContentKind.Image:
                 {
                     var image = await LoadExpandedImageAsync(selected.Item.Id, cancellationToken);
-
-                    contentControl = new Image
-                    {
-                        Source = image,
-                        Stretch = Stretch.Uniform,
-                        HorizontalAlignment = HorizontalAlignment.Stretch,
-                        VerticalAlignment = VerticalAlignment.Stretch
-                    };
+                    contentControl = CreateImagePreview(image);
                     break;
                 }
                 case ClipboardContentKind.Files:
@@ -2097,30 +2094,186 @@ public sealed partial class MainWindow : Window
     {
         var content = await Task.Run(() => _repository.LoadContent(id), cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
-        using var stream = new InMemoryRandomAccessStream();
-        using (var output = stream.GetOutputStreamAt(0))
-        using (var writer = new DataWriter(output))
-        {
-            writer.WriteBytes(content);
-            await writer.StoreAsync();
-            await writer.FlushAsync();
-        }
+        using var stream = new MemoryStream(content, writable: false).AsRandomAccessStream();
 
         stream.Seek(0);
         var decoder = await Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(stream);
-        var scale = Math.Min(1d, Math.Min(
-            800d / Math.Max(1u, decoder.PixelWidth),
-            336d / Math.Max(1u, decoder.PixelHeight)));
+        var pixelWidth = Math.Max(1u, decoder.PixelWidth);
+        var pixelHeight = Math.Max(1u, decoder.PixelHeight);
+        var widthScale = ImagePreviewDecodeMaxWidth / (double)pixelWidth;
+        var pixelBudgetScale = Math.Sqrt(ImagePreviewDecodeMaxPixels / ((double)pixelWidth * pixelHeight));
+        var scale = Math.Min(1d, Math.Min(widthScale, pixelBudgetScale));
         var image = new BitmapImage
         {
-            // 同时限制宽高，避免超宽截图按高度缩放后产生巨大的解码表面。
-            DecodePixelWidth = Math.Max(1, (int)Math.Round(decoder.PixelWidth * scale)),
-            DecodePixelHeight = Math.Max(1, (int)Math.Round(decoder.PixelHeight * scale))
+            // 宽度决定预览清晰度，总像素预算限制长图解码表面的内存占用。
+            DecodePixelWidth = Math.Max(1, (int)Math.Round(pixelWidth * scale)),
+            DecodePixelHeight = Math.Max(1, (int)Math.Round(pixelHeight * scale))
         };
         stream.Seek(0);
         await image.SetSourceAsync(stream);
         cancellationToken.ThrowIfCancellationRequested();
         return image;
+    }
+
+    private static ScrollViewer CreateImagePreview(BitmapImage source)
+    {
+        var image = new Image
+        {
+            Source = source,
+            Stretch = Stretch.Uniform,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top
+        };
+        var preview = new ScrollViewer
+        {
+            Content = image,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Stretch,
+            HorizontalScrollMode = ScrollMode.Enabled,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollMode = ScrollMode.Enabled,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            ZoomMode = ZoomMode.Enabled,
+            MinZoomFactor = ImagePreviewMinZoomFactor,
+            MaxZoomFactor = ImagePreviewMaxZoomFactor
+        };
+        void FitImageToViewport()
+        {
+            var viewportWidth = preview.ViewportWidth > 0
+                ? preview.ViewportWidth
+                : preview.ActualWidth;
+            if (viewportWidth > 0)
+            {
+                image.Width = viewportWidth;
+            }
+        }
+
+        preview.Loaded += (_, _) => FitImageToViewport();
+        preview.SizeChanged += (_, _) => FitImageToViewport();
+
+        var lastMiddleButtonClickTick = 0L;
+        uint? dragPointerId = null;
+        var dragStartPosition = default(Windows.Foundation.Point);
+        var dragStartHorizontalOffset = 0d;
+        var dragStartVerticalOffset = 0d;
+        preview.PointerPressed += (_, args) =>
+        {
+            var pointerPoint = args.GetCurrentPoint(preview);
+            var pointerProperties = pointerPoint.Properties;
+            if (!pointerProperties.IsLeftButtonPressed && !pointerProperties.IsMiddleButtonPressed)
+            {
+                return;
+            }
+
+            // 图片预览拥有自己的交互，鼠标点击不能继续触发历史记录粘贴。
+            args.Handled = true;
+            if (!pointerProperties.IsMiddleButtonPressed)
+            {
+                dragPointerId = args.Pointer.PointerId;
+                dragStartPosition = pointerPoint.Position;
+                dragStartHorizontalOffset = preview.HorizontalOffset;
+                dragStartVerticalOffset = preview.VerticalOffset;
+                preview.CapturePointer(args.Pointer);
+                return;
+            }
+
+            var currentTick = Environment.TickCount64;
+            if (lastMiddleButtonClickTick != 0
+                && currentTick - lastMiddleButtonClickTick <= GetDoubleClickTime())
+            {
+                preview.ChangeView(0, 0, ImagePreviewMinZoomFactor, disableAnimation: false);
+                lastMiddleButtonClickTick = 0;
+            }
+            else
+            {
+                lastMiddleButtonClickTick = currentTick;
+            }
+        };
+        preview.PointerMoved += (_, args) =>
+        {
+            if (dragPointerId != args.Pointer.PointerId)
+            {
+                return;
+            }
+
+            var pointerPoint = args.GetCurrentPoint(preview);
+            if (!pointerPoint.Properties.IsLeftButtonPressed)
+            {
+                return;
+            }
+
+            preview.ChangeView(
+                dragStartHorizontalOffset - (pointerPoint.Position.X - dragStartPosition.X),
+                dragStartVerticalOffset - (pointerPoint.Position.Y - dragStartPosition.Y),
+                null,
+                disableAnimation: true);
+            args.Handled = true;
+        };
+        void EndImageDrag(object sender, PointerRoutedEventArgs args)
+        {
+            if (dragPointerId != args.Pointer.PointerId)
+            {
+                return;
+            }
+
+            dragPointerId = null;
+            preview.ReleasePointerCapture(args.Pointer);
+            args.Handled = true;
+        }
+
+        preview.PointerReleased += EndImageDrag;
+        preview.PointerCanceled += EndImageDrag;
+        preview.PointerCaptureLost += (_, args) =>
+        {
+            if (dragPointerId == args.Pointer.PointerId)
+            {
+                dragPointerId = null;
+            }
+        };
+        preview.Tapped += static (_, args) => args.Handled = true;
+        preview.AddHandler(
+            UIElement.PointerWheelChangedEvent,
+            new PointerEventHandler(ImagePreview_PointerWheelChanged),
+            true);
+        return preview;
+    }
+
+    private static void ImagePreview_PointerWheelChanged(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is not ScrollViewer preview)
+        {
+            return;
+        }
+
+        var pointerPoint = e.GetCurrentPoint(preview);
+        var wheelDelta = pointerPoint.Properties.MouseWheelDelta;
+        if (wheelDelta == 0)
+        {
+            return;
+        }
+
+        var targetZoomFactor = wheelDelta > 0
+            ? preview.ZoomFactor * ImagePreviewZoomMultiplier
+            : preview.ZoomFactor / ImagePreviewZoomMultiplier;
+        targetZoomFactor = Math.Clamp(
+            targetZoomFactor,
+            ImagePreviewMinZoomFactor,
+            ImagePreviewMaxZoomFactor);
+        if (Math.Abs(targetZoomFactor - preview.ZoomFactor) < float.Epsilon)
+        {
+            e.Handled = true;
+            return;
+        }
+
+        var pointerPosition = pointerPoint.Position;
+        var horizontalOffset =
+            ((preview.HorizontalOffset + pointerPosition.X) / preview.ZoomFactor * targetZoomFactor)
+            - pointerPosition.X;
+        var verticalOffset =
+            ((preview.VerticalOffset + pointerPosition.Y) / preview.ZoomFactor * targetZoomFactor)
+            - pointerPosition.Y;
+        preview.ChangeView(horizontalOffset, verticalOffset, targetZoomFactor, disableAnimation: false);
+        e.Handled = true;
     }
 
     private static RichEditBox CreateRichTextPreview()
@@ -2179,7 +2332,6 @@ public sealed partial class MainWindow : Window
 
     private void CloseContentPreview()
     {
-        var hadImagePreview = _previewedHistoryItem?.Item.Kind == ClipboardContentKind.Image;
         var cancellation = _contentPreviewCancellation;
         _contentPreviewCancellation = null;
         cancellation?.Cancel();
@@ -2193,6 +2345,10 @@ public sealed partial class MainWindow : Window
             {
                 image.Source = null;
             }
+            else if (host.Content is ScrollViewer { Content: Image previewImage })
+            {
+                previewImage.Source = null;
+            }
 
             host.Content = null;
             SetCardPreviewButtonState(card, isExpanded: false);
@@ -2200,24 +2356,6 @@ public sealed partial class MainWindow : Window
 
         _previewedHistoryItem = null;
         _previewedHistoryCard = null;
-        if (hadImagePreview)
-        {
-            _ = ReleaseImageMemoryAfterCloseAsync();
-        }
-    }
-
-    private async Task ReleaseImageMemoryAfterCloseAsync()
-    {
-        // 合并连续关闭操作，先让 UI 解除图像绑定，再在后台回收无引用对象。
-        var version = ++_imageMemoryReleaseVersion;
-        await Task.Delay(500);
-        if (version != _imageMemoryReleaseVersion || _isExiting
-            || _contentPreviewCancellation is not null)
-        {
-            return;
-        }
-
-        await Task.Run(ReleaseClearedHistoryMemory);
     }
 
     private static void ReleaseClearedHistoryMemory()
@@ -3028,8 +3166,6 @@ public sealed partial class MainWindow : Window
             item.UnloadThumbnail();
         }
 
-        _ = ReleaseImageMemoryAfterCloseAsync();
-
         if (!string.IsNullOrEmpty(SearchBox.Text))
         {
             SearchBox.Text = string.Empty;
@@ -3209,6 +3345,9 @@ public sealed partial class MainWindow : Window
 
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int index);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDoubleClickTime();
 
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hwnd, nint insertAfter, int x, int y, int width, int height, uint flags);

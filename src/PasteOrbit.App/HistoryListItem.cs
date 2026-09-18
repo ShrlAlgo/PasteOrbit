@@ -294,14 +294,7 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
             return;
         }
 
-        using var thumbnailStream = new InMemoryRandomAccessStream();
-        using (var output = thumbnailStream.GetOutputStreamAt(0))
-        using (var writer = new DataWriter(output))
-        {
-            writer.WriteBytes(content);
-            await writer.StoreAsync();
-            await writer.FlushAsync();
-        }
+        using var thumbnailStream = new MemoryStream(content, writable: false).AsRandomAccessStream();
 
         cancellationToken.ThrowIfCancellationRequested();
         thumbnailStream.Seek(0);
