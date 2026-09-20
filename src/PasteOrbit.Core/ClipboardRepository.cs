@@ -255,6 +255,16 @@ public sealed class ClipboardRepository
         return stored?.Entry;
     }
 
+    public bool UpdateTimestamp(Guid id)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE clipboard_items SET updated_at = $updated_at WHERE id = $id AND is_pinned = 0;";
+        command.Parameters.AddWithValue("$id", id.ToString("D"));
+        command.Parameters.AddWithValue("$updated_at", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        return command.ExecuteNonQuery() > 0;
+    }
+
     public bool Delete(Guid id)
     {
         using var connection = OpenConnection();

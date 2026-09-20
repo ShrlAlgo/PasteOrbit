@@ -108,11 +108,6 @@ jobs:
           ARCHIVE_PATH: ${{ steps.publish.outputs.archive }}
           INSTALLER_PATH: ${{ steps.installer.outputs.installer }}
         run: |
-          $commitLog = (git log -1 --pretty=%B $env:GITHUB_SHA | Out-String).Trim()
-          if ([string]::IsNullOrWhiteSpace($commitLog)) {
-            $commitLog = "Release $env:RELEASE_TAG"
-          }
-
           $arguments = @(
             'release'
             'create'
@@ -123,8 +118,6 @@ jobs:
             $env:GITHUB_REPOSITORY
             '--title'
             $env:RELEASE_TAG
-            '--notes'
-            $commitLog
             '--generate-notes'
           )
 

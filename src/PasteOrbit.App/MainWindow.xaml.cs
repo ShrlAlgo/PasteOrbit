@@ -1563,6 +1563,18 @@ public sealed partial class MainWindow : Window
             if (pasted)
             {
                 HidePanel();
+                try
+                {
+                    // 重新粘贴后将非置顶记录移动到置顶分组后的第一项。
+                    if (await Task.Run(() => _repository.UpdateTimestamp(selected.Item.Id)))
+                    {
+                        RefreshHistory();
+                    }
+                }
+                catch (Exception exception)
+                {
+                    System.Diagnostics.Debug.WriteLine($"更新历史记录顺序失败：{exception}");
+                }
             }
             else
             {
