@@ -127,7 +127,7 @@ public static class ClipboardPlayback
         byte[] content,
         bool plainTextOnly)
     {
-        // 图片数据通过长期持有的内存流提供给 DataPackage，避免异步粘贴时流已释放。
+        // 图片流至少保留到 Clipboard.Flush 完成，确保系统已接管剪贴板数据。
         if (item.Kind != ClipboardContentKind.Image)
         {
             _clipboardStream?.Dispose();
@@ -197,6 +197,12 @@ public static class ClipboardPlayback
 
         Clipboard.SetContent(package);
         Clipboard.Flush();
+        if (item.Kind == ClipboardContentKind.Image)
+        {
+            _clipboardStream?.Dispose();
+            _clipboardStream = null;
+        }
+
         // 记录实际写回的版本，恢复监听时不能顺带忽略用户随后复制的新内容。
         Volatile.Write(ref _lastWrittenSequence, GetClipboardSequenceNumber());
     }

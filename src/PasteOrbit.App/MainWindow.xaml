@@ -395,12 +395,24 @@
                                                 HorizontalAlignment="Left"
                                                 Source="{Binding Thumbnail}"
                                                 Stretch="Uniform" />
-                                            <TextBlock
-                                                MaxLines="3"
-                                                Text="{Binding Preview}"
-                                                TextTrimming="CharacterEllipsis"
-                                                TextWrapping="Wrap"
-                                                Visibility="{Binding TextContentVisibility}" />
+                                            <Grid Visibility="{Binding TextContentVisibility}">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <FontIcon
+                                                    Margin="0,0,8,0"
+                                                    FontSize="24"
+                                                    Glyph="&#xE8A5;"
+                                                    Foreground="{ThemeResource TextSecondaryBrush}"
+                                                    Visibility="{Binding FileIconVisibility}" />
+                                                <TextBlock
+                                                    Grid.Column="1"
+                                                    MaxLines="3"
+                                                    Text="{Binding Preview}"
+                                                    TextTrimming="CharacterEllipsis"
+                                                    TextWrapping="Wrap" />
+                                            </Grid>
                                         </StackPanel>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                             <TextBlock

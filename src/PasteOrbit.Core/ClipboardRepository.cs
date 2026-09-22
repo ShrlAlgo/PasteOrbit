@@ -514,14 +514,13 @@ public sealed class ClipboardRepository
             SET kind = $kind,
                 preview_text = $preview_text,
                 search_text_length = $search_text_length,
-                content = $content,
-                thumbnail = $thumbnail,
                 content_size = $content_size,
                 source_application = $source_application,
                 updated_at = $updated_at
             WHERE storage_id = $storage_id;
             """;
-        AddCaptureParameters(command, Guid.Empty, capture, string.Empty, previewText, updatedAtUnixMilliseconds);
+        // 内容哈希已匹配，保留原始载荷和缩略图，避免重复加密及写入大 BLOB。
+        AddCaptureParameters(command, Guid.Empty, capture, string.Empty, previewText, updatedAtUnixMilliseconds, includeContent: false);
         command.Parameters.AddWithValue("$storage_id", storageId);
         command.ExecuteNonQuery();
     }
@@ -532,7 +531,8 @@ public sealed class ClipboardRepository
         ClipboardCapture capture,
         string contentHash,
         string previewText,
-        long updatedAtUnixMilliseconds)
+        long updatedAtUnixMilliseconds,
+        bool includeContent = true)
     {
         if (id != Guid.Empty)
         {
@@ -543,10 +543,13 @@ public sealed class ClipboardRepository
         command.Parameters.AddWithValue("$kind", (int)capture.Kind);
         command.Parameters.Add("$preview_text", SqliteType.Blob).Value = UserDataProtector.ProtectText(previewText);
         command.Parameters.AddWithValue("$search_text_length", capture.SearchText.Length);
-        command.Parameters.Add("$content", SqliteType.Blob).Value = UserDataProtector.Protect(capture.Content);
-        command.Parameters.Add("$thumbnail", SqliteType.Blob).Value = capture.Thumbnail is null
-            ? DBNull.Value
-            : UserDataProtector.Protect(capture.Thumbnail);
+        if (includeContent)
+        {
+            command.Parameters.Add("$content", SqliteType.Blob).Value = UserDataProtector.Protect(capture.Content);
+            command.Parameters.Add("$thumbnail", SqliteType.Blob).Value = capture.Thumbnail is null
+                ? DBNull.Value
+                : UserDataProtector.Protect(capture.Thumbnail);
+        }
         command.Parameters.AddWithValue("$content_size", capture.Content.LongLength);
         command.Parameters.Add("$source_application", SqliteType.Blob).Value = capture.SourceApplication is null
             ? DBNull.Value

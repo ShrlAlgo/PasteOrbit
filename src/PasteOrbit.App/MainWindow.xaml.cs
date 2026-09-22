@@ -85,6 +85,8 @@ public sealed partial class MainWindow : Window
     private CancellationTokenSource? _contentPreviewCancellation;
     private CancellationTokenSource? _hiddenMemoryReleaseCancellation;
     private Task _historyLoadTask = Task.CompletedTask;
+    private bool _historyNeedsRefresh = true;
+    private readonly SemaphoreSlim _imagePreviewLoadGate = new(1, 1);
     private AppSettings _settings;
     private ClipboardContentKind? _selectedKind;
     private ClipboardHistoryQuery _currentHistoryQuery = new();
@@ -157,6 +159,8 @@ public sealed partial class MainWindow : Window
         _repository = new ClipboardRepository(Path.Combine(dataDirectory, "history.db"));
         _history = new ClipboardHistory(_repository);
         _backupService = new LocalBackupService(_repository.DatabasePath, _settingsStore.Path);
+        _monitor.IsKindEnabled = IsCaptureEnabled;
+        _monitor.IsSourceExcluded = IsApplicationExcluded;
 
         try
         {
@@ -1280,6 +1284,14 @@ public sealed partial class MainWindow : Window
 
     private void RefreshHistory(bool recreateDisplayItems = false, bool debounce = false)
     {
+        // 后台仅记录刷新需求，显示面板后再查询数据库和创建卡片。
+        _historyNeedsRefresh = true;
+        if (!IsHistoryPanelVisible())
+        {
+            return;
+        }
+
+        _historyNeedsRefresh = false;
         _historyQueryCancellation?.Cancel();
         _historyQueryCancellation?.Dispose();
         _historyQueryCancellation = new CancellationTokenSource();
@@ -1362,7 +1374,7 @@ public sealed partial class MainWindow : Window
 
     private async Task LoadNextHistoryPageAsync()
     {
-        if (_isLoadingHistory || _nextHistoryCursor is null || _historyQueryCancellation is null)
+        if (!IsHistoryPanelVisible() || _isLoadingHistory || _nextHistoryCursor is null || _historyQueryCancellation is null)
         {
             return;
         }
@@ -2126,12 +2138,31 @@ public sealed partial class MainWindow : Window
         int maximumDecodePixels,
         CancellationToken cancellationToken)
     {
+        // 快速切换预览时串行读取和解码，取消的排队任务不再加载原图。
+        await _imagePreviewLoadGate.WaitAsync(cancellationToken);
+        try
+        {
+            return await DecodeExpandedImageAsync(id, maximumDecodeWidth, maximumDecodePixels, cancellationToken);
+        }
+        finally
+        {
+            _imagePreviewLoadGate.Release();
+        }
+    }
+
+    private async Task<BitmapImage> DecodeExpandedImageAsync(
+        Guid id,
+        int maximumDecodeWidth,
+        int maximumDecodePixels,
+        CancellationToken cancellationToken)
+    {
         var content = await Task.Run(() => _repository.LoadContent(id), cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         using var stream = new MemoryStream(content, writable: false).AsRandomAccessStream();
 
         stream.Seek(0);
         var decoder = await Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(stream);
+        cancellationToken.ThrowIfCancellationRequested();
         var pixelWidth = Math.Max(1u, decoder.PixelWidth);
         var pixelHeight = Math.Max(1u, decoder.PixelHeight);
         var widthScale = maximumDecodeWidth / (double)pixelWidth;
@@ -2144,6 +2175,7 @@ public sealed partial class MainWindow : Window
             DecodePixelHeight = Math.Max(1, (int)Math.Round(pixelHeight * scale))
         };
         stream.Seek(0);
+        cancellationToken.ThrowIfCancellationRequested();
         await image.SetSourceAsync(stream);
         cancellationToken.ThrowIfCancellationRequested();
         return image;
@@ -2458,6 +2490,20 @@ public sealed partial class MainWindow : Window
             {
                 return;
             }
+
+            // 先解除列表及快捷键引用，GC 才能回收已浏览的分页数据。
+            _historyQueryCancellation?.Cancel();
+            _historyQueryCancellation?.Dispose();
+            _historyQueryCancellation = null;
+            ++_historyLoadVersion;
+            _isLoadingHistory = false;
+            _nextHistoryCursor = null;
+            _hoveredHistoryItem = null;
+            HistoryList.SelectedItem = null;
+            Array.Clear(_quickPasteItems);
+            DisposeDisplayItems();
+            _historyLoadTask = Task.CompletedTask;
+            _historyNeedsRefresh = true;
 
             await Task.Run(
                 static () => GC.Collect(
@@ -3249,6 +3295,12 @@ public sealed partial class MainWindow : Window
 
     private void ResetHistoryScrollPosition()
     {
+        if (_historyNeedsRefresh)
+        {
+            RefreshHistory();
+            return;
+        }
+
         if (_displayItems.Count == 0)
         {
             return;
@@ -3282,6 +3334,11 @@ public sealed partial class MainWindow : Window
 
     private void HidePanel()
     {
+        // 隐藏时中止正在加载的页面，防止后台重新填充列表。
+        _historyQueryCancellation?.Cancel();
+        ++_historyLoadVersion;
+        _isLoadingHistory = false;
+        _historyNeedsRefresh = true;
         CloseContentPreview();
         foreach (var item in _displayItems)
         {

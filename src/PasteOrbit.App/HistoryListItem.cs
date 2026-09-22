@@ -105,6 +105,10 @@ public sealed class HistoryListItem : INotifyPropertyChanged, IDisposable
 
     public string FormatLabel => _formatLabel;
 
+    public Visibility FileIconVisibility => Item.Kind == ClipboardContentKind.Files
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
     public Visibility FormatBadgeVisibility => string.IsNullOrEmpty(_formatLabel)
         ? Visibility.Collapsed
         : Visibility.Visible;

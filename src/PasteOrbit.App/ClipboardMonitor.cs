@@ -27,6 +27,13 @@ public sealed class ClipboardMonitor : IDisposable
     private uint _clipboardSequence;
     private int _capturePending;
     private int _captureSuspended;
+    private uint _retrySequence;
+    private long _retryAfter;
+    private int _retryDelayMilliseconds;
+    private bool _captureFiltered;
+
+    public Func<ClipboardContentKind, bool>? IsKindEnabled { get; set; }
+    public Func<string?, bool>? IsSourceExcluded { get; set; }
 
     public event Action<ClipboardCapture>? Captured;
 
@@ -160,11 +167,18 @@ public sealed class ClipboardMonitor : IDisposable
     {
         // 以序列号为边界读取剪贴板，避免读取期间的新内容被旧序列号覆盖。
         var checkForNewerContent = true;
+        uint sequence = 0;
         try
         {
             while (_bridge is not null && Volatile.Read(ref _captureSuspended) == 0)
             {
-                var sequence = GetClipboardSequenceNumber();
+                sequence = GetClipboardSequenceNumber();
+                // 同一版本失败后逐步退避，新复制的版本不受旧重试期限影响。
+                if (sequence == _retrySequence && Environment.TickCount64 < _retryAfter)
+                {
+                    checkForNewerContent = false;
+                    return;
+                }
                 if (sequence == 0 || sequence == Volatile.Read(ref _clipboardSequence))
                 {
                     return;
@@ -175,8 +189,9 @@ public sealed class ClipboardMonitor : IDisposable
                 {
                     try
                     {
+                        _captureFiltered = false;
                         capture = await ReadClipboardAsync();
-                        if (capture is not null || attempt >= RetryCount - 1)
+                        if (_captureFiltered || capture is not null || attempt >= RetryCount - 1)
                         {
                             break;
                         }
@@ -198,8 +213,16 @@ public sealed class ClipboardMonitor : IDisposable
                     return;
                 }
 
+                if (_captureFiltered)
+                {
+                    // 用户明确排除的内容不需要重试，后续剪贴板变化仍照常处理。
+                    Volatile.Write(ref _clipboardSequence, sequence);
+                    continue;
+                }
+
                 if (capture is null)
                 {
+                    DelayCaptureRetry(sequence);
                     // 不消费空结果的序列号，由轮询继续检查，避免立即递归重试。
                     checkForNewerContent = false;
                     return;
@@ -208,11 +231,14 @@ public sealed class ClipboardMonitor : IDisposable
                 // 只在成功读取后提交序列号，读取期间的新变化会在下一轮继续捕获。
                 Captured?.Invoke(capture);
                 Volatile.Write(ref _clipboardSequence, sequence);
+                _retryDelayMilliseconds = 0;
+                _retrySequence = 0;
             }
         }
         catch (Exception exception)
         {
             checkForNewerContent = false;
+            DelayCaptureRetry(sequence);
             CaptureFailed?.Invoke(exception);
         }
         finally
@@ -229,10 +255,25 @@ public sealed class ClipboardMonitor : IDisposable
         }
     }
 
-    private static async Task<ClipboardCapture?> ReadClipboardAsync()
+    private void DelayCaptureRetry(uint sequence)
+    {
+        // 保留重试以兼容延迟渲染，持续不可读时最多每 5 秒尝试一次。
+        _retryDelayMilliseconds = sequence == _retrySequence
+            ? Math.Min(5000, Math.Max(500, _retryDelayMilliseconds * 2))
+            : 500;
+        _retrySequence = sequence;
+        _retryAfter = Environment.TickCount64 + _retryDelayMilliseconds;
+    }
+
+    private async Task<ClipboardCapture?> ReadClipboardAsync()
     {
         // 截图工具可能同时提供位图和临时文件；优先保存位图，文件列表仅作后备。
         var sourceApplication = GetSourceProcessName();
+        if (IsSourceExcluded?.Invoke(sourceApplication) == true)
+        {
+            _captureFiltered = true;
+            return null;
+        }
         var hasBitmap = false;
         try
         {
@@ -241,6 +282,7 @@ public sealed class ClipboardMonitor : IDisposable
             hasBitmap = data.Contains(StandardDataFormats.Bitmap);
             if (hasBitmap)
             {
+                if (SkipDisabledKind(ClipboardContentKind.Image)) return null;
                 var bitmapReference = await data.GetBitmapAsync();
                 using var stream = await bitmapReference.OpenReadAsync();
                 byte[]? thumbnail = null;
@@ -269,6 +311,7 @@ public sealed class ClipboardMonitor : IDisposable
 
             if (data.Contains(StandardDataFormats.StorageItems))
             {
+                if (SkipDisabledKind(ClipboardContentKind.Files)) return null;
                 var items = await data.GetStorageItemsAsync();
                 var paths = items.Select(item => item.Path).Where(path => !string.IsNullOrWhiteSpace(path)).ToArray();
                 if (paths.Length > 0)
@@ -283,6 +326,7 @@ public sealed class ClipboardMonitor : IDisposable
 
             if (data.Contains(StandardDataFormats.Text))
             {
+                if (SkipDisabledKind(ClipboardContentKind.Text)) return null;
                 var text = await data.GetTextAsync();
                 if (!string.IsNullOrEmpty(text))
                 {
@@ -308,6 +352,7 @@ public sealed class ClipboardMonitor : IDisposable
                 throw;
             }
 
+            if (SkipDisabledKind(ClipboardContentKind.Text)) return null;
             var fallbackText = TryReadUnicodeText();
             if (string.IsNullOrEmpty(fallbackText))
             {
@@ -321,6 +366,7 @@ public sealed class ClipboardMonitor : IDisposable
                 sourceApplication);
         }
 
+        if (SkipDisabledKind(ClipboardContentKind.Text)) return null;
         var nativeText = TryReadUnicodeText();
         return string.IsNullOrEmpty(nativeText)
             ? null
@@ -329,6 +375,13 @@ public sealed class ClipboardMonitor : IDisposable
                 nativeText,
                 new ClipboardTextContent(nativeText, null, null).Serialize(),
                 sourceApplication);
+    }
+
+    private bool SkipDisabledKind(ClipboardContentKind kind)
+    {
+        // 在读取完整内容和生成缩略图之前应用类型设置。
+        _captureFiltered = IsKindEnabled?.Invoke(kind) == false;
+        return _captureFiltered;
     }
 
     private static string? TryReadUnicodeText()

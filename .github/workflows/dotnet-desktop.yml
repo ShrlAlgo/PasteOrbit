@@ -108,6 +108,15 @@ jobs:
           ARCHIVE_PATH: ${{ steps.publish.outputs.archive }}
           INSTALLER_PATH: ${{ steps.installer.outputs.installer }}
         run: |
+          $previousTag = (git describe --tags --abbrev=0 "$($env:RELEASE_TAG)^" | Out-String).Trim()
+          if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($previousTag)) {
+            $commitLog = git log "$previousTag..$($env:RELEASE_TAG)" --pretty=format:"- %s (%h)"
+          } else {
+            $commitLog = git log $env:RELEASE_TAG --pretty=format:"- %s (%h)"
+          }
+
+          $releaseNotes = "## 更新内容`n`n$($commitLog -join "`n")"
+
           $arguments = @(
             'release'
             'create'
@@ -118,7 +127,8 @@ jobs:
             $env:GITHUB_REPOSITORY
             '--title'
             $env:RELEASE_TAG
-            '--generate-notes'
+            '--notes'
+            $releaseNotes
           )
 
           $arguments += '--verify-tag'
