@@ -29,6 +29,7 @@ internal sealed class WindowsClipboardShortcut : IDisposable
     private const uint InputKeyboard = 1;
     private const uint KeyEventKeyUp = 0x0002;
     private const uint PeekMessageNoRemove = 0x0000;
+    private const int KeyPressedMask = 0x8000;
 
     private readonly LowLevelKeyboardProcedure _hookProcedure;
     private readonly object _lifecycleLock = new();
@@ -228,6 +229,10 @@ internal sealed class WindowsClipboardShortcut : IDisposable
             return CallNextHookEx(_hook, code, wParam, lParam);
         }
 
+        // 远程输入可能漏掉 Win 键抬起事件，处理 V 前用系统状态清除残留标记。
+        _leftWindowsKeyDown &= IsKeyPressed(VirtualKeyLeftWindows);
+        _rightWindowsKeyDown &= IsKeyPressed(VirtualKeyRightWindows);
+
         if (isKeyUp && _suppressVKey)
         {
             _suppressVKey = false;
@@ -261,6 +266,11 @@ internal sealed class WindowsClipboardShortcut : IDisposable
         }
 
         return new IntPtr(1);
+    }
+
+    private static bool IsKeyPressed(uint virtualKey)
+    {
+        return (GetAsyncKeyState((int)virtualKey) & KeyPressedMask) != 0;
     }
 
     private static void SendNeutralKeyStroke()
@@ -385,6 +395,9 @@ internal sealed class WindowsClipboardShortcut : IDisposable
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int virtualKey);
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint SendInput(
