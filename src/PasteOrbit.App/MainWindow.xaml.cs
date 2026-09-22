@@ -567,6 +567,8 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Closed(object sender, WindowEventArgs args)
     {
+        _directShareWindow?.Close();
+        _directShare?.Dispose();
         CancelHeaderDrag();
         CancelHiddenMemoryRelease();
         _historyQueryCancellation?.Cancel();

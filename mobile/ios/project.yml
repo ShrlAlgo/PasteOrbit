@@ -1,0 +1,58 @@
+name: PasteOrbit
+options:
+  deploymentTarget:
+    iOS: '16.0'
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: 0.1.0
+targets:
+  PasteOrbit:
+    type: application
+    platform: iOS
+    sources: [Shared, App]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.pasteorbit.mobile
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: PasteOrbit
+        UILaunchScreen: {}
+        NSLocalNetworkUsageDescription: 连接你配对的电脑，直接发送和接收剪贴板内容。
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+    entitlements:
+      path: App/PasteOrbit.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.pasteorbit.mobile]
+    dependencies:
+      - target: ShareExtension
+  ShareExtension:
+    type: app-extension
+    platform: iOS
+    sources: [Shared, Share]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.pasteorbit.mobile.share
+        APPLICATION_EXTENSION_API_ONLY: YES
+    info:
+      path: Share/Info.plist
+      properties:
+        CFBundleDisplayName: PasteOrbit
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsImageWithMaxCount: 32
+              NSExtensionActivationSupportsFileWithMaxCount: 32
+    entitlements:
+      path: Share/PasteOrbit.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.pasteorbit.mobile]

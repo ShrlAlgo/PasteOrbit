@@ -204,6 +204,13 @@
                             <FontIcon Glyph="&#xE713;" />
                         </Viewbox>
                     </Button>
+                    <Button
+                        AutomationProperties.Name="设备直连"
+                        Click="DirectShareButton_Click"
+                        Style="{StaticResource HeaderButtonStyle}"
+                        ToolTipService.ToolTip="设备直连">
+                        <FontIcon FontSize="14" Glyph="&#xE72D;" />
+                    </Button>
                     <ToggleButton
                         x:Name="WindowPinToggle"
                         x:Uid="MainWindowPinToggle"
@@ -480,6 +487,10 @@
                                                 <FontIcon Glyph="&#xE712;" />
                                                 <Button.Flyout>
                                                     <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                                        <MenuFlyoutItem
+                                                            Text="发送到设备"
+                                                            Tag="{Binding}"
+                                                            Click="RecordSendDevice_Click" />
                                                         <MenuFlyoutItem
                                                             x:Name="PastePlainTextMenuItem"
                                                             x:Uid="PastePlainTextMenuItem"

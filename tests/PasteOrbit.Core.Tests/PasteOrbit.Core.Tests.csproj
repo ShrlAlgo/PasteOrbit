@@ -1,7 +1,8 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\PasteOrbit.Core\PasteOrbit.Core.csproj" />
+    <Compile Include="..\..\src\PasteOrbit.App\DirectShareService.cs" Link="DirectShareService.cs" />
   </ItemGroup>
 
   <PropertyGroup>

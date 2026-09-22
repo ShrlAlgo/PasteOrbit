@@ -430,7 +430,7 @@ public sealed class ClipboardMonitor : IDisposable
         return content;
     }
 
-    private static async Task<byte[]> CreateThumbnailAsync(IRandomAccessStream source)
+    internal static async Task<byte[]> CreateThumbnailAsync(IRandomAccessStream source)
     {
         source.Seek(0);
         var decoder = await BitmapDecoder.CreateAsync(source);

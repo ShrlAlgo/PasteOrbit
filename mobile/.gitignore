@@ -1,0 +1,12 @@
+# 本机 SDK、签名和编译产物不入库
+**/build/
+**/.gradle/
+**/.idea/
+**/local.properties
+**/*.jks
+**/*.keystore
+ios/*.xcodeproj/
+ios/App/Info.plist
+ios/App/PasteOrbit.entitlements
+ios/Share/Info.plist
+ios/Share/PasteOrbit.entitlements

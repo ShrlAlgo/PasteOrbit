@@ -2,6 +2,8 @@ using Microsoft.Data.Sqlite;
 
 using PasteOrbit.Core;
 
+await DirectTransferChecks.RunAsync();
+
 var protectedText = UserDataProtector.ProtectText("仅当前用户可读取");
 Assert(protectedText.AsSpan().IndexOf("仅当前用户可读取"u8) < 0, "DPAPI 密文不应包含明文");
 Assert(UserDataProtector.UnprotectText(protectedText) == "仅当前用户可读取", "DPAPI 应能往返解密");
