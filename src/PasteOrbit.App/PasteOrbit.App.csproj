@@ -4,6 +4,7 @@
     <!-- 使用项目内原生托盘实现，避免额外托盘窗口依赖。 -->
     <ProjectReference Include="..\PasteOrbit.Core\PasteOrbit.Core.csproj" />
     <Content Include="..\..\Assets\PasteOrbit.ico" Link="Assets\PasteOrbit.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\Assets\PasteOrbit.png" Link="Assets\PasteOrbit.png" CopyToOutputDirectory="PreserveNewest" />
     <!-- Runtime 要求组件版本严格匹配，显式固定当前可用版本。 -->
     <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.3.0" />
     <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" Version="2.3.5" />

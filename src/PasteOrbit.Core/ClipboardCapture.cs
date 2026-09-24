@@ -8,4 +8,5 @@ public sealed record ClipboardCapture(
     string SearchText,
     byte[] Content,
     string? SourceApplication,
-    byte[]? Thumbnail = null);
+    byte[]? Thumbnail = null,
+    byte[]? ImagePreview = null);

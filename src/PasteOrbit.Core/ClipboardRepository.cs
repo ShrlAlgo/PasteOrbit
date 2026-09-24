@@ -189,6 +189,16 @@ public sealed class ClipboardRepository
                 capturedAtUnixMilliseconds);
         }
 
+        if (capture.Kind == ClipboardContentKind.Image && capture.ImagePreview is { Length: > 0 })
+        {
+            using var previewCommand = connection.CreateCommand();
+            previewCommand.Transaction = transaction;
+            previewCommand.CommandText = "INSERT OR REPLACE INTO clipboard_image_previews(storage_id, content) VALUES ($storage_id, $content);";
+            previewCommand.Parameters.AddWithValue("$storage_id", storageId);
+            previewCommand.Parameters.Add("$content", SqliteType.Blob).Value = UserDataProtector.Protect(capture.ImagePreview);
+            previewCommand.ExecuteNonQuery();
+        }
+
         ReplaceSearchIndex(
             connection,
             transaction,
@@ -232,6 +242,24 @@ public sealed class ClipboardRepository
         return protectedThumbnail is null
             ? null
             : UserDataProtector.Unprotect(protectedThumbnail);
+    }
+
+    // 旧记录没有独立预览时读取原图；粘贴仍通过 LoadContent 获取原始内容。
+    public byte[] LoadImagePreview(Guid id)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT COALESCE(preview.content, item.content)
+            FROM clipboard_items AS item
+            LEFT JOIN clipboard_image_previews AS preview ON preview.storage_id = item.storage_id
+            WHERE item.id = $id;
+            """;
+        command.Parameters.AddWithValue("$id", id.ToString("D"));
+        var protectedContent = command.ExecuteScalar() as byte[];
+        return protectedContent is null
+            ? throw new KeyNotFoundException($"找不到剪切板记录：{id:D}")
+            : UserDataProtector.Unprotect(protectedContent);
     }
 
     public ClipboardHistoryEntry? SetPinned(Guid id, bool isPinned)
@@ -437,6 +465,15 @@ public sealed class ClipboardRepository
                 pinyin_initials,
                 tokenize='trigram'
             );
+            CREATE TABLE IF NOT EXISTS clipboard_image_previews (
+                storage_id INTEGER PRIMARY KEY,
+                content BLOB NOT NULL
+            );
+            CREATE TRIGGER IF NOT EXISTS delete_clipboard_image_preview
+            AFTER DELETE ON clipboard_items
+            BEGIN
+                DELETE FROM clipboard_image_previews WHERE storage_id = OLD.storage_id;
+            END;
             PRAGMA user_version = {CurrentSchemaVersion};
             """;
         command.ExecuteNonQuery();

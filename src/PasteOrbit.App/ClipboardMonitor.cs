@@ -286,16 +286,32 @@ public sealed class ClipboardMonitor : IDisposable
                 var bitmapReference = await data.GetBitmapAsync();
                 using var stream = await bitmapReference.OpenReadAsync();
                 byte[]? thumbnail = null;
+                byte[]? imagePreview = null;
                 try
                 {
-                    thumbnail = await CreateThumbnailAsync(stream);
+                    thumbnail = await CreatePreviewAsync(stream, ThumbnailMaxWidth, ThumbnailMaxHeight, 320 * 180);
                 }
                 catch (Exception exception) when (exception is COMException or ArgumentException)
                 {
                     // 损坏或不受支持的位图仍保存原图，卡片仅缺少缩略图。
                 }
 
+                try
+                {
+                    // 在读取原图字节前生成受限预览，解码表面与原图托管缓冲区分时分配。
+                    imagePreview = await CreatePreviewAsync(stream, 1600, uint.MaxValue, 4_000_000, onlyWhenReduced: true);
+                }
+                catch (Exception exception) when (exception is COMException or ArgumentException or IOException)
+                {
+                    // 预览生成失败时保留原图，查看时沿用原图解码路径。
+                }
+
                 var content = await ReadBytesAsync(stream);
+                if (imagePreview is not null && imagePreview.Length >= content.Length)
+                {
+                    imagePreview = null;
+                }
+
                 if (content.Length > 0)
                 {
                     return new ClipboardCapture(
@@ -303,7 +319,8 @@ public sealed class ClipboardMonitor : IDisposable
                         AppLocalization.GetString("ImageContent"),
                         content,
                         sourceApplication,
-                        thumbnail);
+                        thumbnail,
+                        imagePreview);
                 }
 
                 throw new IOException("剪贴板图片尚未就绪。");
@@ -430,15 +447,25 @@ public sealed class ClipboardMonitor : IDisposable
         return content;
     }
 
-    private static async Task<byte[]> CreateThumbnailAsync(IRandomAccessStream source)
+    private static async Task<byte[]?> CreatePreviewAsync(
+        IRandomAccessStream source,
+        uint maximumWidth,
+        uint maximumHeight,
+        int maximumPixels,
+        bool onlyWhenReduced = false)
     {
         source.Seek(0);
         var decoder = await BitmapDecoder.CreateAsync(source);
         var scale = Math.Min(
             1d,
             Math.Min(
-                ThumbnailMaxWidth / (double)Math.Max(1u, decoder.PixelWidth),
-                ThumbnailMaxHeight / (double)Math.Max(1u, decoder.PixelHeight)));
+                maximumWidth / (double)Math.Max(1u, decoder.PixelWidth),
+                maximumHeight / (double)Math.Max(1u, decoder.PixelHeight)));
+        scale = Math.Min(scale, Math.Sqrt(maximumPixels / ((double)Math.Max(1u, decoder.PixelWidth) * Math.Max(1u, decoder.PixelHeight))));
+        if (onlyWhenReduced && scale >= 1d)
+        {
+            return null;
+        }
         var transform = new BitmapTransform
         {
             ScaledWidth = Math.Max(1u, (uint)Math.Round(decoder.PixelWidth * scale)),

@@ -539,7 +539,7 @@
                                     Width="72"
                                     Height="72"
                                     HorizontalAlignment="Center"
-                                    Source="ms-appx:///Assets/PasteOrbit.ico" />
+                                    Source="ms-appx:///Assets/PasteOrbit.png" />
                                 <TextBlock
                                     HorizontalAlignment="Center"
                                     FontSize="24"

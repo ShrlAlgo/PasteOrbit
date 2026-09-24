@@ -13,6 +13,7 @@ try
     VerifyLegacyDatabaseReset(Path.Combine(testDirectory, "legacy.db"));
     VerifyIncompleteDatabaseReset(Path.Combine(testDirectory, "incomplete.db"));
     VerifyHistoryStore(Path.Combine(testDirectory, "history.db"));
+    VerifyImagePreviews(Path.Combine(testDirectory, "previews.db"));
     VerifyCorruptDatabaseRecovery(Path.Combine(testDirectory, "corrupt.db"));
 }
 finally
@@ -165,6 +166,54 @@ static void VerifyHistoryStore(string databasePath)
     repository.Compact(full: true);
     Assert(history.Remove(longEntry.Id), "记录应能从数据库和搜索索引删除");
     AssertThrows<KeyNotFoundException>(() => repository.LoadContent(longEntry.Id), "删除后正文不应继续可用");
+}
+
+// 覆盖旧库兼容、加密存储和预览随历史删除的生命周期。
+static void VerifyImagePreviews(string databasePath)
+{
+    var repository = new ClipboardRepository(databasePath);
+    repository.Initialize();
+    var original = "original-image-content"u8.ToArray();
+    var preview = "bounded-image-preview-content"u8.ToArray();
+    var capture = new ClipboardCapture(ClipboardContentKind.Image, "图片", original, null);
+    var entry = repository.Upsert(capture);
+    Assert(repository.LoadImagePreview(entry.Id).AsSpan().SequenceEqual(original), "无预览的历史应回退原图");
+
+    using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+    {
+        DataSource = databasePath,
+        Pooling = false
+    }.ToString());
+    connection.Open();
+    using var command = connection.CreateCommand();
+    command.CommandText = "DROP TRIGGER delete_clipboard_image_preview; DROP TABLE clipboard_image_previews;";
+    command.ExecuteNonQuery();
+    repository.Initialize();
+    Assert(repository.Count() == 1, "增加可选预览表不能重建或清空旧历史");
+    Assert(ClipboardRepository.IsCurrentSchema(databasePath), "预览附表不改变原有结构版本");
+
+    var updated = repository.Upsert(capture with { ImagePreview = preview });
+    Assert(updated.Id == entry.Id, "补充预览应保留原记录标识");
+    Assert(repository.LoadImagePreview(entry.Id).AsSpan().SequenceEqual(preview), "查看应优先读取受限预览");
+    Assert(repository.LoadContent(entry.Id).AsSpan().SequenceEqual(original), "粘贴原图不能被预览替换");
+    command.CommandText = "SELECT content FROM clipboard_image_previews;";
+    var protectedPreview = (byte[])command.ExecuteScalar()!;
+    Assert(protectedPreview.AsSpan().IndexOf(preview) < 0, "预览应加密存储");
+    Assert(UserDataProtector.Unprotect(protectedPreview).AsSpan().SequenceEqual(preview), "预览应能正常解密");
+
+    repository.Upsert(capture);
+    Assert(repository.LoadImagePreview(entry.Id).AsSpan().SequenceEqual(preview), "重复捕获缺少预览时应保留已有预览");
+    repository.Delete(entry.Id);
+    command.CommandText = "SELECT COUNT(*) FROM clipboard_image_previews;";
+    Assert(Convert.ToInt32(command.ExecuteScalar()) == 0, "删除历史时应同步删除预览");
+    AssertThrows<KeyNotFoundException>(() => repository.LoadImagePreview(entry.Id), "删除后预览不可读取");
+
+    repository.Upsert(capture with { ImagePreview = preview }, DateTimeOffset.UtcNow.AddDays(-40));
+    repository.Cleanup(DateTimeOffset.UtcNow.AddDays(-30), 500);
+    Assert(Convert.ToInt32(command.ExecuteScalar()) == 0, "自动清理历史时应同步删除预览");
+    repository.Upsert(capture with { ImagePreview = preview });
+    repository.DeleteMatching(new ClipboardHistoryQuery());
+    Assert(Convert.ToInt32(command.ExecuteScalar()) == 0, "清空历史时应同步删除预览");
 }
 
 static void VerifyIncompleteDatabaseReset(string databasePath)

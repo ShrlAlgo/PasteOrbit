@@ -90,6 +90,7 @@ public sealed partial class MainWindow : Window
     private AppSettings _settings;
     private ClipboardContentKind? _selectedKind;
     private ClipboardHistoryQuery _currentHistoryQuery = new();
+    private ClipboardHistoryCursor? _firstHistoryCursor;
     private ClipboardHistoryCursor? _nextHistoryCursor;
     private HistoryListItem? _hoveredHistoryItem;
     private HistoryListItem? _previewedHistoryItem;
@@ -106,6 +107,7 @@ public sealed partial class MainWindow : Window
     private SettingsWindow? _settingsWindow;
     private bool _settingsWindowOpen;
     private bool _automaticUpdateCheckStarted;
+    private bool _startupHistoryLoadStarted;
     private bool _isCheckingForUpdates;
     private bool _storageAvailable = true;
     private bool _nativeInitialized;
@@ -532,6 +534,12 @@ public sealed partial class MainWindow : Window
     {
         if (args.WindowActivationState != WindowActivationState.Deactivated)
         {
+            if (!_startupHistoryLoadStarted && _nativeInitialized && _storageAvailable && IsHistoryPanelVisible())
+            {
+                _startupHistoryLoadStarted = true;
+                RefreshHistory();
+            }
+
             if (!_automaticUpdateCheckStarted && _nativeInitialized)
             {
                 _automaticUpdateCheckStarted = true;
@@ -1334,6 +1342,7 @@ public sealed partial class MainWindow : Window
             var selectedId = (HistoryList.SelectedItem as HistoryListItem)?.Item.Id;
             DisposeDisplayItems();
             _currentHistoryQuery = query;
+            _firstHistoryCursor = page.NextCursor;
             _nextHistoryCursor = page.NextCursor;
             _historyTotalCount = page.TotalCount;
             _historyUnpinnedCount = page.UnpinnedCount;
@@ -1345,7 +1354,7 @@ public sealed partial class MainWindow : Window
                 HistoryList.SelectedItem = _displayItems.FirstOrDefault(item => item.Item.Id == id);
             }
 
-            if (_displayItems.Count > 0)
+            if (_displayItems.Count > 0 && IsHistoryPanelVisible())
             {
                 HistoryList.ScrollIntoView(_displayItems[0], ScrollIntoViewAlignment.Leading);
             }
@@ -1361,7 +1370,11 @@ public sealed partial class MainWindow : Window
         catch (Exception exception)
         {
             System.Diagnostics.Debug.WriteLine($"加载历史记录失败：{exception}");
-            StatusText.Text = AppLocalization.GetString("StorageInitializationFailed");
+            if (version == _historyLoadVersion)
+            {
+                _historyNeedsRefresh = true;
+                StatusText.Text = AppLocalization.GetString("StorageInitializationFailed");
+            }
         }
         finally
         {
@@ -2063,18 +2076,20 @@ public sealed partial class MainWindow : Window
                 case ClipboardContentKind.Image:
                 {
                     var imageId = selected.Item.Id;
-                    var image = await LoadExpandedImageAsync(
+                    var (image, needsHighResolution) = await LoadExpandedImageAsync(
                         imageId,
                         ImagePreviewInitialDecodeMaxWidth,
                         ImagePreviewInitialDecodeMaxPixels,
                         cancellationToken);
                     contentControl = CreateImagePreview(
                         image,
-                        token => LoadExpandedImageAsync(
-                            imageId,
-                            ImagePreviewHighResolutionDecodeMaxWidth,
-                            ImagePreviewHighResolutionDecodeMaxPixels,
-                            token),
+                        needsHighResolution
+                            ? async token => (await LoadExpandedImageAsync(
+                                imageId,
+                                ImagePreviewHighResolutionDecodeMaxWidth,
+                                ImagePreviewHighResolutionDecodeMaxPixels,
+                                token)).Image
+                            : null,
                         cancellationToken);
                     break;
                 }
@@ -2132,7 +2147,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async Task<BitmapImage> LoadExpandedImageAsync(
+    private async Task<(BitmapImage Image, bool NeedsHighResolution)> LoadExpandedImageAsync(
         Guid id,
         int maximumDecodeWidth,
         int maximumDecodePixels,
@@ -2150,13 +2165,13 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async Task<BitmapImage> DecodeExpandedImageAsync(
+    private async Task<(BitmapImage Image, bool NeedsHighResolution)> DecodeExpandedImageAsync(
         Guid id,
         int maximumDecodeWidth,
         int maximumDecodePixels,
         CancellationToken cancellationToken)
     {
-        var content = await Task.Run(() => _repository.LoadContent(id), cancellationToken);
+        var content = await Task.Run(() => _repository.LoadImagePreview(id), cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         using var stream = new MemoryStream(content, writable: false).AsRandomAccessStream();
 
@@ -2168,6 +2183,7 @@ public sealed partial class MainWindow : Window
         var widthScale = maximumDecodeWidth / (double)pixelWidth;
         var pixelBudgetScale = Math.Sqrt(maximumDecodePixels / ((double)pixelWidth * pixelHeight));
         var scale = Math.Min(1d, Math.Min(widthScale, pixelBudgetScale));
+        var needsHighResolution = scale < 1d;
         var image = new BitmapImage
         {
             // 宽度决定预览清晰度，总像素预算限制长图解码表面的内存占用。
@@ -2178,12 +2194,12 @@ public sealed partial class MainWindow : Window
         cancellationToken.ThrowIfCancellationRequested();
         await image.SetSourceAsync(stream);
         cancellationToken.ThrowIfCancellationRequested();
-        return image;
+        return (image, needsHighResolution);
     }
 
     private static ScrollViewer CreateImagePreview(
         BitmapImage source,
-        Func<CancellationToken, Task<BitmapImage>> loadHighResolutionAsync,
+        Func<CancellationToken, Task<BitmapImage>>? loadHighResolutionAsync,
         CancellationToken cancellationToken)
     {
         var image = new Image
@@ -2301,23 +2317,33 @@ public sealed partial class MainWindow : Window
         };
         preview.Tapped += static (_, args) => args.Handled = true;
         Task? highResolutionLoadTask = null;
-        preview.ViewChanged += (_, _) =>
+        if (loadHighResolutionAsync is not null)
         {
-            if (preview.ZoomFactor < ImagePreviewHighResolutionZoomThreshold
-                || highResolutionLoadTask is not null
-                || cancellationToken.IsCancellationRequested)
+            preview.ViewChanged += (_, _) =>
             {
-                return;
-            }
+                if (preview.ZoomFactor < ImagePreviewHighResolutionZoomThreshold
+                    || highResolutionLoadTask is not null
+                    || cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
 
-            highResolutionLoadTask = UpgradeImageAsync();
-        };
+                highResolutionLoadTask = UpgradeImageAsync();
+            };
+        }
 
         async Task UpgradeImageAsync()
         {
             try
             {
-                var highResolutionSource = await loadHighResolutionAsync(cancellationToken);
+                await Task.Delay(150, cancellationToken);
+                if (preview.ZoomFactor < ImagePreviewHighResolutionZoomThreshold)
+                {
+                    highResolutionLoadTask = null;
+                    return;
+                }
+
+                var highResolutionSource = await loadHighResolutionAsync!(cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
                 image.Source = highResolutionSource;
             }
@@ -2490,20 +2516,6 @@ public sealed partial class MainWindow : Window
             {
                 return;
             }
-
-            // 先解除列表及快捷键引用，GC 才能回收已浏览的分页数据。
-            _historyQueryCancellation?.Cancel();
-            _historyQueryCancellation?.Dispose();
-            _historyQueryCancellation = null;
-            ++_historyLoadVersion;
-            _isLoadingHistory = false;
-            _nextHistoryCursor = null;
-            _hoveredHistoryItem = null;
-            HistoryList.SelectedItem = null;
-            Array.Clear(_quickPasteItems);
-            DisposeDisplayItems();
-            _historyLoadTask = Task.CompletedTask;
-            _historyNeedsRefresh = true;
 
             await Task.Run(
                 static () => GC.Collect(
@@ -3306,20 +3318,16 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        // ListView 会复用内部 ScrollViewer，面板重新显示时显式定位到第一条记录。
         _dispatcherQueue?.TryEnqueue(() =>
         {
-            if (!IsHistoryPanelVisible())
+            if (!IsHistoryPanelVisible() || _displayItems.Count == 0)
             {
                 return;
             }
 
-            if (_displayItems.Count > 0)
-            {
-                HistoryList.ScrollIntoView(_displayItems[0], ScrollIntoViewAlignment.Leading);
-            }
+            HistoryList.ScrollIntoView(_displayItems[0], ScrollIntoViewAlignment.Leading);
 
-            // 隐藏面板时会释放图片流；再次显示时容器可能不会重新触发 Loaded，因此主动恢复可见卡片的图片预览。
+            // 隐藏时卸载的缩略图在复用容器中不会重新触发 Loaded。
             HistoryList.UpdateLayout();
             foreach (var item in _displayItems)
             {
@@ -3334,15 +3342,60 @@ public sealed partial class MainWindow : Window
 
     private void HidePanel()
     {
-        // 隐藏时中止正在加载的页面，防止后台重新填充列表。
-        _historyQueryCancellation?.Cancel();
-        ++_historyLoadVersion;
-        _isLoadingHistory = false;
-        _historyNeedsRefresh = true;
+        // 首页保留供再次打开使用，后续页在隐藏时立即释放。
+        _historyNeedsRefresh |= _isLoadingHistory || !string.IsNullOrEmpty(SearchBox.Text);
+        if (_isLoadingHistory)
+        {
+            _historyQueryCancellation?.Cancel();
+            ++_historyLoadVersion;
+            _isLoadingHistory = false;
+        }
+
+        _nextHistoryCursor = null;
         CloseContentPreview();
+        _hoveredHistoryItem = null;
+        HistoryList.SelectedItem = null;
+        // 先隐藏原生窗口，再裁剪列表，避免隐藏操作等待逐项 UI 更新。
+        if (_handle != IntPtr.Zero)
+        {
+            ShowWindow(_handle, SwHide);
+        }
+
+        // 裁剪期间解除绑定，保留首页对象并集中重建容器。
+        var trimHistory = _displayItems.Count > HistoryPageSize;
+        if (trimHistory)
+        {
+            HistoryList.ItemsSource = null;
+        }
+
+        for (var index = _displayItems.Count - 1; index >= HistoryPageSize; index--)
+        {
+            var item = _displayItems[index];
+            _displayItems.RemoveAt(index);
+            item.Dispose();
+        }
+
         foreach (var item in _displayItems)
         {
             item.UnloadThumbnail();
+        }
+
+        if (trimHistory)
+        {
+            HistoryList.ItemsSource = _displayItems;
+        }
+
+        UpdateHistoryListState();
+
+        _panelMonitorTimer?.Stop();
+        _panelShownWithoutActivation = false;
+        _panelTargetWindow = IntPtr.Zero;
+        if (_handle != IntPtr.Zero)
+        {
+            if (!_isTopmost)
+            {
+                SetWindowPos(_handle, HwndNotopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
+            }
         }
 
         if (!string.IsNullOrEmpty(SearchBox.Text))
@@ -3350,18 +3403,7 @@ public sealed partial class MainWindow : Window
             SearchBox.Text = string.Empty;
         }
 
-        _panelMonitorTimer?.Stop();
-        _panelShownWithoutActivation = false;
-        _panelTargetWindow = IntPtr.Zero;
-        if (_handle != IntPtr.Zero)
-        {
-            ShowWindow(_handle, SwHide);
-            if (!_isTopmost)
-            {
-                SetWindowPos(_handle, HwndNotopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
-            }
-        }
-
+        _nextHistoryCursor = _firstHistoryCursor;
         ScheduleHiddenMemoryRelease();
     }
 
