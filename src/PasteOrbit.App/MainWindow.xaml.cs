@@ -360,10 +360,16 @@ public sealed partial class MainWindow : Window
 
     private void ShowFromTray()
     {
-        CapturePasteTarget(GetForegroundWindow());
-
-        EnqueueOnUi(() =>
+        var foregroundWindow = GetForegroundWindow();
+        // 托盘消息回调先返回 Shell，焦点查询和窗口激活在下一次 UI 调度中执行。
+        _dispatcherQueue?.TryEnqueue(() =>
         {
+            if (_isExiting)
+            {
+                return;
+            }
+
+            CapturePasteTarget(foregroundWindow);
             PositionWindow();
             ShowPanel(activatePanel: true);
         });
