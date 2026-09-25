@@ -609,20 +609,17 @@ public sealed class ClipboardRepository
             deleteCommand.ExecuteNonQuery();
         }
 
-        var pinyin = PinyinSearchTerms.Create(searchText);
         using var insertCommand = connection.CreateCommand();
         insertCommand.Transaction = transaction;
         insertCommand.CommandText = """
             INSERT INTO clipboard_items_fts (
-                rowid, search_text, source_application, full_pinyin, pinyin_initials)
+                rowid, search_text, source_application)
             VALUES (
-                $storage_id, $search_text, $source_application, $full_pinyin, $pinyin_initials);
+                $storage_id, $search_text, $source_application);
             """;
         insertCommand.Parameters.AddWithValue("$storage_id", storageId);
         insertCommand.Parameters.AddWithValue("$search_text", searchText);
         insertCommand.Parameters.AddWithValue("$source_application", sourceApplication ?? string.Empty);
-        insertCommand.Parameters.AddWithValue("$full_pinyin", pinyin?.FullPinyin ?? string.Empty);
-        insertCommand.Parameters.AddWithValue("$pinyin_initials", pinyin?.Initials ?? string.Empty);
         insertCommand.ExecuteNonQuery();
     }
 
@@ -771,16 +768,15 @@ public sealed class ClipboardRepository
             if (searchTerm.Length >= 3)
             {
                 sql.Append(" AND clipboard_items_fts MATCH $match_query");
-                command.Parameters.AddWithValue("$match_query", CreateFtsPhrase(searchTerm));
+                // 旧库保留兼容列，但搜索只匹配原文和来源应用。
+                command.Parameters.AddWithValue("$match_query", "{search_text source_application} : " + CreateFtsPhrase(searchTerm));
             }
             else
             {
                 sql.Append("""
                      AND (
                          fts.search_text LIKE $like_query ESCAPE '\' COLLATE NOCASE
-                         OR fts.source_application LIKE $like_query ESCAPE '\' COLLATE NOCASE
-                         OR fts.full_pinyin LIKE $like_query ESCAPE '\' COLLATE NOCASE
-                         OR fts.pinyin_initials LIKE $like_query ESCAPE '\' COLLATE NOCASE)
+                         OR fts.source_application LIKE $like_query ESCAPE '\' COLLATE NOCASE)
                     """);
                 command.Parameters.AddWithValue("$like_query", $"%{EscapeLikePattern(searchTerm)}%");
             }

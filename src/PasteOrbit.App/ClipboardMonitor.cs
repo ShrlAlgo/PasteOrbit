@@ -35,7 +35,7 @@ public sealed class ClipboardMonitor : IDisposable
     public Func<ClipboardContentKind, bool>? IsKindEnabled { get; set; }
     public Func<string?, bool>? IsSourceExcluded { get; set; }
 
-    public event Action<ClipboardCapture>? Captured;
+    public event Func<ClipboardCapture, Task>? Captured;
 
     public event Action<Exception>? CaptureFailed;
 
@@ -229,8 +229,15 @@ public sealed class ClipboardMonitor : IDisposable
                 }
 
                 // 只在成功读取后提交序列号，读取期间的新变化会在下一轮继续捕获。
-                Captured?.Invoke(capture);
                 Volatile.Write(ref _clipboardSequence, sequence);
+                // 当前保存完成后再读取下一版本，长文本不会堆积为并发写入任务。
+                if (Captured is Func<ClipboardCapture, Task> capturedHandlers)
+                {
+                    foreach (Func<ClipboardCapture, Task> handler in capturedHandlers.GetInvocationList())
+                    {
+                        await handler(capture);
+                    }
+                }
                 _retryDelayMilliseconds = 0;
                 _retrySequence = 0;
             }

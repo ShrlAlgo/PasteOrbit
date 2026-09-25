@@ -85,6 +85,7 @@ public sealed partial class MainWindow : Window
     private CancellationTokenSource? _contentPreviewCancellation;
     private CancellationTokenSource? _hiddenMemoryReleaseCancellation;
     private Task _historyLoadTask = Task.CompletedTask;
+    private Task _captureSaveTask = Task.CompletedTask;
     private bool _historyNeedsRefresh = true;
     private readonly SemaphoreSlim _imagePreviewLoadGate = new(1, 1);
     private AppSettings _settings;
@@ -575,6 +576,7 @@ public sealed partial class MainWindow : Window
 
     private void MainWindow_Closed(object sender, WindowEventArgs args)
     {
+        _isExiting = true;
         CancelHeaderDrag();
         CancelHiddenMemoryRelease();
         _historyQueryCancellation?.Cancel();
@@ -1214,33 +1216,59 @@ public sealed partial class MainWindow : Window
         return new RectInt32(workArea.Left, workArea.Top, workArea.Right - workArea.Left, workArea.Bottom - workArea.Top);
     }
 
-    private void Monitor_Captured(ClipboardCapture capture)
+    private Task Monitor_Captured(ClipboardCapture capture)
     {
-        EnqueueOnUi(() =>
+        _captureSaveTask = SaveCaptureAsync(capture);
+        return _captureSaveTask;
+    }
+
+    private async Task SaveCaptureAsync(ClipboardCapture capture)
+    {
+        // 监听器在 UI 线程调用；这里只读取设置，持久化工作交给后台串行执行。
+        if (_isExiting
+            || !_storageAvailable
+            || !IsCaptureEnabled(capture.Kind)
+            || IsApplicationExcluded(capture.SourceApplication))
         {
-            // 剪贴板回调可能来自后台线程，所有历史和界面更新统一切回 UI 队列。
-            if (!_storageAvailable
-                || !IsCaptureEnabled(capture.Kind)
-                || IsApplicationExcluded(capture.SourceApplication))
+            return;
+        }
+
+        var capturedAt = DateTimeOffset.UtcNow;
+        var cutoff = capturedAt - TimeSpan.FromDays(_settings.RetentionDays);
+        var maximumEntries = _settings.MaxHistoryEntries;
+        try
+        {
+            var count = await Task.Run(() =>
+            {
+                _history.AddOrUpdate(capture, capturedAt);
+                if (_history.Cleanup(cutoff, maximumEntries) > 0)
+                {
+                    _repository.Compact();
+                }
+
+                return _history.Count;
+            });
+            if (_isExiting)
             {
                 return;
             }
 
-            try
+            StatusText.Text = AppLocalization.Format("SavedItemCount", count);
+            RefreshHistory();
+        }
+        catch (Exception exception)
+        {
+            System.Diagnostics.Debug.WriteLine($"保存剪贴板历史失败：{exception}");
+            if (_isExiting)
             {
-                var item = _history.AddOrUpdate(capture);
-                CleanupHistory();
-                StatusText.Text = AppLocalization.Format("SavedItemCount", _history.Count);
-                RefreshHistory();
+                return;
             }
-            catch (Exception)
-            {
-                // 持久化不可靠时停止接收新内容，避免界面状态与磁盘继续分叉。
-                _storageAvailable = false;
-                _monitor.Dispose();
-                StatusText.Text = AppLocalization.GetString("StorageFailureStoppedMonitoring");
-            }
-        });
+
+            // 持久化失败时停止监听，不向用户显示已保存状态。
+            _storageAvailable = false;
+            _monitor.Dispose();
+            StatusText.Text = AppLocalization.GetString("StorageFailureStoppedMonitoring");
+        }
     }
 
     private void Monitor_CaptureFailed(Exception exception)
@@ -1824,6 +1852,7 @@ public sealed partial class MainWindow : Window
         try
         {
             // 确认后重新读取筛选条件，清理数据库中的全部匹配项，不受当前已加载页限制。
+            await _captureSaveTask;
             var query = new ClipboardHistoryQuery(SearchBox?.Text, _selectedKind);
             var deletedCount = await Task.Run(() => _history.DeleteMatching(query));
             await Task.Run(() => _repository.Compact(full: true));
@@ -2935,6 +2964,7 @@ public sealed partial class MainWindow : Window
         _monitor.SuspendCapture();
         try
         {
+            await _captureSaveTask;
             await _backupService.ExportAsync(destinationPath);
         }
         finally
@@ -2948,6 +2978,7 @@ public sealed partial class MainWindow : Window
         _monitor.SuspendCapture();
         try
         {
+            await _captureSaveTask;
             _historyQueryCancellation?.Cancel();
             await _historyLoadTask;
             await _backupService.RestoreAsync(sourcePath);

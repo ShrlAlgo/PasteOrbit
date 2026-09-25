@@ -76,26 +76,40 @@ static void VerifyHistoryStore(string databasePath)
     Assert(history.Search(new ClipboardHistoryQuery("browser"), null, 50).Items.Single().Id == second.Id, "搜索应匹配来源应用");
     Assert(history.Search(new ClipboardHistoryQuery("first"), null, 50).TotalCount == 0, "重复内容更新后不应保留旧索引");
 
-    var longText = new string('长', 800);
+    var longText = string.Concat(Enumerable.Repeat("长篇内容压力验证", 1500)) + "尾部检索标记";
+    var longContent = System.Text.Encoding.UTF8.GetBytes(longText);
     var longEntry = history.AddOrUpdate(
-        new ClipboardCapture(ClipboardContentKind.Text, longText, "long-entry"u8.ToArray(), "notepad"),
+        new ClipboardCapture(ClipboardContentKind.Text, longText, longContent, "notepad"),
         now.AddSeconds(2));
     Assert(longEntry.PreviewText.Length == 513, "卡片文本预览应限制为 512 字符并附加省略号");
     Assert(longEntry.SearchTextLength == longText.Length, "轻量记录应保留完整文本长度");
+    Assert(repository.LoadContent(longEntry.Id).AsSpan().SequenceEqual(longContent), "万字文本保存后不能截断正文");
+    Assert(history.Search(new ClipboardHistoryQuery("尾部检索标记"), null, 50).Items.Single().Id == longEntry.Id, "长文本末尾仍应支持原文检索");
 
     var chinese = history.AddOrUpdate(
         new ClipboardCapture(ClipboardContentKind.Text, "剪贴板历史", "pinyin"u8.ToArray(), "notepad"),
         now.AddSeconds(3));
     Assert(history.Search(new ClipboardHistoryQuery("剪贴板"), null, 50).Items.Single().Id == chinese.Id, "FTS5 trigram 应匹配中文原文");
     Assert(history.Search(new ClipboardHistoryQuery("历史"), null, 50).Items.Single().Id == chinese.Id, "短查询应匹配两个中文字符");
-    Assert(history.Search(new ClipboardHistoryQuery("jiantieban"), null, 50).Items.Single().Id == chinese.Id, "搜索应匹配中文全拼");
-    Assert(history.Search(new ClipboardHistoryQuery("jtb"), null, 50).Items.Single().Id == chinese.Id, "搜索应匹配拼音首字母");
+    Assert(history.Search(new ClipboardHistoryQuery("jiantieban"), null, 50).TotalCount == 0, "不再生成中文全拼索引");
+    Assert(history.Search(new ClipboardHistoryQuery("jtb"), null, 50).TotalCount == 0, "不再生成拼音首字母索引");
+    using (var legacyConnection = new SqliteConnection($"Data Source={databasePath};Pooling=False"))
+    {
+        legacyConnection.Open();
+        using var legacyCommand = legacyConnection.CreateCommand();
+        legacyCommand.CommandText = "UPDATE clipboard_items_fts SET full_pinyin = 'jiantieban', pinyin_initials = 'jtb' WHERE rowid = $storage_id;";
+        legacyCommand.Parameters.AddWithValue("$storage_id", chinese.StorageId);
+        legacyCommand.ExecuteNonQuery();
+    }
+
+    Assert(history.Search(new ClipboardHistoryQuery("jiantieban"), null, 50).TotalCount == 0, "搜索应忽略旧库保留的拼音列");
+    Assert(history.Search(new ClipboardHistoryQuery("jt"), null, 50).TotalCount == 0, "短查询也应忽略旧库拼音列");
 
     var updatedChinese = history.AddOrUpdate(
         new ClipboardCapture(ClipboardContentKind.Text, "轨道交通", "pinyin"u8.ToArray(), "notepad"),
         now.AddSeconds(4));
     Assert(updatedChinese.Id == chinese.Id, "重复内容更新时应保留记录标识");
-    Assert(history.Search(new ClipboardHistoryQuery("gdjt"), null, 50).Items.Single().Id == chinese.Id, "重复内容更新后应重建拼音索引");
+    Assert(history.Search(new ClipboardHistoryQuery("轨道交通"), null, 50).Items.Single().Id == chinese.Id, "重复内容更新后应重建原文索引");
     Assert(history.Search(new ClipboardHistoryQuery("jtb"), null, 50).TotalCount == 0, "重复内容更新后不应保留旧拼音索引");
 
     var thumbnail = "thumbnail"u8.ToArray();
