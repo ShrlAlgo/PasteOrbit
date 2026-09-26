@@ -373,19 +373,6 @@
                                     Style="{StaticResource ShortcutButtonStyle}" />
                             </toolkit:SettingsCard>
                             <toolkit:SettingsCard
-                                x:Name="DeleteShortcutCard"
-                                x:Uid="SettingsDeleteShortcutCard"
-                                Margin="0,0,0,8"
-                                ContentAlignment="Right"
-                                Header="删除选中记录">
-                                <Button
-                                    x:Name="DeleteShortcutButton"
-                                    Click="ShortcutButton_Click"
-                                    KeyDown="ShortcutButton_KeyDown"
-                                    LostFocus="ShortcutButton_LostFocus"
-                                    Style="{StaticResource ShortcutButtonStyle}" />
-                            </toolkit:SettingsCard>
-                            <toolkit:SettingsCard
                                 x:Name="PasteAsFileShortcutCard"
                                 x:Uid="SettingsPasteAsFileShortcutCard"
                                 Margin="0,0,0,8"

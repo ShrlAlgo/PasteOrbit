@@ -21,8 +21,6 @@ public sealed class AppSettings
 
     public string PinShortcut { get; set; } = "Ctrl + P";
 
-    public string DeleteShortcut { get; set; } = "Delete";
-
     public string PasteAsFileShortcut { get; set; } = "Ctrl + Shift + S";
 
     public bool StartWithWindows { get; set; }

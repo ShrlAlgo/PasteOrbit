@@ -154,7 +154,6 @@ public sealed partial class SettingsWindow : Window
         PlainTextPasteShortcutButton.Content = PanelShortcut.NormalizeOrDefault(settings.PlainTextPasteShortcut, defaults.PlainTextPasteShortcut);
         PreviewShortcutButton.Content = PanelShortcut.NormalizeOrDefault(settings.PreviewShortcut, defaults.PreviewShortcut);
         PinShortcutButton.Content = PanelShortcut.NormalizeOrDefault(settings.PinShortcut, defaults.PinShortcut);
-        DeleteShortcutButton.Content = PanelShortcut.NormalizeOrDefault(settings.DeleteShortcut, defaults.DeleteShortcut);
         PasteAsFileShortcutButton.Content = PanelShortcut.NormalizeOrDefault(settings.PasteAsFileShortcut, defaults.PasteAsFileShortcut);
         SelectComboItem(LanguageComboBox, settings.Language);
         SelectComboItem(ThemeComboBox, settings.ThemeMode);
@@ -637,7 +636,6 @@ public sealed partial class SettingsWindow : Window
             PlainTextPasteShortcut = GetShortcutValue(PlainTextPasteShortcutButton),
             PreviewShortcut = GetShortcutValue(PreviewShortcutButton),
             PinShortcut = GetShortcutValue(PinShortcutButton),
-            DeleteShortcut = GetShortcutValue(DeleteShortcutButton),
             PasteAsFileShortcut = GetShortcutValue(PasteAsFileShortcutButton),
             Language = GetSelectedLanguage(),
             ThemeMode = GetSelectedValue(ThemeComboBox),
@@ -698,7 +696,6 @@ public sealed partial class SettingsWindow : Window
         SetCard(PlainTextShortcutCard, "SettingsPlainTextShortcutCardHeader");
         SetCard(PreviewShortcutCard, "SettingsPreviewShortcutCardHeader");
         SetCard(PinShortcutCard, "SettingsPinShortcutCardHeader");
-        SetCard(DeleteShortcutCard, "SettingsDeleteShortcutCardHeader");
         SetCard(PasteAsFileShortcutCard, "SettingsPasteAsFileShortcutCardHeader");
         SetCard(RetentionCard, "SettingsRetentionCardHeader", "SettingsRetentionCardDescription");
         SetCard(MaxEntriesCard, "SettingsMaxEntriesCardHeader", "SettingsMaxEntriesCardDescription");

@@ -560,9 +560,9 @@ public sealed partial class MainWindow : Window
             if (_panelShownWithoutActivation)
             {
                 _panelShownWithoutActivation = false;
-                _panelMonitorTimer?.Stop();
                 if (!_isTopmost)
                 {
+                    _panelMonitorTimer?.Stop();
                     SetWindowPos(_handle, HwndNotopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
                 }
             }
@@ -576,6 +576,11 @@ public sealed partial class MainWindow : Window
         if (_panelShownWithoutActivation)
         {
             return;
+        }
+
+        if (_isTopmost && !_settingsWindowOpen)
+        {
+            _dispatcherQueue?.TryEnqueue(() => CapturePinnedPasteTarget());
         }
 
         if (_settings.AutoHideOnDeactivate && !_isTopmost && !_settingsWindowOpen)
@@ -725,6 +730,22 @@ public sealed partial class MainWindow : Window
         _pasteInputBounds = default;
         _hasPasteInputBounds = TryGetActiveInputBounds(foregroundWindow, out _pasteInputBounds);
 
+    }
+
+    private void CapturePinnedPasteTarget()
+    {
+        if (!_isTopmost || !IsHistoryPanelVisible() || _settingsWindowOpen)
+        {
+            return;
+        }
+
+        var foregroundWindow = GetForegroundWindow();
+        if (foregroundWindow != IntPtr.Zero
+            && foregroundWindow != _handle
+            && foregroundWindow != _pasteTarget)
+        {
+            CapturePasteTarget(foregroundWindow);
+        }
     }
 
     private bool TryGetActiveInputBounds(IntPtr foregroundWindow, out MonitorRect bounds)
@@ -1621,23 +1642,35 @@ public sealed partial class MainWindow : Window
 
     private async Task PlayAsync(HistoryListItem selected, bool plainTextOnly = false)
     {
-        // 先保存目标输入窗口，再隐藏面板，避免面板自身成为粘贴目标。
+        // 置顶面板保留可见，仍将粘贴发送到最近聚焦的目标窗口。
+        var keepPanelVisible = _isTopmost;
         var pasteTarget = GetPasteTargetSnapshot();
         _monitor.SuspendCapture();
         try
         {
-            HidePanel();
-            await Task.Delay(20);
+            if (!keepPanelVisible)
+            {
+                HidePanel();
+                await Task.Delay(20);
+            }
+
             var content = await Task.Run(() => _repository.LoadContent(selected.Item.Id));
+            Func<bool>? restoreInputFocus = keepPanelVisible
+                ? null
+                : () => TryRestoreAutomationFocus(pasteTarget);
             var pasted = await ClipboardPlayback.PlayAsync(
                 selected.Item,
                 content,
                 pasteTarget.TargetWindow,
-                () => TryRestoreAutomationFocus(pasteTarget),
+                restoreInputFocus,
                 plainTextOnly);
             if (pasted)
             {
-                HidePanel();
+                if (!keepPanelVisible)
+                {
+                    HidePanel();
+                }
+
                 try
                 {
                     // 重新粘贴后将非置顶记录移动到置顶分组后的第一项。
@@ -2007,11 +2040,6 @@ public sealed partial class MainWindow : Window
             {
                 e.Handled = true;
                 TogglePinned(selected);
-            }
-            else if (PanelShortcut.Matches(e, _settings.DeleteShortcut))
-            {
-                e.Handled = true;
-                await DeleteRecordAsync(selected);
             }
             else if (selected.Item.Kind is ClipboardContentKind.Text or ClipboardContentKind.Image
                      && PanelShortcut.Matches(e, _settings.PasteAsFileShortcut))
@@ -2848,6 +2876,14 @@ public sealed partial class MainWindow : Window
     {
         _isTopmost = WindowPinToggle.IsChecked == true;
         SetWindowPos(_handle, _isTopmost ? HwndTopmost : HwndNotopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
+        if (_isTopmost && IsHistoryPanelVisible())
+        {
+            _panelMonitorTimer?.Start();
+        }
+        else if (!_panelShownWithoutActivation)
+        {
+            _panelMonitorTimer?.Stop();
+        }
     }
 
     private void HeaderGrid_PointerPressed(object sender, PointerRoutedEventArgs e)
@@ -3380,7 +3416,6 @@ public sealed partial class MainWindow : Window
         settings.PlainTextPasteShortcut = PanelShortcut.NormalizeOrDefault(settings.PlainTextPasteShortcut, defaults.PlainTextPasteShortcut);
         settings.PreviewShortcut = PanelShortcut.NormalizeOrDefault(settings.PreviewShortcut, defaults.PreviewShortcut);
         settings.PinShortcut = PanelShortcut.NormalizeOrDefault(settings.PinShortcut, defaults.PinShortcut);
-        settings.DeleteShortcut = PanelShortcut.NormalizeOrDefault(settings.DeleteShortcut, defaults.DeleteShortcut);
         settings.PasteAsFileShortcut = PanelShortcut.NormalizeOrDefault(settings.PasteAsFileShortcut, defaults.PasteAsFileShortcut);
     }
 
@@ -3403,7 +3438,14 @@ public sealed partial class MainWindow : Window
         {
             _panelShownWithoutActivation = false;
             _panelTargetWindow = IntPtr.Zero;
-            _panelMonitorTimer?.Stop();
+            if (_isTopmost)
+            {
+                _panelMonitorTimer?.Start();
+            }
+            else
+            {
+                _panelMonitorTimer?.Stop();
+            }
             SetPanelActivationMode(preventActivation: false);
             SetWindowPos(
                 _handle,
@@ -3536,9 +3578,14 @@ public sealed partial class MainWindow : Window
 
     private void PanelMonitorTimer_Tick(DispatcherQueueTimer sender, object args)
     {
+        if (_isTopmost)
+        {
+            CapturePinnedPasteTarget();
+            return;
+        }
+
         if (!_panelShownWithoutActivation
             || !_settings.AutoHideOnDeactivate
-            || _isTopmost
             || _settingsWindowOpen)
         {
             return;
