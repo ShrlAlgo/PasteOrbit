@@ -132,6 +132,9 @@
   <data name="SaveAsFileFailed" xml:space="preserve"><value>无法保存为文件</value></data>
   <data name="ClearCurrentListTitle" xml:space="preserve"><value>清空当前列表？</value></data>
   <data name="ClearCurrentListMessage" xml:space="preserve"><value>将删除当前筛选结果中的 {0} 条未置顶记录，置顶记录会保留。未显示的记录不会受到影响。此操作不可撤销。</value></data>
+  <data name="DeletePinnedItemTitle" xml:space="preserve"><value>删除置顶记录？</value></data>
+  <data name="DeletePinnedItemMessage" xml:space="preserve"><value>删除后无法恢复。</value></data>
+  <data name="Delete" xml:space="preserve"><value>删除</value></data>
   <data name="Clear" xml:space="preserve"><value>清空</value></data>
   <data name="Cancel" xml:space="preserve"><value>取消</value></data>
   <data name="CurrentListCleared" xml:space="preserve"><value>已清空当前列表 · {0} 条，置顶记录已保留</value></data>

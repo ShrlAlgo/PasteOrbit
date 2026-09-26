@@ -132,6 +132,9 @@
   <data name="SaveAsFileFailed" xml:space="preserve"><value>Could not save as file</value></data>
   <data name="ClearCurrentListTitle" xml:space="preserve"><value>Clear the current list?</value></data>
   <data name="ClearCurrentListMessage" xml:space="preserve"><value>This will delete {0} unpinned items in the current filtered results. Pinned and hidden items will remain. This action cannot be undone.</value></data>
+  <data name="DeletePinnedItemTitle" xml:space="preserve"><value>Delete pinned item?</value></data>
+  <data name="DeletePinnedItemMessage" xml:space="preserve"><value>This action cannot be undone.</value></data>
+  <data name="Delete" xml:space="preserve"><value>Delete</value></data>
   <data name="Clear" xml:space="preserve"><value>Clear</value></data>
   <data name="Cancel" xml:space="preserve"><value>Cancel</value></data>
   <data name="CurrentListCleared" xml:space="preserve"><value>Cleared {0} items from the current list. Pinned items were preserved.</value></data>

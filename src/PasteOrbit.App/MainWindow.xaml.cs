@@ -6,7 +6,6 @@ using System.Text.Json;
 
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
-using Microsoft.UI.Input;
 using Microsoft.UI.Text;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -21,6 +20,7 @@ using PasteOrbit.Core;
 
 using Windows.Graphics;
 using Windows.Storage.Streams;
+
 using WinRT.Interop;
 
 using VirtualKey = Windows.System.VirtualKey;
@@ -138,6 +138,10 @@ public sealed partial class MainWindow : Window
         SearchBox.KeyDown += Input_KeyDown;
         SearchBox.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(SearchBox_PointerPressed), true);
         HistoryList.PreviewKeyDown += Input_KeyDown;
+        HistoryListWrapper.AddHandler(
+            UIElement.KeyDownEvent,
+            new KeyEventHandler(HistoryList_InterceptKeyDown),
+            handledEventsToo: true);
         Activated += MainWindow_Activated;
         Closed += MainWindow_Closed;
 
@@ -1371,16 +1375,27 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
+            // 先准备好新数据，再一次性替换列表，避免清空和填充之间的空白帧导致闪烁。
+            var newItems = page.Items.Select(HistoryListItem.From).ToList();
             CloseContentPreview();
             _hoveredHistoryItem = null;
             var selectedId = (HistoryList.SelectedItem as HistoryListItem)?.Item.Id;
-            DisposeDisplayItems();
+            foreach (var oldItem in _displayItems)
+            {
+                oldItem.Dispose();
+            }
+
+            _displayItems.Clear();
+            foreach (var newItem in newItems)
+            {
+                _displayItems.Add(newItem);
+            }
+
             _currentHistoryQuery = query;
             _firstHistoryCursor = page.NextCursor;
             _nextHistoryCursor = page.NextCursor;
             _historyTotalCount = page.TotalCount;
             _historyUnpinnedCount = page.UnpinnedCount;
-            AppendHistoryItems(page.Items);
             UpdateHistoryListState();
 
             if (selectedId is Guid id)
@@ -1388,9 +1403,10 @@ public sealed partial class MainWindow : Window
                 HistoryList.SelectedItem = _displayItems.FirstOrDefault(item => item.Item.Id == id);
             }
 
-            if (_displayItems.Count > 0 && IsHistoryPanelVisible())
+            // 保持当前视口位置：有选中项时确保选中项可见，否则维持当前滚动位置不主动回顶。
+            if (_displayItems.Count > 0 && IsHistoryPanelVisible() && HistoryList.SelectedItem is { } selected)
             {
-                HistoryList.ScrollIntoView(_displayItems[0], ScrollIntoViewAlignment.Leading);
+                HistoryList.ScrollIntoView(selected, ScrollIntoViewAlignment.Default);
             }
 
             if (recreateDisplayItems)
@@ -1881,19 +1897,30 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private ToggleButton[] TypeFilterButtons => [AllFilterButton, TextFilterButton, ImageFilterButton, FilesFilterButton];
+
     private void TypeFilter_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not ToggleButton selected)
+        if (sender is ToggleButton selected)
         {
-            return;
+            ApplyTypeFilter(selected);
         }
+    }
 
-        foreach (var filter in new[] { AllFilterButton, TextFilterButton, ImageFilterButton, FilesFilterButton })
+    // 左右方向键在分类之间循环切换，与点击筛选按钮走同一套逻辑。
+    private void SwitchTypeFilter(int direction)
+    {
+        var filters = TypeFilterButtons;
+        var currentIndex = Array.FindIndex(filters, filter => filter.IsChecked == true);
+        var nextIndex = (Math.Max(currentIndex, 0) + direction + filters.Length) % filters.Length;
+        ApplyTypeFilter(filters[nextIndex]);
+    }
+
+    private async void ApplyTypeFilter(ToggleButton selected)
+    {
+        foreach (var filter in TypeFilterButtons)
         {
-            if (!ReferenceEquals(filter, selected))
-            {
-                filter.IsChecked = false;
-            }
+            filter.IsChecked = ReferenceEquals(filter, selected);
         }
 
         _selectedKind = selected.Tag?.ToString() switch
@@ -1904,6 +1931,29 @@ public sealed partial class MainWindow : Window
             _ => null
         };
         RefreshHistory();
+
+        // 刷新是异步的，等本次加载完成后再移动焦点，避免按旧列表判断而误聚焦搜索框。
+        var loadTask = _historyLoadTask;
+        await loadTask;
+        if (loadTask != _historyLoadTask)
+        {
+            return;
+        }
+
+        HistoryList.Focus(FocusState.Programmatic);
+        if (_displayItems.Count > 0)
+        {
+            HistoryList.SelectedIndex = 0;
+        }
+    }
+
+    private void HistoryList_InterceptKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key is VirtualKey.Left or VirtualKey.Right && !PanelShortcut.HasAnyModifierDown())
+        {
+            SwitchTypeFilter(e.Key == VirtualKey.Right ? 1 : -1);
+            e.Handled = true;
+        }
     }
 
     private async void Input_KeyDown(object sender, KeyRoutedEventArgs e)
@@ -1922,6 +1972,11 @@ public sealed partial class MainWindow : Window
             HistoryList.SelectedItem = quickPasteItem;
             e.Handled = true;
             await PlayAsync(quickPasteItem);
+        }
+        else if (e.Key == VirtualKey.Up && ReferenceEquals(sender, HistoryList) && HistoryList.SelectedIndex <= 0)
+        {
+            SearchBox.Focus(FocusState.Keyboard);
+            e.Handled = true;
         }
         else if (e.Key == VirtualKey.Down && ReferenceEquals(sender, SearchBox) && _displayItems.Count > 0)
         {
@@ -1956,7 +2011,7 @@ public sealed partial class MainWindow : Window
             else if (PanelShortcut.Matches(e, _settings.DeleteShortcut))
             {
                 e.Handled = true;
-                DeleteRecord(selected);
+                await DeleteRecordAsync(selected);
             }
             else if (selected.Item.Kind is ClipboardContentKind.Text or ClipboardContentKind.Image
                      && PanelShortcut.Matches(e, _settings.PasteAsFileShortcut))
@@ -2089,55 +2144,55 @@ public sealed partial class MainWindow : Window
             switch (selected.Item.Kind)
             {
                 case ClipboardContentKind.Text:
-                {
-                    var content = await Task.Run(() =>
-                        ClipboardTextContent.Deserialize(_repository.LoadContent(selected.Item.Id)),
-                        cancellationToken);
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    selected.UpdateTextFormatMetadata(content);
-                    if (!string.IsNullOrEmpty(content.Rtf))
                     {
-                        contentControl = CreateRichTextPreview();
-                        richText = content.Rtf;
-                    }
-                    else
-                    {
-                        contentControl = CreateTextPreview(content.Text);
-                    }
+                        var content = await Task.Run(() =>
+                            ClipboardTextContent.Deserialize(_repository.LoadContent(selected.Item.Id)),
+                            cancellationToken);
+                        cancellationToken.ThrowIfCancellationRequested();
 
-                    break;
-                }
+                        selected.UpdateTextFormatMetadata(content);
+                        if (!string.IsNullOrEmpty(content.Rtf))
+                        {
+                            contentControl = CreateRichTextPreview();
+                            richText = content.Rtf;
+                        }
+                        else
+                        {
+                            contentControl = CreateTextPreview(content.Text);
+                        }
+
+                        break;
+                    }
                 case ClipboardContentKind.Image:
-                {
-                    var imageId = selected.Item.Id;
-                    var (image, needsHighResolution) = await LoadExpandedImageAsync(
-                        imageId,
-                        ImagePreviewInitialDecodeMaxWidth,
-                        ImagePreviewInitialDecodeMaxPixels,
-                        cancellationToken);
-                    contentControl = CreateImagePreview(
-                        image,
-                        needsHighResolution
-                            ? async token => (await LoadExpandedImageAsync(
-                                imageId,
-                                ImagePreviewHighResolutionDecodeMaxWidth,
-                                ImagePreviewHighResolutionDecodeMaxPixels,
-                                token)).Image
-                            : null,
-                        cancellationToken);
-                    break;
-                }
+                    {
+                        var imageId = selected.Item.Id;
+                        var (image, needsHighResolution) = await LoadExpandedImageAsync(
+                            imageId,
+                            ImagePreviewInitialDecodeMaxWidth,
+                            ImagePreviewInitialDecodeMaxPixels,
+                            cancellationToken);
+                        contentControl = CreateImagePreview(
+                            image,
+                            needsHighResolution
+                                ? async token => (await LoadExpandedImageAsync(
+                                    imageId,
+                                    ImagePreviewHighResolutionDecodeMaxWidth,
+                                    ImagePreviewHighResolutionDecodeMaxPixels,
+                                    token)).Image
+                                : null,
+                            cancellationToken);
+                        break;
+                    }
                 case ClipboardContentKind.Files:
-                {
-                    var content = await Task.Run(
-                        () => _repository.LoadContent(selected.Item.Id),
-                        cancellationToken);
-                    cancellationToken.ThrowIfCancellationRequested();
-                    var paths = JsonSerializer.Deserialize<string[]>(content) ?? [];
-                    contentControl = CreateTextPreview(string.Join(Environment.NewLine, paths));
-                    break;
-                }
+                    {
+                        var content = await Task.Run(
+                            () => _repository.LoadContent(selected.Item.Id),
+                            cancellationToken);
+                        cancellationToken.ThrowIfCancellationRequested();
+                        var paths = JsonSerializer.Deserialize<string[]>(content) ?? [];
+                        contentControl = CreateTextPreview(string.Join(Environment.NewLine, paths));
+                        break;
+                    }
                 default:
                     return;
             }
@@ -2728,22 +2783,57 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void RecordDeleteButton_Click(object sender, RoutedEventArgs e)
+    private async void RecordDeleteButton_Click(object sender, RoutedEventArgs e)
     {
         if (GetHistoryListItem(sender) is not HistoryListItem selected)
         {
             return;
         }
 
-        DeleteRecord(selected);
+        await DeleteRecordAsync(selected);
     }
 
-    private void DeleteRecord(HistoryListItem selected)
+    private async Task DeleteRecordAsync(HistoryListItem selected)
     {
+        // 置顶记录删除前由用户确认，取消时不修改历史。
+        if (selected.Item.IsPinned)
+        {
+            var dialog = new ContentDialog
+            {
+                Title = AppLocalization.GetString("DeletePinnedItemTitle"),
+                Content = AppLocalization.GetString("DeletePinnedItemMessage"),
+                PrimaryButtonText = AppLocalization.GetString("Delete"),
+                CloseButtonText = AppLocalization.GetString("Cancel"),
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = RootGrid.XamlRoot
+            };
+
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            {
+                return;
+            }
+        }
+
+        // 记录删除前的选中位置，刷新后恢复到相邻项。
+        var removedIndex = _displayItems.IndexOf(selected);
+        var wasSelected = ReferenceEquals(HistoryList.SelectedItem, selected);
+
         if (_history.Remove(selected.Item.Id))
         {
             StatusText.Text = AppLocalization.GetString("ItemDeleted");
             RefreshHistory();
+
+            // 等刷新完成后恢复选中位置，避免焦点跳到搜索框或滚动位置异常。
+            if (wasSelected && removedIndex >= 0)
+            {
+                var loadTask = _historyLoadTask;
+                await loadTask;
+                if (loadTask == _historyLoadTask && _displayItems.Count > 0)
+                {
+                    HistoryList.Focus(FocusState.Programmatic);
+                    HistoryList.SelectedIndex = Math.Min(removedIndex, _displayItems.Count - 1);
+                }
+            }
         }
     }
 

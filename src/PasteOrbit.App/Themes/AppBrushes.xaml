@@ -6,7 +6,7 @@
             <StaticResource x:Key="SurfaceAltBrush" ResourceKey="CardBackgroundFillColorSecondaryBrush" />
             <StaticResource x:Key="SurfacePointerOverBrush" ResourceKey="SubtleFillColorSecondaryBrush" />
             <StaticResource x:Key="SurfacePressedBrush" ResourceKey="SubtleFillColorTertiaryBrush" />
-            <StaticResource x:Key="PinnedSurfaceBrush" ResourceKey="AccentFillColorDisabledBrush" />
+            <SolidColorBrush x:Key="PinnedSurfaceBrush" Color="#FFE5F3E8" />
             <StaticResource x:Key="HistoryFocusBrush" ResourceKey="SubtleFillColorSecondaryBrush" />
             <StaticResource x:Key="TextPrimaryBrush" ResourceKey="TextFillColorPrimaryBrush" />
             <StaticResource x:Key="TextSecondaryBrush" ResourceKey="TextFillColorSecondaryBrush" />
@@ -24,7 +24,7 @@
             <StaticResource x:Key="SurfaceAltBrush" ResourceKey="CardBackgroundFillColorSecondaryBrush" />
             <StaticResource x:Key="SurfacePointerOverBrush" ResourceKey="SubtleFillColorSecondaryBrush" />
             <StaticResource x:Key="SurfacePressedBrush" ResourceKey="SubtleFillColorTertiaryBrush" />
-            <StaticResource x:Key="PinnedSurfaceBrush" ResourceKey="AccentFillColorDisabledBrush" />
+            <SolidColorBrush x:Key="PinnedSurfaceBrush" Color="#FF284539" />
             <StaticResource x:Key="HistoryFocusBrush" ResourceKey="SubtleFillColorSecondaryBrush" />
             <StaticResource x:Key="TextPrimaryBrush" ResourceKey="TextFillColorPrimaryBrush" />
             <StaticResource x:Key="TextSecondaryBrush" ResourceKey="TextFillColorSecondaryBrush" />

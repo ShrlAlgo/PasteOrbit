@@ -319,10 +319,14 @@
             </Grid>
 
             <Grid Grid.Row="3" Margin="18,0,4,0">
-                <ListView
-                    x:Name="HistoryList"
-                    x:Uid="HistoryList"
-                    Padding="0,0,14,0"
+                <!--  ListView 的 XY 键盘导航会提前吞掉左右方向键，外层包一层透明 Grid 提前拦截。  -->
+                <Grid
+                    x:Name="HistoryListWrapper"
+                    Background="Transparent">
+                    <ListView
+                        x:Name="HistoryList"
+                        x:Uid="HistoryList"
+                        Padding="0,0,14,0"
                     AutomationProperties.Name="剪切板历史记录"
                     IsItemClickEnabled="True"
                     ItemClick="HistoryList_ItemClick"
@@ -576,7 +580,8 @@
                             </Border>
                         </DataTemplate>
                     </ListView.ItemTemplate>
-                </ListView>
+                    </ListView>
+                </Grid>
                 <TextBlock
                     x:Name="EmptyText"
                     x:Uid="EmptyHistoryText"
