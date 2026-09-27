@@ -365,7 +365,7 @@ public sealed partial class MainWindow : Window
     private void ShowFromTray()
     {
         var foregroundWindow = GetForegroundWindow();
-        // 托盘消息回调先返回 Shell，焦点查询和窗口激活在下一次 UI 调度中执行。
+        // 托盘消息回调先返回 Shell，面板显示在下一次 UI 调度中执行。
         _dispatcherQueue?.TryEnqueue(() =>
         {
             if (_isExiting)
@@ -373,8 +373,9 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
-            CapturePasteTarget(foregroundWindow);
-            PositionWindow();
+            // 托盘唤醒只记录目标窗口并靠鼠标定位，不同步查询 Shell 的输入焦点。
+            CapturePasteTarget(foregroundWindow, captureInputBounds: false);
+            PositionWindow(preferCursor: true);
             ShowPanel(activatePanel: true);
         });
     }
@@ -647,7 +648,7 @@ public sealed partial class MainWindow : Window
         });
     }
 
-    private void PositionWindow()
+    private void PositionWindow(bool preferCursor = false)
     {
         if (_appWindow is null)
         {
@@ -655,17 +656,20 @@ public sealed partial class MainWindow : Window
         }
 
         var windowSize = _appWindow.Size;
-        var targetWindow = _pasteTarget != IntPtr.Zero ? _pasteTarget : GetForegroundWindow();
-        if (_hasPasteInputBounds && targetWindow == _pasteTarget)
+        if (!preferCursor)
         {
-            MoveNearInputBounds(windowSize, _pasteInputBounds);
-            return;
-        }
+            var targetWindow = _pasteTarget != IntPtr.Zero ? _pasteTarget : GetForegroundWindow();
+            if (_hasPasteInputBounds && targetWindow == _pasteTarget)
+            {
+                MoveNearInputBounds(windowSize, _pasteInputBounds);
+                return;
+            }
 
-        if (TryGetActiveInputBounds(targetWindow, out var inputBounds))
-        {
-            MoveNearInputBounds(windowSize, inputBounds);
-            return;
+            if (TryGetActiveInputBounds(targetWindow, out var inputBounds))
+            {
+                MoveNearInputBounds(windowSize, inputBounds);
+                return;
+            }
         }
 
         // 没有可读取的插入符或输入控件时，使用当前鼠标位置作为最后一个可用锚点。
@@ -709,7 +713,7 @@ public sealed partial class MainWindow : Window
              Math.Clamp(top, inputWorkArea.Y, inputWorkArea.Y + inputWorkArea.Height - windowSize.Height)));
     }
 
-    private void CapturePasteTarget(IntPtr foregroundWindow)
+    private void CapturePasteTarget(IntPtr foregroundWindow, bool captureInputBounds = true)
     {
         // 热键弹出前保存顶层窗口和具体输入控件，面板激活后按原焦点恢复粘贴。
         if (foregroundWindow == IntPtr.Zero || foregroundWindow == _handle)
@@ -728,7 +732,7 @@ public sealed partial class MainWindow : Window
 
         _pasteTarget = foregroundWindow;
         _pasteInputBounds = default;
-        _hasPasteInputBounds = TryGetActiveInputBounds(foregroundWindow, out _pasteInputBounds);
+        _hasPasteInputBounds = captureInputBounds && TryGetActiveInputBounds(foregroundWindow, out _pasteInputBounds);
 
     }
 
@@ -2067,7 +2071,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    // 选中项就是键盘导航的当前项，用卡片底色表达焦点，不显示系统焦点边框。
+    // 键盘选中只显示边框，悬停底色由鼠标状态单独控制。
     private void HistoryList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         foreach (var item in e.RemovedItems)
@@ -2077,7 +2081,7 @@ public sealed partial class MainWindow : Window
 
         foreach (var item in e.AddedItems)
         {
-            SetHistoryCardHighlight(item, true);
+            SetHistoryCardHighlight(item, ReferenceEquals(item, _hoveredHistoryItem));
         }
     }
 
@@ -2089,6 +2093,7 @@ public sealed partial class MainWindow : Window
             if (card.DataContext is HistoryListItem item)
             {
                 card.Tag = item;
+                SetHistoryCardHighlight(item, ReferenceEquals(item, _hoveredHistoryItem));
                 if (item.Item.Kind == ClipboardContentKind.Image && IsHistoryPanelVisible())
                 {
                     await item.EnsureThumbnailLoadedAsync(_repository.LoadThumbnail);
@@ -2112,6 +2117,11 @@ public sealed partial class MainWindow : Window
 
         card.Tag = args.NewValue;
         ApplyCardLocalization(card);
+        if (args.NewValue is HistoryListItem currentItem)
+        {
+            SetHistoryCardHighlight(currentItem, ReferenceEquals(currentItem, _hoveredHistoryItem));
+        }
+
         if (args.NewValue is HistoryListItem { Item.Kind: ClipboardContentKind.Image } item
             && IsHistoryPanelVisible())
         {
@@ -2766,10 +2776,10 @@ public sealed partial class MainWindow : Window
             _hoveredHistoryItem = null;
         }
 
-        SetHistoryCardHighlight(item, ReferenceEquals(HistoryList.SelectedItem, item));
+        SetHistoryCardHighlight(item, false);
     }
 
-    private void SetHistoryCardHighlight(object item, bool highlighted)
+    private void SetHistoryCardHighlight(object item, bool hovered)
     {
         if (HistoryList.ContainerFromItem(item) is not ListViewItem container
             || container.ContentTemplateRoot is not Border card)
@@ -2779,13 +2789,18 @@ public sealed partial class MainWindow : Window
 
         if (card.FindName("HistoryFocusBackground") is Border focusBackground)
         {
-            focusBackground.Opacity = highlighted ? 1 : 0;
+            focusBackground.Opacity = hovered ? 1 : 0;
         }
 
-        // 选中状态优先于置顶底色，取消选中后恢复置顶层的显示。
+        if (card.FindName("HistorySelectionBorder") is Border selectionBorder)
+        {
+            selectionBorder.Opacity = ReferenceEquals(HistoryList.SelectedItem, item) ? 1 : 0;
+        }
+
+        // 悬停时使用悬停底色，其余状态保留置顶底色。
         if (card.FindName("PinnedCardBackground") is Border pinnedBackground)
         {
-            pinnedBackground.Opacity = highlighted ? 0 : 1;
+            pinnedBackground.Opacity = hovered ? 0 : 1;
         }
     }
 

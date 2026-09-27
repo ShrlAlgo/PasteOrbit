@@ -21,6 +21,7 @@ public sealed class NativeTrayIcon : IDisposable
     private const uint WmContextMenu = 0x007B;
     private const uint WmNull = 0x0000;
     private const uint WmLButtonDblClk = 0x0203;
+    private const uint WmLButtonUp = 0x0202;
     private const uint WmRButtonUp = 0x0205;
     private const uint NotifyIconVersion4 = 4;
     private const uint TrayIconId = 1;
@@ -45,6 +46,8 @@ public sealed class NativeTrayIcon : IDisposable
     private bool _disposed;
     private bool _menuShowing;
     private long _lastContextMenuTick;
+    private long _lastLeftButtonUpTick;
+    private long _lastOpenTick;
 
     public NativeTrayIcon(Win32MessageBridge bridge, string iconPath)
     {
@@ -229,7 +232,33 @@ public sealed class NativeTrayIcon : IDisposable
         var mouseMessage = unchecked((uint)lParam.ToInt64()) & 0xFFFFu;
         if (mouseMessage == WmLButtonDblClk)
         {
-            OpenRequested?.Invoke();
+            _lastLeftButtonUpTick = 0;
+            var currentTick = Environment.TickCount64;
+            if (currentTick - _lastOpenTick > GetDoubleClickTime())
+            {
+                _lastOpenTick = currentTick;
+                OpenRequested?.Invoke();
+            }
+        }
+        else if (mouseMessage == WmLButtonUp)
+        {
+            // Shell 未发送双击消息时，用两次左键抬起兜底；同一次双击只唤醒一次。
+            var currentTick = Environment.TickCount64;
+            if (currentTick - _lastOpenTick <= GetDoubleClickTime())
+            {
+                return;
+            }
+
+            if (_lastLeftButtonUpTick != 0 && currentTick - _lastLeftButtonUpTick <= GetDoubleClickTime())
+            {
+                _lastLeftButtonUpTick = 0;
+                _lastOpenTick = currentTick;
+                OpenRequested?.Invoke();
+            }
+            else
+            {
+                _lastLeftButtonUpTick = currentTick;
+            }
         }
         else if (mouseMessage == WmContextMenu || mouseMessage == WmRButtonUp)
         {
@@ -321,6 +350,9 @@ public sealed class NativeTrayIcon : IDisposable
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetCursorPos(out NativePoint point);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDoubleClickTime();
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr CreatePopupMenu();

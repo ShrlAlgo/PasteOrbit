@@ -576,6 +576,14 @@
                                             HorizontalContentAlignment="Stretch"
                                             VerticalContentAlignment="Stretch" />
                                     </Border>
+                                    <Border
+                                        x:Name="HistorySelectionBorder"
+                                        Grid.RowSpan="2"
+                                        BorderBrush="{ThemeResource AccentBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="8"
+                                        IsHitTestVisible="False"
+                                        Opacity="0" />
                                 </Grid>
                             </Border>
                         </DataTemplate>
