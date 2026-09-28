@@ -14,7 +14,6 @@
 #include <QButtonGroup>
 #include <QDateTime>
 #include <QDataStream>
-#include <QElapsedTimer>
 #include <QCloseEvent>
 #include <QCursor>
 #include <QDir>
@@ -908,8 +907,7 @@ void MainWindow::setTrayPaused(bool paused) {
     updateTrayTooltip();
 }
 
-void MainWindow::positionPanel(bool preferCursor, std::optional<RECT> resolvedBounds,
-                               bool refineAfterShow) {
+void MainWindow::positionPanel(bool preferCursor, std::optional<RECT> resolvedBounds) {
     POINT point{};
     bool hasPoint = false;
     std::optional<RECT> inputBounds = resolvedBounds;
@@ -934,78 +932,86 @@ void MainWindow::positionPanel(bool preferCursor, std::optional<RECT> resolvedBo
     info.cbSize = sizeof(info);
     GetMonitorInfoW(monitor, &info);
     const RECT area = info.rcWork;
-    int x = preferCursor ? point.x - width() / 2 : point.x;
-    int y = preferCursor ? point.y - height() - 14 : point.y + 14;
+    const HWND panel = reinterpret_cast<HWND>(winId());
+    RECT panelRect{};
+    GetWindowRect(panel, &panelRect);
+    const int panelWidth = panelRect.right - panelRect.left;
+    const int panelHeight = panelRect.bottom - panelRect.top;
+    int x = preferCursor ? point.x - panelWidth / 2 : point.x;
+    int y = preferCursor ? point.y - panelHeight - 14 : point.y + 14;
     if (inputBounds) {
-        if (x + width() > area.right) x = inputBounds->right - width();
-        if (y + height() > area.bottom) y = inputBounds->top - height() - 14;
+        if (x + panelWidth > area.right) x = inputBounds->right - panelWidth;
+        if (y + panelHeight > area.bottom) y = inputBounds->top - panelHeight - 14;
     }
-    x = qBound(area.left, x, qMax(area.left, area.right - width()));
-    y = qBound(area.top, y, qMax(area.top, area.bottom - height()));
-    move(x, y);
-    if (refineAfterShow && !preferCursor && !resolvedBounds && targetWindow_) {
-        // 外部 UI Automation 查询可能阻塞；先显示面板，仅在快速返回时校正位置。
-        const HWND target = targetWindow_;
-        const int generation = ++positionGeneration_;
-        QElapsedTimer started;
-        started.start();
-        auto *watcher = new QFutureWatcher<InputBounds>(this);
-        connect(watcher, &QFutureWatcher<InputBounds>::finished, this, [this, watcher, target, generation, started] {
-            const auto bounds = watcher->result();
-            watcher->deleteLater();
-            if (!isVisible() || targetWindow_ != target || generation != positionGeneration_
-                || started.elapsed() > 180) return;
-            if (bounds.caret) positionPanel(false, bounds.caret);
-            else if (bounds.control) positionPanel(false, bounds.control);
-        });
-        watcher->setFuture(QtConcurrent::run(QThreadPool::globalInstance(), [target] {
-            return automationInputBounds(target);
-        }));
-    }
+    x = qBound(area.left, x, qMax(area.left, area.right - panelWidth));
+    y = qBound(area.top, y, qMax(area.top, area.bottom - panelHeight));
+    // UIA、系统光标和显示器工作区都是物理像素，直接用 HWND 定位以免 DPI 缩放偏移。
+    SetWindowPos(panel, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 void MainWindow::showPanel(bool fromTray, HWND requestedTarget) {
-    ++panelShowGeneration_;
+    const int generation = ++panelShowGeneration_;
     const HWND foreground = requestedTarget && IsWindow(requestedTarget) ? requestedTarget : GetForegroundWindow();
-    if (foreground && foreground != reinterpret_cast<HWND>(winId())) targetWindow_ = foreground;
+    const bool hasTarget = foreground && foreground != reinterpret_cast<HWND>(winId());
+    if (hasTarget) targetWindow_ = foreground;
+    targetFocusWindow_ = nullptr;
     std::optional<RECT> inputBounds;
-    if (requestedTarget && foreground == requestedTarget) {
-        // 在抢占焦点前获取输入位置，避免显示后查询到面板自身或回退到鼠标。
-        const auto bounds = automationInputBounds(foreground);
-        inputBounds = bounds.caret;
-        if (!inputBounds) {
-            GUITHREADINFO info{};
-            info.cbSize = sizeof(info);
-            const DWORD thread = GetWindowThreadProcessId(foreground, nullptr);
-            if (thread && GetGUIThreadInfo(thread, &info) && info.hwndCaret) {
+    if (hasTarget) {
+        GUITHREADINFO info{};
+        info.cbSize = sizeof(info);
+        const DWORD thread = GetWindowThreadProcessId(foreground, nullptr);
+        if (thread && GetGUIThreadInfo(thread, &info)) {
+            if (info.hwndFocus && (info.hwndFocus == foreground || IsChild(foreground, info.hwndFocus)))
+                targetFocusWindow_ = info.hwndFocus;
+            if (info.hwndCaret) {
                 RECT caret = info.rcCaret;
                 MapWindowPoints(info.hwndCaret, nullptr, reinterpret_cast<POINT *>(&caret), 2);
                 inputBounds = caret;
             }
         }
-        if (!inputBounds) inputBounds = bounds.control;
     }
-    positionPanel(fromTray, inputBounds, !requestedTarget);
-    if (!isVisible()) show();
-    raise();
-    activateWindow();
-    SetForegroundWindow(reinterpret_cast<HWND>(winId()));
-    if (!startupUpdateCheckRequested_) {
-        startupUpdateCheckRequested_ = true;
-        emit firstPanelShown();
+    const auto shown = std::make_shared<bool>(false);
+    const auto present = [this, fromTray, generation, shown](std::optional<RECT> bounds) {
+        if (*shown || generation != panelShowGeneration_) return;
+        *shown = true;
+        positionPanel(fromTray, bounds);
+        if (!isVisible()) show();
+        raise();
+        activateWindow();
+        SetForegroundWindow(reinterpret_cast<HWND>(winId()));
+        if (!startupUpdateCheckRequested_) {
+            startupUpdateCheckRequested_ = true;
+            emit firstPanelShown();
+        }
+        if (isPinned_) SetWindowPos(reinterpret_cast<HWND>(winId()), HWND_TOPMOST, 0, 0, 0, 0,
+                                    SWP_NOMOVE | SWP_NOSIZE);
+        if (historyDirty_ || (searchBox_->text().isEmpty() && model_->rowCount() == 0 && !loadingPage_))
+            refreshHistory();
+        historyList_->verticalScrollBar()->setValue(0);
+        if (model_->rowCount() > 0) historyList_->setCurrentIndex(model_->index(0));
+        historyList_->setFocus(Qt::ShortcutFocusReason);
+        updateVisibleThumbnails();
+    };
+    if (fromTray || !hasTarget || inputBounds) {
+        present(inputBounds);
+        return;
     }
-    if (isPinned_) SetWindowPos(reinterpret_cast<HWND>(winId()), HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
-    if (historyDirty_ || (searchBox_->text().isEmpty() && model_->rowCount() == 0 && !loadingPage_))
-        refreshHistory();
-    historyList_->verticalScrollBar()->setValue(0);
-    if (model_->rowCount() > 0) historyList_->setCurrentIndex(model_->index(0));
-    historyList_->setFocus(Qt::ShortcutFocusReason);
-    updateVisibleThumbnails();
+    // UI Automation 可能被目标程序阻塞；最多等待 100ms，且只在显示前定位一次。
+    auto *watcher = new QFutureWatcher<InputBounds>(this);
+    connect(watcher, &QFutureWatcher<InputBounds>::finished, this, [watcher, present, inputBounds] {
+        const auto bounds = watcher->result();
+        watcher->deleteLater();
+        const auto resolved = bounds.caret ? bounds.caret : bounds.control;
+        present(resolved ? resolved : inputBounds);
+    });
+    watcher->setFuture(QtConcurrent::run(QThreadPool::globalInstance(), [foreground] {
+        return automationInputBounds(foreground);
+    }));
+    QTimer::singleShot(100, this, [present, inputBounds] { present(inputBounds); });
 }
 
 void MainWindow::hidePanel() {
     if (!isVisible()) return;
-    ++positionGeneration_;
     if (!searchBox_->text().isEmpty()) {
         const QSignalBlocker blocker(searchBox_);
         searchBox_->clear();
@@ -1024,6 +1030,7 @@ void MainWindow::hidePanel() {
     model_->releaseThumbnails();
     hide();
     targetWindow_ = nullptr;
+    targetFocusWindow_ = nullptr;
 }
 
 void MainWindow::refreshHistory() {
@@ -1153,8 +1160,7 @@ bool MainWindow::nativeEventFilter(const QByteArray &, void *message, qintptr *r
     const auto *native = static_cast<MSG *>(message);
     if (native->message == WM_HOTKEY && native->wParam == HotkeyId) {
         const HWND foreground = GetForegroundWindow();
-        if (foreground && foreground != reinterpret_cast<HWND>(winId())) targetWindow_ = foreground;
-        showPanel(false);
+        showPanel(false, foreground);
         if (result) *result = 0;
         return true;
     }
@@ -1935,6 +1941,7 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile) {
     const HistoryItem item = *itemPointer;
     if (asFile && item.kind == 2) return;
     HWND target = targetWindow_;
+    const HWND targetFocus = targetFocusWindow_;
     if (!target) {
         const HWND foreground = GetForegroundWindow();
         if (foreground != reinterpret_cast<HWND>(winId())) target = foreground;
@@ -1942,7 +1949,7 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile) {
     const QString path = databasePath_;
     auto *watcher = new QFutureWatcher<QPair<HistoryItem, QByteArray>>(this);
     connect(watcher, &QFutureWatcher<QPair<HistoryItem, QByteArray>>::finished, this,
-            [this, watcher, target, plainText, asFile, id] {
+            [this, watcher, target, targetFocus, plainText, asFile, id] {
         const auto result = watcher->result();
         watcher->deleteLater();
         const HistoryItem item = result.first;
@@ -2015,12 +2022,13 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile) {
             showStatus(AppLocalization::get(QStringLiteral("ContentRestoredManualPaste")));
             return;
         }
-        ShowWindow(target, SW_RESTORE);
+        // 已最大化的窗口不能用 SW_RESTORE，否则粘贴时会意外退出最大化。
+        if (IsIconic(target)) ShowWindow(target, SW_RESTORE);
         SetForegroundWindow(target);
         auto *timer = new QTimer(this);
         timer->setInterval(10);
         auto attempts = std::make_shared<int>(0);
-        connect(timer, &QTimer::timeout, this, [this, timer, attempts, target, id, keepPanel] {
+        connect(timer, &QTimer::timeout, this, [this, timer, attempts, target, targetFocus, id, keepPanel] {
             if (!IsWindow(target) || GetForegroundWindow() != target) {
                 timer->stop(); timer->deleteLater();
                 showStatus(AppLocalization::get(QStringLiteral("ContentRestoredManualPaste")));
@@ -2033,6 +2041,16 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile) {
                 timer->stop(); timer->deleteLater();
                 showStatus(AppLocalization::get(QStringLiteral("ContentRestoredManualPaste")));
                 return;
+            }
+            // 激活完成后恢复原子控件焦点，避免同一窗口内粘贴到其他输入框。
+            if (targetFocus && IsWindow(targetFocus)
+                && (targetFocus == target || IsChild(target, targetFocus))) {
+                const DWORD targetThread = GetWindowThreadProcessId(targetFocus, nullptr);
+                const DWORD currentThread = GetCurrentThreadId();
+                const bool attached = targetThread && targetThread != currentThread
+                    && AttachThreadInput(currentThread, targetThread, TRUE);
+                if (attached || targetThread == currentThread) SetFocus(targetFocus);
+                if (attached) AttachThreadInput(currentThread, targetThread, FALSE);
             }
             INPUT inputs[4]{};
             const WORD keys[4]{VK_CONTROL, 'V', 'V', VK_CONTROL};

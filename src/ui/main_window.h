@@ -67,8 +67,7 @@ private:
     void applyTheme();
     void registerHotkey();
     void updateWinVHook();
-    void positionPanel(bool preferCursor, std::optional<RECT> resolvedBounds = std::nullopt,
-                       bool refineAfterShow = true);
+    void positionPanel(bool preferCursor, std::optional<RECT> resolvedBounds = std::nullopt);
     void refreshHistory();
     void loadMoreHistory();
     void updateVisibleThumbnails();
@@ -152,6 +151,7 @@ private:
     DWORD lastClipboardSequence_ = 0;
     DWORD ownClipboardSequence_ = 0;
     HWND targetWindow_ = nullptr;
+    HWND targetFocusWindow_ = nullptr;
     QPoint dragStart_;
     QPoint dragWindowStart_;
     bool dragging_ = false;
@@ -164,7 +164,6 @@ private:
     QString highResolutionPreviewId_;
     QString highResolutionLoadingId_;
     int previewGeneration_ = 0;
-    int positionGeneration_ = 0;
     int panelShowGeneration_ = 0;
     QThreadPool readPool_;
     QThreadPool writePool_;
