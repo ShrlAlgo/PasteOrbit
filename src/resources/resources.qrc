@@ -1,0 +1,8 @@
+<RCC>
+  <qresource prefix="/">
+    <file alias="PasteOrbit.ico">icons/PasteOrbit.ico</file>
+    <file alias="PasteOrbit.png">icons/PasteOrbit.png</file>
+    <file alias="Strings/zh-CN/Resources.resw">Strings/zh-CN/Resources.resw</file>
+    <file alias="Strings/en-US/Resources.resw">Strings/en-US/Resources.resw</file>
+</qresource>
+</RCC>

@@ -9,10 +9,27 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$projectPath = Join-Path $repositoryRoot 'src\PasteOrbit.App\PasteOrbit.App.csproj'
-$buildOutputDirectory = Join-Path $repositoryRoot 'src\PasteOrbit.App\bin\Release\net8.0-windows10.0.26100.0'
-$artifactsDirectory = Join-Path $repositoryRoot 'artifacts'
+$toolchainDirectory = 'C:\msys64\ucrt64\bin'
+$cmakePath = Join-Path $toolchainDirectory 'cmake.exe'
+$deployToolPath = Join-Path $toolchainDirectory 'windeployqt.exe'
+$dependencyToolPath = Join-Path $toolchainDirectory 'objdump.exe'
+# 本机优先使用 VS/MSVC；保留现有 CI 的 MinGW 发布路径。
+$useMsvc = Test-Path -LiteralPath 'C:\Qt\bin\windeployqt.exe'
+if ($useMsvc) {
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+    $vsDirectory = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 Microsoft.VisualStudio.Component.VC.CMake.Project -property installationPath
+    if (-not $vsDirectory) { throw '未找到 Visual Studio C++ 和 CMake 组件。' }
+    Import-Module (Join-Path $vsDirectory 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
+    Enter-VsDevShell -VsInstallPath $vsDirectory -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64' | Out-Null
+    $toolchainDirectory = 'C:\Qt\bin'
+    $cmakePath = Join-Path $vsDirectory 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
+    $deployToolPath = Join-Path $toolchainDirectory 'windeployqt.exe'
+}
+$buildDirectory = Join-Path $env:TEMP "PasteOrbit-native-release-$PID"
+$deploymentDirectory = Join-Path $env:TEMP "PasteOrbit-native-deploy-$PID"
+$artifactsDirectory = Join-Path $repositoryRoot 'dist'
 $publishDirectory = Join-Path $artifactsDirectory 'PasteOrbit-win-x64'
+$executablePath = Join-Path $publishDirectory 'PasteOrbit.exe'
 $archiveName = if ([string]::IsNullOrWhiteSpace($Version)) {
     'PasteOrbit-win-x64.zip'
 }
@@ -37,64 +54,117 @@ function Remove-PackagePath {
     Remove-Item -LiteralPath $resolvedTarget -Recurse -Force
 }
 
-# 避免正在运行的程序锁定发布文件，必须在清理旧发布目录之前停止进程。
-Get-Process -Name 'PasteOrbit' -ErrorAction SilentlyContinue | Stop-Process -Force
+function Copy-ToolchainRuntimeDependencies {
+    param([Parameter(Mandatory)][string]$Directory)
+
+    $bundledNames = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $pendingBinaries = [System.Collections.Generic.Queue[string]]::new()
+    foreach ($binary in Get-ChildItem -LiteralPath $Directory -Recurse -File | Where-Object { $_.Extension -in '.exe', '.dll' }) {
+        [void]$bundledNames.Add($binary.Name)
+        $pendingBinaries.Enqueue($binary.FullName)
+    }
+
+    # 递归补齐 Qt/MinGW 的动态依赖，确保发布包脱离 MSYS2 PATH 也能启动。
+    while ($pendingBinaries.Count -gt 0) {
+        $binaryPath = $pendingBinaries.Dequeue()
+        $imports = & $dependencyToolPath -p $binaryPath 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw "无法读取运行库依赖：$binaryPath"
+        }
+
+        foreach ($line in $imports) {
+            if ("$line" -notmatch '^\s*DLL Name:\s*(.+)$') {
+                continue
+            }
+
+            $dependencyName = $Matches[1].Trim()
+            if ($dependencyName -match '^(api-ms-|ext-ms-)' -or $bundledNames.Contains($dependencyName)) {
+                continue
+            }
+
+            if (Test-Path -LiteralPath (Join-Path $env:WINDIR "System32\$dependencyName") -PathType Leaf) {
+                continue
+            }
+
+            $dependencySource = Join-Path $toolchainDirectory $dependencyName
+            if (-not (Test-Path -LiteralPath $dependencySource -PathType Leaf)) {
+                throw "未找到运行依赖：$dependencyName（来自 $binaryPath）"
+            }
+
+            $dependencyTarget = Join-Path $Directory $dependencyName
+            Copy-Item -LiteralPath $dependencySource -Destination $dependencyTarget -Force
+            [void]$bundledNames.Add($dependencyName)
+            $pendingBinaries.Enqueue($dependencyTarget)
+        }
+    }
+}
 
 Remove-PackagePath -Path $publishDirectory
 Remove-PackagePath -Path $archivePath
 New-Item -ItemType Directory -Path $publishDirectory -Force | Out-Null
 
-$publishArguments = @(
-    'publish',
-    $projectPath,
-    '--configuration', 'Release',
-    '--runtime', 'win-x64',
-    '--self-contained', 'false',
-    '--output', $publishDirectory,
-    '-p:WindowsAppSDKSelfContained=false',
-    '-p:DebugType=None',
-    '-p:DebugSymbols=false'
-)
-if (-not [string]::IsNullOrWhiteSpace($Version)) {
-    $publishArguments += "-p:Version=$Version"
+if ((-not (Test-Path -LiteralPath $cmakePath -PathType Leaf)) -or (-not (Test-Path -LiteralPath $deployToolPath -PathType Leaf)) -or ((-not $useMsvc) -and (-not (Test-Path -LiteralPath $dependencyToolPath -PathType Leaf)))) {
+    throw '未找到 MSYS2 UCRT64 的 CMake/Qt 工具。请先安装项目要求的 Qt 6 和 MinGW 工具链。'
 }
+$env:PATH = "$toolchainDirectory;$env:PATH"
 
-& dotnet @publishArguments
+if ([string]::IsNullOrWhiteSpace($Version)) {
+    $Version = '2.3.10'
+}
+$configureArguments = @(
+    '-S', $repositoryRoot,
+    '-B', $buildDirectory,
+    '-G', 'Ninja',
+    '-DCMAKE_BUILD_TYPE=Release',
+    "-DPASTEORBIT_VERSION=$Version"
+)
+if ($useMsvc) { $configureArguments += '-DCMAKE_PREFIX_PATH=C:/Qt', '-DCMAKE_CXX_COMPILER=cl' }
+& $cmakePath @configureArguments
 if ($LASTEXITCODE -ne 0) {
-    throw "dotnet publish 失败，退出代码：$LASTEXITCODE"
+    throw "CMake 配置失败，退出代码：$LASTEXITCODE"
 }
 
-# dotnet publish 当前不会把 WinUI 生成的 XBF/PRI 资源复制到非打包应用的发布目录。
-# 这些文件是运行时加载 XAML 和资源索引所必需的，必须保留原有相对路径。
-$winUiResourcePaths = @(
-    'App.xbf',
-    'MainWindow.xbf',
-    'SettingsWindow.xbf',
-    'PasteOrbit.pri',
-    'Themes\AppBrushes.xbf'
-)
+& $cmakePath --build $buildDirectory --parallel 4
+if ($LASTEXITCODE -ne 0) {
+    throw "Qt Release 构建失败，退出代码：$LASTEXITCODE"
+}
 
-foreach ($relativePath in $winUiResourcePaths) {
-    $sourcePath = Join-Path $buildOutputDirectory $relativePath
-    $destinationPath = Join-Path $publishDirectory $relativePath
-
-    if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
-        throw "缺少 WinUI 发布资源：$sourcePath"
+$builtExecutable = Join-Path $buildDirectory 'bin\Release\PasteOrbit.exe'
+if (-not (Test-Path -LiteralPath $builtExecutable -PathType Leaf)) {
+    throw "未找到 Qt 构建产物：$builtExecutable"
+}
+if (Test-Path -LiteralPath $deploymentDirectory) {
+    throw "部署临时目录已存在，拒绝覆盖：$deploymentDirectory"
+}
+New-Item -ItemType Directory -Path $deploymentDirectory | Out-Null
+$stagedExecutable = Join-Path $deploymentDirectory 'PasteOrbit.exe'
+Copy-Item -LiteralPath $builtExecutable -Destination $stagedExecutable
+# 使用 Windows 原生网络后端；不部署 TUIO、GLib 和应用未使用的数据库驱动。
+# 必须先筛选插件，再收集动态依赖，避免把 GLib 的整条 DLL 依赖链带入发布包。
+& $deployToolPath --release --no-translations --compiler-runtime `
+    --skip-plugin-types generic `
+    --exclude-plugins qglib,qsqlibase,qsqlmysql,qsqlodbc,qsqlpsql `
+    --dir $deploymentDirectory $stagedExecutable
+if ($LASTEXITCODE -ne 0) {
+    throw "Qt 运行库部署失败，退出代码：$LASTEXITCODE"
+}
+# MSYS2 的 windeployqt 不会稳定复制 MinGW 与 SQLite 插件的动态依赖，先显式带上基础运行库。
+foreach ($runtimeName in $(if ($useMsvc) { @() } else { @('libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll', 'libsqlite3-0.dll') })) {
+    $runtimePath = Join-Path $toolchainDirectory $runtimeName
+    if (-not (Test-Path -LiteralPath $runtimePath -PathType Leaf)) {
+        throw "缺少 Qt 运行依赖：$runtimePath"
     }
-
-    $destinationDirectory = Split-Path -Parent $destinationPath
-    New-Item -ItemType Directory -Path $destinationDirectory -Force | Out-Null
-    Copy-Item -LiteralPath $sourcePath -Destination $destinationPath -Force
+    Copy-Item -LiteralPath $runtimePath -Destination (Join-Path $deploymentDirectory $runtimeName) -Force
 }
-
-foreach ($relativePath in $winUiResourcePaths) {
-    $publishedPath = Join-Path $publishDirectory $relativePath
-    if (-not (Test-Path -LiteralPath $publishedPath -PathType Leaf)) {
-        throw "WinUI 发布资源复制失败：$publishedPath"
-    }
+# 应用只使用 SQLite，移除未用驱动及其额外依赖，缩小发布包并避免无关插件探测。
+foreach ($driverName in @('qsqlibase.dll', 'qsqlmysql.dll', 'qsqlodbc.dll', 'qsqlpsql.dll')) {
+    Remove-Item -LiteralPath (Join-Path $deploymentDirectory "sqldrivers\$driverName") -Force -ErrorAction SilentlyContinue
 }
-Get-ChildItem -LiteralPath $publishDirectory -Filter '*.pdb' -File -Recurse |
-    Remove-Item -Force
+if (-not $useMsvc) { Copy-ToolchainRuntimeDependencies -Directory $deploymentDirectory }
+New-Item -ItemType Directory -Path (Join-Path $deploymentDirectory 'Assets') -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $repositoryRoot 'src\resources\icons\PasteOrbit.ico') `
+    -Destination (Join-Path $deploymentDirectory 'Assets\PasteOrbit.ico') -Force
+Copy-Item -Path (Join-Path $deploymentDirectory '*') -Destination $publishDirectory -Recurse -Force
 
 if (-not $NoArchive) {
     Compress-Archive -Path (Join-Path $publishDirectory '*') -DestinationPath $archivePath -CompressionLevel Optimal

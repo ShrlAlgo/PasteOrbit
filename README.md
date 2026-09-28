@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md)
 
-<img width="464" height="572" alt="PixPin_2026-09-14_19-27-35" src="https://github.com/user-attachments/assets/2a643152-df45-4ad8-bb15-b652c12ff5eb" />
+<img width="464" height="572" alt="PasteOrbit" src="https://github.com/user-attachments/assets/2a643152-df45-4ad8-bb15-b652c12ff5eb" />
 
 PasteOrbit is a Windows desktop clipboard history manager.
 
@@ -26,8 +26,25 @@ PasteOrbit is a Windows desktop clipboard history manager.
 
 - Windows 10 version 1809 or later.
 - x64 processor and operating system.
-- [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0).
-- [Windows App Runtime 2.3](https://learn.microsoft.com/windows/apps/windows-app-sdk/downloads).
+- No .NET or Windows App Runtime installation is required for the release package.
+
+## Build from source
+
+- Visual Studio 2026 requires Desktop development with C++ and CMake tools; Qt 6.11.1 MSVC x64 (including Qt Svg) resides in `C:\Qt`. First configuration fetches a pinned Qlementine 1.5 development revision.
+- Open the repository folder in Visual Studio, select `windows-msvc` and the `PasteOrbitNative` startup target, then press F5.
+- Configure with `cmake --preset windows-msvc`; build with `cmake --build --preset windows-debug` or `windows-release`.
+- After configuration, `build\windows-msvc\PasteOrbitNative.slnx` can also be opened directly with Debug/Release and x64 selected.
+- The executable and Qt dependencies reside in `build\windows-msvc\bin\Debug` or `bin\Release`.
+- `Scripts\Publish.ps1` writes the unpacked release and ZIP to `dist`; the installer is written there too.
+- Local publishing prefers `C:\Qt` and VS tools; CI retains its MinGW build path.
+
+Sources in `src` are grouped into `app` (startup, settings, localization), `data` (history storage and model), `services` (backup and updates), `ui` (windows and cards), and `resources` (icons, resource manifest, and localized strings).
+`build/windows-msvc` contains the CMake-generated Visual Studio solution, project files, and build output; these files are not source files and are not committed.
+
+## GitHub Actions
+
+- The build workflow runs only when started manually from GitHub Actions.
+- Pushing a `v<major>.<minor>.<patch>` tag builds the installer and ZIP and generates release notes from commits between the current and previous tags.
 
 ## Data and Privacy
 

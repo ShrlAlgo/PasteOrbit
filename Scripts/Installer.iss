@@ -3,7 +3,7 @@
 #define AppVersion "1.0.1"
 #endif
 ; 安装文件来源于 Publish.ps1 生成的完整 win-x64 发布目录。
-#define ReleaseDir "..\artifacts\PasteOrbit-win-x64"
+#define ReleaseDir "..\dist\PasteOrbit-win-x64"
 
 [Setup]
 ; AppId 必须在后续版本中保持不变，Inno Setup 才能识别升级安装。
@@ -19,10 +19,10 @@ DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 ; 当前发布产物只包含 x64 程序。
 ArchitecturesAllowed=x64compatible
-; 安装程序与免安装 ZIP 统一输出到 artifacts 目录。
-OutputDir=..\artifacts
+; 安装程序与免安装 ZIP 统一输出到 dist 目录。
+OutputDir=..\dist
 OutputBaseFilename=PasteOrbit-{#AppVersion}-Setup
-SetupIconFile=..\Assets\PasteOrbit.ico
+SetupIconFile=..\src\resources\icons\PasteOrbit.ico
 UninstallDisplayIcon={app}\Assets\PasteOrbit.ico
 ; 使用固实 LZMA2 压缩减小安装包体积。
 Compression=lzma2

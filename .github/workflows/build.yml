@@ -1,10 +1,6 @@
 name: Build PasteOrbit
 
 on:
-  push:
-    branches:
-      - master
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -12,23 +8,34 @@ permissions:
 
 jobs:
   build:
-    name: Build and test
+    name: Build native application
     runs-on: windows-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Set up .NET SDK
-        uses: actions/setup-dotnet@v5
+      - name: Set up Qt and MinGW
+        uses: msys2/setup-msys2@v2
         with:
-          dotnet-version: 8.0.x
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-qt6-base
+            mingw-w64-ucrt-x86_64-qt6-svg
 
-      - name: Restore dependencies
-        run: dotnet restore .\PasteOrbit.sln
+      - name: Configure
+        shell: pwsh
+        run: |
+          $env:PATH = 'C:\msys64\ucrt64\bin;C:\msys64\usr\bin;' + $env:PATH
+          cmake -S . -B "$env:RUNNER_TEMP\PasteOrbit-native-build" -G Ninja -DCMAKE_BUILD_TYPE=Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build Release
-        run: dotnet build .\PasteOrbit.sln --configuration Release --no-restore
-
-      - name: Run tests
-        run: dotnet test .\PasteOrbit.sln --configuration Release --no-build --no-restore
+        shell: pwsh
+        run: |
+          $env:PATH = 'C:\msys64\ucrt64\bin;C:\msys64\usr\bin;' + $env:PATH
+          cmake --build "$env:RUNNER_TEMP\PasteOrbit-native-build" --parallel 4
