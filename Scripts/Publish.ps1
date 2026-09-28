@@ -9,12 +9,14 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$toolchainDirectory = 'C:\msys64\ucrt64\bin'
+$msys2Root = if ($env:MSYS2_ROOT) { $env:MSYS2_ROOT } else { 'C:\msys64' }
+$ucrtPrefix = Join-Path $msys2Root 'ucrt64'
+$toolchainDirectory = Join-Path $ucrtPrefix 'bin'
 $cmakePath = Join-Path $toolchainDirectory 'cmake.exe'
 $deployToolPath = Join-Path $toolchainDirectory 'windeployqt.exe'
 $dependencyToolPath = Join-Path $toolchainDirectory 'objdump.exe'
 # 本机优先使用 VS/MSVC；保留现有 CI 的 MinGW 发布路径。
-$useMsvc = Test-Path -LiteralPath 'C:\Qt\bin\windeployqt.exe'
+$useMsvc = (-not $env:MSYS2_ROOT) -and (Test-Path -LiteralPath 'C:\Qt\bin\windeployqt.exe')
 if ($useMsvc) {
     $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
     $vsDirectory = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 Microsoft.VisualStudio.Component.VC.CMake.Project -property installationPath
@@ -119,6 +121,7 @@ $configureArguments = @(
     "-DPASTEORBIT_VERSION=$Version"
 )
 if ($useMsvc) { $configureArguments += '-DCMAKE_PREFIX_PATH=C:/Qt', '-DCMAKE_CXX_COMPILER=cl' }
+else { $configureArguments += "-DCMAKE_PREFIX_PATH=$ucrtPrefix", "-DCMAKE_CXX_COMPILER=$(Join-Path $toolchainDirectory 'g++.exe')" }
 & $cmakePath @configureArguments
 if ($LASTEXITCODE -ne 0) {
     throw "CMake 配置失败，退出代码：$LASTEXITCODE"
