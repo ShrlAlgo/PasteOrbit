@@ -16,6 +16,7 @@
 #include <QPainterPath>
 #include <QPointer>
 #include <QPixmapCache>
+#include <QScopeGuard>
 #include <QSettings>
 #include <QStyleOption>
 #include <QStandardPaths>
@@ -113,14 +114,32 @@ int main(int argc, char *argv[]) {
     AppLocalization::load(language);
 
     const bool elevatedRestart = application.arguments().contains(QStringLiteral("--elevated-restart"), Qt::CaseInsensitive);
-    if (!elevatedRestart) {
+    // 互斥锁负责跨权限级别的单实例约束；本地消息通道只用于唤起已有窗口。
+    HANDLE singletonMutex = CreateMutexW(nullptr, TRUE, L"Local\\PasteOrbit.Native.SingleInstance");
+    const DWORD mutexError = GetLastError();
+    bool ownsMutex = singletonMutex && mutexError != ERROR_ALREADY_EXISTS;
+    const auto releaseMutex = qScopeGuard([&] {
+        if (ownsMutex) ReleaseMutex(singletonMutex);
+        if (singletonMutex) CloseHandle(singletonMutex);
+    });
+    if (!singletonMutex && mutexError != ERROR_ACCESS_DENIED) {
+        QMessageBox::critical(nullptr, QStringLiteral("PasteOrbit"),
+                              QStringLiteral("无法检查运行中的实例（%1）。").arg(mutexError));
+        return 1;
+    }
+    // 提权重启时等待原进程退出并交接锁，避免把自己的新进程判成重复实例。
+    if (!ownsMutex && elevatedRestart && singletonMutex) {
+        const DWORD waitResult = WaitForSingleObject(singletonMutex, 10000);
+        ownsMutex = waitResult == WAIT_OBJECT_0 || waitResult == WAIT_ABANDONED;
+    }
+    if (!ownsMutex) {
         QLocalSocket existingInstance;
         existingInstance.connectToServer(QString::fromLatin1(ServerName));
         if (existingInstance.waitForConnected(250)) {
             existingInstance.write("show");
             existingInstance.waitForBytesWritten(250);
-            return 0;
         }
+        return 0;
     }
 
     if (settings.runAsAdministrator && !isAdministrator() && !elevatedRestart && startElevated()) return 0;
