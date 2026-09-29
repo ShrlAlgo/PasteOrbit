@@ -156,6 +156,7 @@ QString HistoryStore::initialize() const {
         return versionQuery.lastError().text();
     }
     version = versionQuery.value(0).toInt();
+    versionQuery.finish();
     if (version != 0 && version != CurrentSchemaVersion) {
         return QStringLiteral("历史数据库版本不兼容，已保留原文件：%1").arg(version);
     }
@@ -163,6 +164,8 @@ QString HistoryStore::initialize() const {
     if (!existingQuery.exec(QStringLiteral("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='clipboard_items'"))
         || !existingQuery.next()) return existingQuery.lastError().text();
     const bool hasItems = existingQuery.value(0).toInt() != 0;
+    // 结束读取游标后才能切换 journal_mode，否则新数据库会被隐式读事务阻塞。
+    existingQuery.finish();
     if (hasItems && !hasRequiredColumns(connection.database())) {
         return QStringLiteral("历史数据库结构不兼容，已保留原文件");
     }
@@ -193,6 +196,10 @@ bool HistoryStore::isCurrentSchema(const QString &path) {
     if (!QFileInfo::exists(path)) return false;
     Connection connection(path);
     if (!connection.isOpen()) return false;
+    QSqlQuery integrity(connection.database());
+    if (!integrity.exec(QStringLiteral("PRAGMA quick_check")) || !integrity.next()
+        || integrity.value(0).toString() != QStringLiteral("ok")) return false;
+    integrity.finish();
     QSqlQuery version(connection.database());
     if (!version.exec(QStringLiteral("PRAGMA user_version")) || !version.next()
         || version.value(0).toInt() != CurrentSchemaVersion || !hasRequiredColumns(connection.database())) return false;
@@ -484,6 +491,7 @@ int HistoryStore::count() const {
 }
 
 QString HistoryStore::cleanup(int retentionDays, int maxEntries) const {
+    if (retentionDays <= 0 || maxEntries <= 0) return QStringLiteral("历史清理参数必须大于零");
     Connection connection(path_);
     if (!connection.isOpen()) return connection.error();
     auto &database = connection.database();
@@ -522,7 +530,12 @@ QString HistoryStore::compact(bool full) const {
     Connection connection(path_);
     if (!connection.isOpen()) return connection.error();
     QString error;
-    if (!execute(connection.database(), QStringLiteral("PRAGMA wal_checkpoint(TRUNCATE)"), &error)) return error;
+    QSqlQuery checkpoint(connection.database());
+    if (!checkpoint.exec(QStringLiteral("PRAGMA wal_checkpoint(TRUNCATE)")) || !checkpoint.next())
+        return checkpoint.lastError().isValid() ? checkpoint.lastError().text() : QStringLiteral("无法确认数据库检查点状态");
+    // SQLite 的 busy 通过结果行返回，exec 成功不代表 WAL 已全部写回主数据库。
+    if (checkpoint.value(0).toInt() != 0) return QStringLiteral("数据库正在使用中，请稍后重试");
+    checkpoint.finish();
     if (full) {
         if (!execute(connection.database(), QStringLiteral("VACUUM"), &error)) return error;
     } else if (!execute(connection.database(), QStringLiteral("PRAGMA incremental_vacuum(200)"), &error)) {

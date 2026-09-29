@@ -33,8 +33,13 @@ AppSettings AppSettings::load(const QString &path) {
     if (settings.themeMode == QStringLiteral("浅色")) settings.themeMode = QStringLiteral("Light");
     if (settings.themeMode == QStringLiteral("深色")) settings.themeMode = QStringLiteral("Dark");
     if (settings.themeMode == QStringLiteral("跟随系统")) settings.themeMode = QStringLiteral("System");
+    if (settings.themeMode != QStringLiteral("Light") && settings.themeMode != QStringLiteral("Dark")
+        && settings.themeMode != QStringLiteral("System")) settings.themeMode = QStringLiteral("System");
     settings.retentionDays = json.value(QStringLiteral("RetentionDays")).toInt(settings.retentionDays);
     settings.maxHistoryEntries = json.value(QStringLiteral("MaxHistoryEntries")).toInt(settings.maxHistoryEntries);
+    // 无效清理参数回退到默认值，避免损坏的配置导致全部未置顶记录被删除。
+    if (settings.retentionDays <= 0) settings.retentionDays = AppSettings{}.retentionDays;
+    if (settings.maxHistoryEntries <= 0) settings.maxHistoryEntries = AppSettings{}.maxHistoryEntries;
     settings.skippedUpdateVersion = json.value(QStringLiteral("SkippedUpdateVersion")).toString();
     return settings;
 }
@@ -63,7 +68,8 @@ bool AppSettings::save(const QString &path) const {
     json.insert(QStringLiteral("MaxHistoryEntries"), maxHistoryEntries);
     json.insert(QStringLiteral("SkippedUpdateVersion"), skippedUpdateVersion);
     QSaveFile file(path);
+    const QByteArray bytes = QJsonDocument(json).toJson(QJsonDocument::Indented);
     return file.open(QIODevice::WriteOnly)
-        && file.write(QJsonDocument(json).toJson(QJsonDocument::Indented)) >= 0
+        && file.write(bytes) == bytes.size()
         && file.commit();
 }

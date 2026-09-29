@@ -7,6 +7,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonDocument>
 #include <QSaveFile>
 #include <QTemporaryDir>
 #include <QtEndian>
@@ -492,6 +493,11 @@ QString BackupService::restoreFromFile(const QString &sourcePath, const QString 
         return localized(QStringLiteral("InvalidBackupContentLength"));
     if (!HistoryStore::isCurrentSchema(temporaryDatabase))
         return localized(QStringLiteral("UnsupportedBackupDatabaseVersion"));
+    if (hasSettings) {
+        QFile settings(temporarySettings);
+        if (!settings.open(QIODevice::ReadOnly) || !QJsonDocument::fromJson(settings.readAll()).isObject())
+            return localized(QStringLiteral("InvalidBackupFile"));
+    }
     const QString checkpointError = HistoryStore(databasePath).compact(true);
     if (!checkpointError.isEmpty()) return checkpointError;
     return replaceLocalData(temporaryDatabase, temporarySettings, hasSettings, databasePath, settingsPath);

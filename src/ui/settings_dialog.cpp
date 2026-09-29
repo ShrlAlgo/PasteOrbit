@@ -542,6 +542,11 @@ void SettingsDialog::loadControls(const AppSettings &settings) {
     interceptWinV_->setChecked(settings.interceptWindowsClipboardShortcut);
     theme_->setCurrentIndex(theme_->findData(settings.themeMode));
     language_->setCurrentIndex(language_->findData(settings.language));
+    // 保留旧版本或手工配置的正数，避免无匹配选项时保存成零。
+    if (retention_->findData(settings.retentionDays) < 0)
+        retention_->addItem(QString::number(settings.retentionDays), settings.retentionDays);
+    if (maximumEntries_->findData(settings.maxHistoryEntries) < 0)
+        maximumEntries_->addItem(QString::number(settings.maxHistoryEntries), settings.maxHistoryEntries);
     retention_->setCurrentIndex(retention_->findData(settings.retentionDays));
     maximumEntries_->setCurrentIndex(maximumEntries_->findData(settings.maxHistoryEntries));
     excludedApplications_->setText(settings.excludedApplications);
@@ -567,21 +572,23 @@ void SettingsDialog::saveControls() {
     settings_.excludedApplications = excludedApplications_->text().trimmed();
 }
 
-void SettingsDialog::persist() {
-    const bool startupChanged = settings_.startWithWindows != startup_->isChecked();
+void SettingsDialog::persist(bool preserveSkippedVersion) {
     saveControls();
+    // 更新服务独立保存跳过版本，设置页的旧副本不能覆盖它。
+    if (preserveSkippedVersion)
+        settings_.skippedUpdateVersion = AppSettings::load(settingsPath_).skippedUpdateVersion;
     if (!settings_.save(settingsPath_)) {
         QMessageBox::warning(this, AppLocalization::get(QStringLiteral("SettingsSaveFailedTitle")),
                              AppLocalization::get(QStringLiteral("SettingsSaveFailed")));
         return;
     }
-    if (startupChanged) {
-        QSettings startup(QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"),
-                          QSettings::NativeFormat);
-        if (settings_.startWithWindows) {
-            const QString executable = QCoreApplication::applicationFilePath();
-            startup.setValue(QStringLiteral("PasteOrbit"), QStringLiteral("\"%1\"").arg(executable));
-        } else startup.remove(QStringLiteral("PasteOrbit"));
+    QSettings startup(QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"),
+                       QSettings::NativeFormat);
+    const QString startupCommand = settings_.startWithWindows
+        ? QStringLiteral("\"%1\"").arg(QCoreApplication::applicationFilePath()) : QString{};
+    if (startup.value(QStringLiteral("PasteOrbit")).toString() != startupCommand) {
+        if (startupCommand.isEmpty()) startup.remove(QStringLiteral("PasteOrbit"));
+        else startup.setValue(QStringLiteral("PasteOrbit"), startupCommand);
     }
     QString language = settings_.language;
     if (language.isEmpty()) language = QLocale().name().startsWith(QStringLiteral("en"))
@@ -711,10 +718,16 @@ void SettingsDialog::restoreDefaults() {
     if (answer != QMessageBox::Yes) return;
     settings_ = AppSettings{};
     loadControls(settings_);
-    persist();
+    persist(false);
+}
+
+void SettingsDialog::done(int result) {
+    // 备份回调负责恢复监听，任务完成前不能销毁设置窗口。
+    if (!storageBusy_) QDialog::done(result);
 }
 
 void SettingsDialog::exportBackup() {
+    if (storageBusy_) return;
     const QString filter = AppLocalization::get(QStringLiteral("EncryptedBackupFileType"))
         + QStringLiteral(" (*.pobak)");
     QFileDialog picker(this, AppLocalization::get(QStringLiteral("ExportBackupButtonContent")));
@@ -723,11 +736,15 @@ void SettingsDialog::exportBackup() {
     picker.setDefaultSuffix(QStringLiteral("pobak"));
     if (picker.exec() != QDialog::Accepted || picker.selectedFiles().isEmpty()) return;
     const QString destination = picker.selectedFiles().first();
+    storageBusy_ = true;
+    setEnabled(false);
     emit storageOperationStarted();
     auto *watcher = new QFutureWatcher<QString>(this);
     connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher] {
         const QString error = watcher->result();
         watcher->deleteLater();
+        storageBusy_ = false;
+        setEnabled(true);
         emit storageOperationFinished(false);
         if (error.isEmpty())
             QMessageBox::information(this, AppLocalization::get(QStringLiteral("BackupExportedTitle")),
@@ -743,6 +760,7 @@ void SettingsDialog::exportBackup() {
 }
 
 void SettingsDialog::restoreBackup() {
+    if (storageBusy_) return;
     const QString filter = AppLocalization::get(QStringLiteral("EncryptedBackupFileType"))
         + QStringLiteral(" (*.pobak)");
     const QString source = QFileDialog::getOpenFileName(this,
@@ -751,11 +769,15 @@ void SettingsDialog::restoreBackup() {
     if (QMessageBox::question(this, AppLocalization::get(QStringLiteral("RestoreBackupTitle")),
             AppLocalization::get(QStringLiteral("RestoreBackupMessage")),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) return;
+    storageBusy_ = true;
+    setEnabled(false);
     emit storageOperationStarted();
     auto *watcher = new QFutureWatcher<QString>(this);
     connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher] {
         const QString error = watcher->result();
         watcher->deleteLater();
+        storageBusy_ = false;
+        setEnabled(true);
         if (error.isEmpty()) {
             settings_ = AppSettings::load(settingsPath_);
             loadControls(settings_);

@@ -127,7 +127,18 @@ void UpdateService::showResult() {
     dialog.setWindowTitle(localized(QStringLiteral("UpdateAvailableTitle")));
     dialog.setText(AppLocalization::format(QStringLiteral("UpdateAvailableMessage"),
                                            {releaseTag_.mid(1), currentVersion}));
-    if (!releaseNotes_.isEmpty()) dialog.setDetailedText(releaseNotes_);
+    if (!releaseNotes_.isEmpty()) {
+        dialog.setDetailedText(releaseNotes_);
+        // 此时尚未添加操作按钮，唯一按钮是 Qt 内建的详情开关。
+        for (auto *details : dialog.findChildren<QPushButton *>()) {
+            details->setText(localized(QStringLiteral("ShowUpdateDetails")));
+            connect(details, &QPushButton::clicked, &dialog, [details, expanded = false]() mutable {
+                expanded = !expanded;
+                details->setText(localized(expanded ? QStringLiteral("HideUpdateDetails")
+                                                    : QStringLiteral("ShowUpdateDetails")));
+            });
+        }
+    }
 
     QAbstractButton *primary = nullptr;
     QAbstractButton *skip = nullptr;
@@ -137,7 +148,11 @@ void UpdateService::showResult() {
     } else {
         skip = dialog.addButton(localized(QStringLiteral("DoNotRemindUpdateButton")), QMessageBox::AcceptRole);
     }
-    dialog.addButton(localized(QStringLiteral("Later")), QMessageBox::RejectRole);
+    auto *later = dialog.addButton(localized(QStringLiteral("Later")), QMessageBox::RejectRole);
+    // 详情按钮由 Qt 创建，统一使用操作按钮的尺寸，避免它在按钮栏中单独变大。
+    QSize buttonSize = later->sizeHint().expandedTo(skip->sizeHint());
+    if (primary) buttonSize = buttonSize.expandedTo(primary->sizeHint());
+    for (auto *button : dialog.findChildren<QPushButton *>()) button->setFixedSize(buttonSize);
     dialog.exec();
     if (dialog.clickedButton() == primary && primary) startDownload();
     else if (dialog.clickedButton() == skip) ignoreCurrentVersion();

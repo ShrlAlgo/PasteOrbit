@@ -81,7 +81,9 @@ bool startElevated() {
     info.lpParameters = L"--elevated-restart";
     info.lpDirectory = reinterpret_cast<LPCWSTR>(workingDirectory.utf16());
     info.nShow = SW_SHOWNORMAL;
-    return ShellExecuteExW(&info) != FALSE;
+    const bool started = ShellExecuteExW(&info) != FALSE;
+    if (info.hProcess) CloseHandle(info.hProcess);
+    return started;
 }
 }
 

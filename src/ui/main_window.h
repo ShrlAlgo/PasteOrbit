@@ -67,6 +67,7 @@ private:
     void applyTheme();
     void registerHotkey();
     void updateWinVHook();
+    std::optional<RECT> capturePasteTarget(HWND window);
     void positionPanel(bool preferCursor, std::optional<RECT> resolvedBounds = std::nullopt);
     void refreshHistory();
     void loadMoreHistory();
@@ -165,6 +166,7 @@ private:
     QString highResolutionLoadingId_;
     int previewGeneration_ = 0;
     int panelShowGeneration_ = 0;
+    int pasteGeneration_ = 0;
     QThreadPool readPool_;
     QThreadPool writePool_;
     QColor pageColor_;

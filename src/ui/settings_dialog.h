@@ -24,6 +24,7 @@ signals:
     void storageOperationFinished(bool restored);
 
 protected:
+    void done(int result) override;
     void resizeEvent(QResizeEvent *event) override;
 
 private:
@@ -32,7 +33,7 @@ private:
     void addCard(QWidget *page, const QString &titleKey, const QString &descriptionKey, QWidget *control);
     void loadControls(const AppSettings &settings);
     void saveControls();
-    void persist();
+    void persist(bool preserveSkippedVersion = true);
     void chooseProcesses();
     void restoreDefaults();
     void exportBackup();
@@ -58,4 +59,5 @@ private:
     QStackedWidget *tabs_ = nullptr;
     QHash<QString, QPushButton *> shortcuts_;
     bool loading_ = false;
+    bool storageBusy_ = false;
 };

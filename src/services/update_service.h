@@ -39,7 +39,7 @@ private:
     QString installerPath_;
     QString downloadError_;
     QFile *downloadFile_ = nullptr;
-    QProgressDialog *progressDialog_ = nullptr;
+    QPointer<QProgressDialog> progressDialog_;
     bool checking_ = false;
     bool downloading_ = false;
     bool automatic_ = false;

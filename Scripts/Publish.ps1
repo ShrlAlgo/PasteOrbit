@@ -111,7 +111,7 @@ if ((-not (Test-Path -LiteralPath $cmakePath -PathType Leaf)) -or (-not (Test-Pa
 $env:PATH = "$toolchainDirectory;$env:PATH"
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
-    $Version = '2.3.10'
+    $Version = '2.4.1'
 }
 $configureArguments = @(
     '-S', $repositoryRoot,

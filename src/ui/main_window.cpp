@@ -58,9 +58,13 @@
 #include <QtConcurrent>
 
 #include <climits>
+#include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <functional>
 #include <memory>
+#include <thread>
+#include <system_error>
 #include <UIAutomation.h>
 #include <wrl/client.h>
 #include <windows.h>
@@ -71,6 +75,15 @@ constexpr int HistoryPageSize = 30;
 constexpr UINT TrayResumeMilliseconds = 10 * 60 * 1000;
 constexpr auto TextPayloadPrefix = "PasteOrbit.Text/1\n";
 constexpr char MixedImagePayloadPrefix[] = "PasteOrbit.Image/2\n";
+const QString WindowsRtfMime = QStringLiteral("application/x-qt-windows-mime;value=\"Rich Text Format\"");
+
+QByteArray clipboardRtf(const QMimeData *mime) {
+    for (const auto &format : {WindowsRtfMime, QStringLiteral("text/rtf"), QStringLiteral("application/rtf")}) {
+        const auto bytes = mime->data(format);
+        if (!bytes.isEmpty()) return bytes;
+    }
+    return {};
+}
 
 QStyle *popupStyle() {
     static QStyle *style = [] {
@@ -145,6 +158,11 @@ struct InputBounds {
     std::optional<RECT> control;
 };
 
+struct InputBoundsQuery {
+    InputBounds bounds;
+    std::atomic_bool finished{false};
+};
+
 InputBounds automationInputBounds(HWND foreground) {
     InputBounds bounds;
     DWORD targetProcess = 0;
@@ -161,8 +179,8 @@ InputBounds automationInputBounds(HWND foreground) {
     ComPtr<IUIAutomation> automation;
     ComPtr<IUIAutomationElement> focused;
     if (FAILED(CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER,
-                                IID_PPV_ARGS(automation.GetAddressOf())))
-        || FAILED(automation->GetFocusedElement(focused.GetAddressOf()))) return bounds;
+                                IID_PPV_ARGS(automation.GetAddressOf())))) return bounds;
+    if (FAILED(automation->GetFocusedElement(focused.GetAddressOf())) || !focused) return bounds;
     BOOL hasFocus = FALSE;
     int process = 0;
     if (FAILED(focused->get_CurrentHasKeyboardFocus(&hasFocus)) || !hasFocus
@@ -191,6 +209,23 @@ InputBounds automationInputBounds(HWND foreground) {
         && SUCCEEDED(focused->get_CurrentBoundingRectangle(&controlRect))
         && !IsRectEmpty(&controlRect)) bounds.control = controlRect;
     return bounds;
+}
+
+std::shared_ptr<InputBoundsQuery> startInputBoundsQuery(HWND target) {
+    // 外部提供程序可能长期无响应；只允许一个查询，后台线程不持有窗口或 Qt 对象。
+    static std::weak_ptr<InputBoundsQuery> pending;
+    if (!pending.expired()) return {};
+    auto query = std::make_shared<InputBoundsQuery>();
+    pending = query;
+    try {
+        std::thread([query, target] {
+            query->bounds = automationInputBounds(target);
+            query->finished.store(true, std::memory_order_release);
+        }).detach();
+    } catch (const std::system_error &) {
+        return {};
+    }
+    return query;
 }
 
 QSize boundedSize(QSize size, int maxWidth, int maxHeight, qint64 maxPixels) {
@@ -307,7 +342,8 @@ bool parseHotkey(const QString &shortcut, UINT &modifiers, UINT &key) {
         if (part == QStringLiteral("ctrl") || part == QStringLiteral("control")) modifiers |= MOD_CONTROL;
         else if (part == QStringLiteral("alt")) modifiers |= MOD_ALT;
         else if (part == QStringLiteral("shift")) modifiers |= MOD_SHIFT;
-        else if (part == QStringLiteral("win") || part == QStringLiteral("windows")) modifiers |= MOD_WIN;
+        else if (part == QStringLiteral("win") || part == QStringLiteral("windows")
+                 || part == QStringLiteral("meta")) modifiers |= MOD_WIN;
         else if (part.size() == 1) key = static_cast<UINT>(VkKeyScanW(part.at(0).toUpper().unicode()) & 0xFF);
         else if (part.size() >= 2 && part.at(0) == QLatin1Char('f')) {
             bool ok = false;
@@ -432,7 +468,10 @@ TextContent decodeTextContent(const QByteArray &content) {
     const auto json = QJsonDocument::fromJson(content.mid(prefix.size())).object();
     result.text = json.value(QStringLiteral("Text")).toString();
     result.html = json.value(QStringLiteral("Html")).toString();
-    result.rtf = json.value(QStringLiteral("Rtf")).toString().toUtf8();
+    // RTF 可包含非 UTF-8 字节；新记录使用 Base64，旧记录仍按原格式读取。
+    result.rtf = json.contains(QStringLiteral("RtfBase64"))
+        ? QByteArray::fromBase64(json.value(QStringLiteral("RtfBase64")).toString().toLatin1())
+        : json.value(QStringLiteral("Rtf")).toString().toUtf8();
     result.markdown = json.value(QStringLiteral("Markdown")).toBool();
     return result;
 }
@@ -507,6 +546,8 @@ MainWindow::~MainWindow() {
 }
 
 void MainWindow::beginStorageOperation() {
+    suppressClipboardCapture_ = true;
+    hidePanel();
     restoreWasPaused_ = paused_;
     paused_ = true;
     captureTimer_.stop();
@@ -521,6 +562,7 @@ void MainWindow::beginStorageOperation() {
 }
 
 void MainWindow::finishStorageOperation(bool restored) {
+    suppressClipboardCapture_ = false;
     paused_ = restoreWasPaused_;
     lastClipboardSequence_ = GetClipboardSequenceNumber();
     if (restored) {
@@ -867,8 +909,8 @@ void MainWindow::registerHotkey() {
     UnregisterHotKey(reinterpret_cast<HWND>(winId()), HotkeyId);
     UINT modifiers = 0;
     UINT key = 0;
-    if (parseHotkey(settings_.globalHotKey, modifiers, key)
-        && !RegisterHotKey(reinterpret_cast<HWND>(winId()), HotkeyId, modifiers, key)) {
+    if (!parseHotkey(settings_.globalHotKey, modifiers, key)
+        || !RegisterHotKey(reinterpret_cast<HWND>(winId()), HotkeyId, modifiers, key)) {
         showStatus(AppLocalization::format(QStringLiteral("GlobalHotKeyRegistrationFailed"),
                                            {settings_.globalHotKey}));
     }
@@ -911,7 +953,10 @@ void MainWindow::positionPanel(bool preferCursor, std::optional<RECT> resolvedBo
     POINT point{};
     bool hasPoint = false;
     std::optional<RECT> inputBounds = resolvedBounds;
-    if (preferCursor) hasPoint = GetCursorPos(&point) != FALSE;
+    if (preferCursor) {
+        inputBounds.reset();
+        hasPoint = GetCursorPos(&point) != FALSE;
+    }
     if (!hasPoint && !inputBounds && targetWindow_) {
         GUITHREADINFO info{};
         info.cbSize = sizeof(info);
@@ -949,31 +994,36 @@ void MainWindow::positionPanel(bool preferCursor, std::optional<RECT> resolvedBo
     SetWindowPos(panel, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
+std::optional<RECT> MainWindow::capturePasteTarget(HWND window) {
+    DWORD process = 0;
+    const DWORD thread = window ? GetWindowThreadProcessId(window, &process) : 0;
+    if (!thread || process == GetCurrentProcessId()) return {};
+    targetWindow_ = window;
+    targetFocusWindow_ = nullptr;
+    GUITHREADINFO info{};
+    info.cbSize = sizeof(info);
+    if (!GetGUIThreadInfo(thread, &info)) return {};
+    if (info.hwndFocus && (info.hwndFocus == window || IsChild(window, info.hwndFocus)))
+        targetFocusWindow_ = info.hwndFocus;
+    if (!info.hwndCaret) return {};
+    RECT caret = info.rcCaret;
+    MapWindowPoints(info.hwndCaret, nullptr, reinterpret_cast<POINT *>(&caret), 2);
+    return caret;
+}
+
 void MainWindow::showPanel(bool fromTray, HWND requestedTarget) {
+    if (suppressClipboardCapture_) return;
+    ++pasteGeneration_;
     const int generation = ++panelShowGeneration_;
     const HWND foreground = requestedTarget && IsWindow(requestedTarget) ? requestedTarget : GetForegroundWindow();
     const bool hasTarget = foreground && foreground != reinterpret_cast<HWND>(winId());
-    if (hasTarget) targetWindow_ = foreground;
-    targetFocusWindow_ = nullptr;
-    std::optional<RECT> inputBounds;
-    if (hasTarget) {
-        GUITHREADINFO info{};
-        info.cbSize = sizeof(info);
-        const DWORD thread = GetWindowThreadProcessId(foreground, nullptr);
-        if (thread && GetGUIThreadInfo(thread, &info)) {
-            if (info.hwndFocus && (info.hwndFocus == foreground || IsChild(foreground, info.hwndFocus)))
-                targetFocusWindow_ = info.hwndFocus;
-            if (info.hwndCaret) {
-                RECT caret = info.rcCaret;
-                MapWindowPoints(info.hwndCaret, nullptr, reinterpret_cast<POINT *>(&caret), 2);
-                inputBounds = caret;
-            }
-        }
-    }
+    const auto inputBounds = hasTarget ? capturePasteTarget(foreground) : std::nullopt;
     const auto shown = std::make_shared<bool>(false);
-    const auto present = [this, fromTray, generation, shown](std::optional<RECT> bounds) {
+    const auto present = [this, fromTray, foreground, generation, shown](std::optional<RECT> bounds) {
         if (*shown || generation != panelShowGeneration_) return;
         *shown = true;
+        // 等待定位期间用户已切换窗口时，丢弃这次唤出，避免抢回焦点。
+        if (!fromTray && GetForegroundWindow() != foreground) return;
         positionPanel(fromTray, bounds);
         if (!isVisible()) show();
         raise();
@@ -996,27 +1046,41 @@ void MainWindow::showPanel(bool fromTray, HWND requestedTarget) {
         present(inputBounds);
         return;
     }
-    // UI Automation 可能被目标程序阻塞；最多等待 100ms，且只在显示前定位一次。
-    auto *watcher = new QFutureWatcher<InputBounds>(this);
-    connect(watcher, &QFutureWatcher<InputBounds>::finished, this, [watcher, present, inputBounds] {
-        const auto bounds = watcher->result();
-        watcher->deleteLater();
-        const auto resolved = bounds.caret ? bounds.caret : bounds.control;
+    // UIA 查询限时等待，且只在显示前定位一次。
+    const auto query = startInputBoundsQuery(foreground);
+    if (!query) { present(inputBounds); return; }
+    auto *poll = new QTimer(this);
+    poll->setInterval(10);
+    connect(poll, &QTimer::timeout, this, [this, query, poll, present, inputBounds, generation, foreground] {
+        if (!query->finished.load(std::memory_order_acquire)) return;
+        poll->stop();
+        if (generation != panelShowGeneration_ || foreground != targetWindow_) return;
+        const auto resolved = query->bounds.caret ? query->bounds.caret : query->bounds.control;
         present(resolved ? resolved : inputBounds);
     });
-    watcher->setFuture(QtConcurrent::run(QThreadPool::globalInstance(), [foreground] {
-        return automationInputBounds(foreground);
-    }));
-    QTimer::singleShot(100, this, [present, inputBounds] { present(inputBounds); });
+    poll->start();
+    QTimer::singleShot(100, poll, [poll, present, inputBounds] {
+        poll->stop();
+        poll->deleteLater();
+        present(inputBounds);
+    });
 }
 
 void MainWindow::hidePanel() {
+    ++panelShowGeneration_;
+    ++pasteGeneration_;
     if (!isVisible()) return;
+    hide();
     if (!searchBox_->text().isEmpty()) {
         const QSignalBlocker blocker(searchBox_);
         searchBox_->clear();
         refreshHistory();
     } else {
+        // 隐藏后丢弃未完成的后续页，避免裁剪后的列表又被异步回调填满。
+        if (loadingMore_) {
+            ++historyGeneration_;
+            loadingMore_ = false;
+        }
         model_->trimToFirstPage();
         nextCursor_ = firstPageCursor_;
     }
@@ -1028,7 +1092,6 @@ void MainWindow::hidePanel() {
     highResolutionPreviewId_.clear();
     highResolutionLoadingId_.clear();
     model_->releaseThumbnails();
-    hide();
     targetWindow_ = nullptr;
     targetFocusWindow_ = nullptr;
 }
@@ -1065,7 +1128,7 @@ void MainWindow::refreshHistory() {
 }
 
 void MainWindow::loadMoreHistory() {
-    if (loadingPage_ || loadingMore_ || !nextCursor_) return;
+    if (!isVisible() || loadingPage_ || loadingMore_ || !nextCursor_) return;
     loadingMore_ = true;
     const int generation = historyGeneration_;
     const QString query = searchBox_->text();
@@ -1158,6 +1221,19 @@ void MainWindow::showStatus(const QString &message) {
 
 bool MainWindow::nativeEventFilter(const QByteArray &, void *message, qintptr *result) {
     const auto *native = static_cast<MSG *>(message);
+    // 消息过滤期间不能用 winId() 创建窗口，否则窗口创建消息会递归进入过滤器。
+    const HWND panel = reinterpret_cast<HWND>(internalWinId());
+    if (panel && native->hwnd == panel && native->message == WM_SETTINGCHANGE
+        && settings_.themeMode == QStringLiteral("System"))
+        QTimer::singleShot(0, this, &MainWindow::applyTheme);
+    // 鼠标激活置顶面板之前保存最新目标，此时外部输入控件尚未失去焦点。
+    if (isPinned_ && panel && native->hwnd == panel
+        && native->message == WM_MOUSEACTIVATE) capturePasteTarget(GetForegroundWindow());
+    if (isPinned_ && panel && native->hwnd == panel
+        && native->message == WM_ACTIVATE && LOWORD(native->wParam) != WA_INACTIVE) {
+        const HWND previous = reinterpret_cast<HWND>(native->lParam);
+        if (previous != targetWindow_) capturePasteTarget(previous);
+    }
     if (native->message == WM_HOTKEY && native->wParam == HotkeyId) {
         const HWND foreground = GetForegroundWindow();
         showPanel(false, foreground);
@@ -1397,6 +1473,7 @@ bool MainWindow::event(QEvent *event) {
     // 托盘唤出的顶层窗口失去激活时不会触发 QWidget::focusOutEvent。
     if (event->type() == QEvent::WindowDeactivate) {
         if (isPinned_ && !settingsWindowOpen_) {
+            targetFocusWindow_ = nullptr;
             const HWND foreground = GetForegroundWindow();
             DWORD processId = 0;
             if (foreground) GetWindowThreadProcessId(foreground, &processId);
@@ -1836,7 +1913,7 @@ bool MainWindow::sourceIsExcluded() const {
 }
 
 void MainWindow::captureClipboard() {
-    if (paused_ || captureSaving_) return;
+    if (paused_ || suppressClipboardCapture_ || captureSaving_) return;
     const DWORD sequence = GetClipboardSequenceNumber();
     if (!sequence || sequence == lastClipboardSequence_ || sequence == ownClipboardSequence_) return;
     if (sourceIsExcluded()) { lastClipboardSequence_ = sequence; return; }
@@ -1846,6 +1923,7 @@ void MainWindow::captureClipboard() {
     ClipboardCapture capture;
     capture.sourceApplication = source;
     QImage fallback;
+    const auto urls = mime->urls();
 
     if (mime->hasImage()) {
         if (!settings_.monitorImages) { lastClipboardSequence_ = sequence; return; }
@@ -1863,14 +1941,13 @@ void MainWindow::captureClipboard() {
         if (capture.content.isEmpty() && fallback.isNull()) return;
         capture.text = mime->hasText() ? mime->text() : QString{};
         capture.html = mime->hasHtml() ? mime->html() : QString{};
-        capture.rtf = mime->data(QStringLiteral("text/rtf"));
-        if (capture.rtf.isEmpty()) capture.rtf = mime->data(QStringLiteral("application/rtf"));
+        capture.rtf = clipboardRtf(mime);
         if (!capture.text.isEmpty()) capture.searchText = capture.text;
-    } else if (mime->hasUrls()) {
+    } else if (std::any_of(urls.cbegin(), urls.cend(), [](const QUrl &url) { return url.isLocalFile(); })) {
         if (!settings_.monitorFiles) { lastClipboardSequence_ = sequence; return; }
         QStringList paths;
         QJsonArray json;
-        for (const auto &url : mime->urls()) {
+        for (const auto &url : urls) {
             if (!url.isLocalFile()) continue;
             const QString path = QDir::toNativeSeparators(url.toLocalFile());
             paths.push_back(path);
@@ -1890,10 +1967,8 @@ void MainWindow::captureClipboard() {
         payload.insert(QStringLiteral("Text"), text);
         payload.insert(QStringLiteral("Html"), mime->hasHtml() ? QJsonValue(mime->html()) : QJsonValue(QJsonValue::Null));
         payload.insert(QStringLiteral("Markdown"), mime->hasFormat(QStringLiteral("text/markdown")));
-        QByteArray rtf = mime->data(QStringLiteral("text/rtf"));
-        if (rtf.isEmpty()) rtf = mime->data(QStringLiteral("application/rtf"));
-        payload.insert(QStringLiteral("Rtf"), rtf.isEmpty() ? QJsonValue(QJsonValue::Null)
-                                                             : QJsonValue(QString::fromUtf8(rtf)));
+        const QByteArray rtf = clipboardRtf(mime);
+        payload.insert(QStringLiteral("RtfBase64"), QString::fromLatin1(rtf.toBase64()));
         capture.content = QByteArray(TextPayloadPrefix) + QJsonDocument(payload).toJson(QJsonDocument::Compact);
     } else {
         lastClipboardSequence_ = sequence;
@@ -1940,6 +2015,7 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile) {
     if (!itemPointer) return;
     const HistoryItem item = *itemPointer;
     if (asFile && item.kind == 2) return;
+    const int generation = ++pasteGeneration_;
     HWND target = targetWindow_;
     const HWND targetFocus = targetFocusWindow_;
     if (!target) {
@@ -1949,9 +2025,10 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile) {
     const QString path = databasePath_;
     auto *watcher = new QFutureWatcher<QPair<HistoryItem, QByteArray>>(this);
     connect(watcher, &QFutureWatcher<QPair<HistoryItem, QByteArray>>::finished, this,
-            [this, watcher, target, targetFocus, plainText, asFile, id] {
+            [this, watcher, target, targetFocus, plainText, asFile, id, generation] {
         const auto result = watcher->result();
         watcher->deleteLater();
+        if (generation != pasteGeneration_) return;
         const HistoryItem item = result.first;
         const QByteArray content = result.second;
         if (content.isEmpty()) { showStatus(AppLocalization::get(QStringLiteral("ContentRestoreFailed"))); return; }
@@ -1987,7 +2064,10 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile) {
             mime->setText(text.text);
             if (!plainText) {
                 if (!text.html.isEmpty()) mime->setHtml(text.html);
-                if (!text.rtf.isEmpty()) mime->setData(QStringLiteral("text/rtf"), text.rtf);
+                if (!text.rtf.isEmpty()) {
+                    mime->setData(QStringLiteral("text/rtf"), text.rtf);
+                    mime->setData(WindowsRtfMime, text.rtf);
+                }
                 if (text.markdown) mime->setData(QStringLiteral("text/markdown"), text.text.toUtf8());
             }
         } else if (item.kind == 1) {
@@ -2005,7 +2085,10 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile) {
                 mime->setData(imageMimeType(image.bytes), image.bytes);
                 if (!image.text.isEmpty()) mime->setText(image.text);
                 if (!image.html.isEmpty()) mime->setHtml(image.html);
-                if (!image.rtf.isEmpty()) mime->setData(QStringLiteral("text/rtf"), image.rtf);
+                if (!image.rtf.isEmpty()) {
+                    mime->setData(QStringLiteral("text/rtf"), image.rtf);
+                    mime->setData(WindowsRtfMime, image.rtf);
+                }
             }
         } else if (item.kind == 2) {
             const auto paths = QJsonDocument::fromJson(content).array();
@@ -2016,6 +2099,7 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile) {
         QApplication::clipboard()->setMimeData(mime);
         ownClipboardSequence_ = GetClipboardSequenceNumber();
         lastClipboardSequence_ = ownClipboardSequence_;
+        const DWORD pasteSequence = ownClipboardSequence_;
         const bool keepPanel = isPinned_;
         if (!keepPanel) hidePanel();
         if (!target || !IsWindow(target)) {
@@ -2028,7 +2112,13 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile) {
         auto *timer = new QTimer(this);
         timer->setInterval(10);
         auto attempts = std::make_shared<int>(0);
-        connect(timer, &QTimer::timeout, this, [this, timer, attempts, target, targetFocus, id, keepPanel] {
+        connect(timer, &QTimer::timeout, this, [this, timer, attempts, target, targetFocus, id, keepPanel,
+                                              directTextPaste = item.kind == 0 && !asFile,
+                                              generation = pasteGeneration_, pasteSequence] {
+            if (generation != pasteGeneration_ || GetClipboardSequenceNumber() != pasteSequence) {
+                timer->stop(); timer->deleteLater();
+                return;
+            }
             if (!IsWindow(target) || GetForegroundWindow() != target) {
                 timer->stop(); timer->deleteLater();
                 showStatus(AppLocalization::get(QStringLiteral("ContentRestoredManualPaste")));
@@ -2042,26 +2132,53 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile) {
                 showStatus(AppLocalization::get(QStringLiteral("ContentRestoredManualPaste")));
                 return;
             }
-            // 激活完成后恢复原子控件焦点，避免同一窗口内粘贴到其他输入框。
-            if (targetFocus && IsWindow(targetFocus)
-                && (targetFocus == target || IsChild(target, targetFocus))) {
+            // 激活目标窗口后恢复保存的原生输入窗口。
+            if (targetFocus) {
+                if (!IsWindow(targetFocus) || (targetFocus != target && !IsChild(target, targetFocus))) {
+                    timer->stop(); timer->deleteLater();
+                    showStatus(AppLocalization::get(QStringLiteral("ContentRestoredManualPaste")));
+                    return;
+                }
                 const DWORD targetThread = GetWindowThreadProcessId(targetFocus, nullptr);
                 const DWORD currentThread = GetCurrentThreadId();
                 const bool attached = targetThread && targetThread != currentThread
                     && AttachThreadInput(currentThread, targetThread, TRUE);
                 if (attached || targetThread == currentThread) SetFocus(targetFocus);
                 if (attached) AttachThreadInput(currentThread, targetThread, FALSE);
+                GUITHREADINFO info{};
+                info.cbSize = sizeof(info);
+                if (!GetGUIThreadInfo(targetThread, &info) || info.hwndFocus != targetFocus
+                    || GetForegroundWindow() != target) {
+                    timer->stop(); timer->deleteLater();
+                    showStatus(AppLocalization::get(QStringLiteral("ContentRestoredManualPaste")));
+                    return;
+                }
             }
-            INPUT inputs[4]{};
-            const WORD keys[4]{VK_CONTROL, 'V', 'V', VK_CONTROL};
-            for (int i = 0; i < 4; ++i) {
-                inputs[i].type = INPUT_KEYBOARD;
-                inputs[i].ki.wVk = keys[i];
-                inputs[i].ki.dwFlags = (i >= 2) ? KEYEVENTF_KEYUP : 0;
+            bool pasted = false;
+            wchar_t controlClass[32]{};
+            const bool pasteToNativeEdit = directTextPaste && targetFocus
+                && GetClassNameW(targetFocus, controlClass, 32)
+                && QString::fromWCharArray(controlClass).compare(QStringLiteral("Edit"), Qt::CaseInsensitive) == 0;
+            if (pasteToNativeEdit) {
+                // 原生 Edit 直接接收粘贴消息，避免目标程序将模拟按键转给其他区域。
+                DWORD_PTR ignored = 0;
+                pasted = SendMessageTimeoutW(targetFocus, WM_PASTE, 0, 0,
+                                             SMTO_ABORTIFHUNG | SMTO_BLOCK, 250, &ignored) != 0;
+            } else {
+                INPUT inputs[4]{};
+                const WORD keys[4]{VK_CONTROL, 'V', 'V', VK_CONTROL};
+                for (int i = 0; i < 4; ++i) {
+                    inputs[i].type = INPUT_KEYBOARD;
+                    inputs[i].ki.wVk = keys[i];
+                    inputs[i].ki.dwFlags = (i >= 2) ? KEYEVENTF_KEYUP : 0;
+                }
+                pasted = SendInput(4, inputs, sizeof(INPUT)) == 4;
             }
-            const UINT sent = SendInput(4, inputs, sizeof(INPUT));
             timer->stop(); timer->deleteLater();
-            if (sent != 4) { showStatus(AppLocalization::get(QStringLiteral("ContentRestoredManualPaste"))); return; }
+            if (!pasted) {
+                showStatus(AppLocalization::get(QStringLiteral("ContentRestoredManualPaste")));
+                return;
+            }
             const QString path = databasePath_;
             auto *touchWatcher = new QFutureWatcher<QString>(this);
             connect(touchWatcher, &QFutureWatcher<QString>::finished, this, [this, touchWatcher, keepPanel] {

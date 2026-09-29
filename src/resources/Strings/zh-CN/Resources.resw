@@ -320,4 +320,6 @@
   <data name="PasteAsFileMenuItemText" xml:space="preserve"><value>粘贴为文件</value></data>
   <data name="DeleteRecordMenuItemText" xml:space="preserve"><value>删除记录</value></data>
   <data name="DoNotRemindUpdateButton" xml:space="preserve"><value>不再提示</value></data>
+  <data name="ShowUpdateDetails" xml:space="preserve"><value>显示详情</value></data>
+  <data name="HideUpdateDetails" xml:space="preserve"><value>隐藏详情</value></data>
 </root>
