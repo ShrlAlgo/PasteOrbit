@@ -286,13 +286,24 @@ bool UpdateService::startInstaller() {
     const QString scriptPath = QDir(QDir::tempPath()).filePath(
         QStringLiteral("PasteOrbit-update-%1.ps1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces)));
     const QString script = QString::fromUtf8(R"PS(
-param([int]$ProcessId,[string]$InstallerPath,[string]$ApplicationPath,[string]$ApplicationDirectory)
+param([int]$ProcessId,[string]$InstallerPath,[string]$ApplicationPath,[string]$ApplicationDirectory,[string]$ExpectedVersion)
 $ErrorActionPreference = 'Stop'
-$uninstallStarted = $false
 $installed = $false
 try {
-    try { Wait-Process -Id $ProcessId -Timeout 60 -ErrorAction Stop } catch {}
-    if (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) { throw 'PasteOrbit is still running' }
+    try { Wait-Process -Id $ProcessId -Timeout 10 -ErrorAction Stop } catch {}
+    # 旧版可能多开；只结束与当前安装目录完全一致的残留进程，避免占用安装文件。
+    $applicationFullPath = [IO.Path]::GetFullPath($ApplicationPath)
+    $instances = Get-CimInstance Win32_Process -Filter "Name = 'PasteOrbit.exe'" |
+        Where-Object { $_.ExecutablePath -and [string]::Equals(
+            [IO.Path]::GetFullPath($_.ExecutablePath), $applicationFullPath,
+            [StringComparison]::OrdinalIgnoreCase) }
+    foreach ($instance in $instances) {
+        Stop-Process -Id $instance.ProcessId -Force -ErrorAction Stop
+        try { Wait-Process -Id $instance.ProcessId -Timeout 10 -ErrorAction Stop } catch {}
+        if (Get-Process -Id $instance.ProcessId -ErrorAction SilentlyContinue) {
+            throw 'PasteOrbit is still running'
+        }
+    }
     if (-not (Test-Path -LiteralPath $InstallerPath -PathType Leaf)) { throw 'Downloaded installer is missing' }
 
     # 只卸载与当前程序目录匹配的 Inno 安装，绝不执行其他位置的卸载程序。
@@ -334,7 +345,6 @@ try {
         if ($desktop -and (Test-Path -LiteralPath (Join-Path $desktop 'PasteOrbit.lnk') -PathType Leaf)) {
             $tasks += 'desktopicon'
         }
-        $uninstallStarted = $true
         $uninstaller = Start-Process -FilePath $uninstallerPath -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -Wait -PassThru
         if ($uninstaller.ExitCode -ne 0) { throw 'Uninstaller failed' }
         # Inno 的卸载程序会派生临时副本，等待原卸载文件消失后再安装新版。
@@ -346,13 +356,16 @@ try {
     $args = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CLOSEAPPLICATIONS',('/DIR="' + $ApplicationDirectory + '"'))
     if ($installed) { $args += ('/TASKS="' + ($tasks -join ',') + '"') }
     $installer = Start-Process -FilePath $InstallerPath -ArgumentList $args -Wait -PassThru
-    if ($installer.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $ApplicationPath -PathType Leaf)) {
+    $installedVersion = (Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{D6C9A5F7-5C7E-4C1D-9F2A-7C9D8B3E4A11}_is1' -ErrorAction SilentlyContinue).DisplayVersion
+    if ($installer.ExitCode -ne 0 -or
+        -not (Test-Path -LiteralPath $ApplicationPath -PathType Leaf) -or
+        $installedVersion -ne $ExpectedVersion) {
         throw 'Installer failed'
     }
     $success = $true
     Start-Process -FilePath $ApplicationPath -WorkingDirectory $ApplicationDirectory
 } catch {
-    if (-not $uninstallStarted -and (Test-Path -LiteralPath $ApplicationPath -PathType Leaf)) {
+    if (Test-Path -LiteralPath $ApplicationPath -PathType Leaf) {
         Start-Process -FilePath $ApplicationPath -WorkingDirectory $ApplicationDirectory
     }
     Add-Type -AssemblyName System.Windows.Forms
@@ -375,7 +388,8 @@ try {
         QStringLiteral("-ExecutionPolicy"), QStringLiteral("Bypass"), QStringLiteral("-File"), scriptPath,
         QStringLiteral("-ProcessId"), QString::number(QCoreApplication::applicationPid()),
         QStringLiteral("-InstallerPath"), installerPath_, QStringLiteral("-ApplicationPath"), applicationPath,
-        QStringLiteral("-ApplicationDirectory"), applicationDirectory});
+        QStringLiteral("-ApplicationDirectory"), applicationDirectory,
+        QStringLiteral("-ExpectedVersion"), releaseTag_.mid(1)});
     launcher.setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments *arguments) {
         arguments->flags |= CREATE_NO_WINDOW;
     });
