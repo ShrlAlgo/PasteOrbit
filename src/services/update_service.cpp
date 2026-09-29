@@ -288,20 +288,79 @@ bool UpdateService::startInstaller() {
     const QString script = QString::fromUtf8(R"PS(
 param([int]$ProcessId,[string]$InstallerPath,[string]$ApplicationPath,[string]$ApplicationDirectory)
 $ErrorActionPreference = 'Stop'
+$uninstallStarted = $false
+$installed = $false
 try {
     try { Wait-Process -Id $ProcessId -Timeout 60 -ErrorAction Stop } catch {}
+    if (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) { throw 'PasteOrbit is still running' }
+    if (-not (Test-Path -LiteralPath $InstallerPath -PathType Leaf)) { throw 'Downloaded installer is missing' }
+
+    # 只卸载与当前程序目录匹配的 Inno 安装，绝不执行其他位置的卸载程序。
+    $expectedDirectory = [IO.Path]::GetFullPath($ApplicationDirectory).TrimEnd([char]'\')
+    $registry = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+        [Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryView]::Registry32)
+    try {
+        $key = $registry.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Uninstall\{D6C9A5F7-5C7E-4C1D-9F2A-7C9D8B3E4A11}_is1')
+        if ($key) {
+            try {
+                $installedDirectory = [string]$key.GetValue('InstallLocation')
+                $uninstallCommand = [string]$key.GetValue('UninstallString')
+            } finally { $key.Close() }
+            if ([string]::IsNullOrWhiteSpace($installedDirectory) -or
+                -not [string]::Equals([IO.Path]::GetFullPath($installedDirectory).TrimEnd([char]'\'),
+                                      $expectedDirectory, [StringComparison]::OrdinalIgnoreCase) -or
+                $uninstallCommand -cnotmatch '^"([^"]+\\unins[0-9]+\.exe)"$') {
+                throw 'Existing installation does not match the running application'
+            }
+            $uninstallerPath = $Matches[1]
+            if (-not [string]::Equals([IO.Path]::GetDirectoryName($uninstallerPath).TrimEnd([char]'\'),
+                                      $expectedDirectory, [StringComparison]::OrdinalIgnoreCase) -or
+                -not (Test-Path -LiteralPath $uninstallerPath -PathType Leaf)) {
+                throw 'Existing uninstaller is unavailable or outside the application directory'
+            }
+            if (((Get-Item -LiteralPath $expectedDirectory).Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+                ((Get-Item -LiteralPath $uninstallerPath).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                throw 'Refusing to uninstall through a symbolic link'
+            }
+            $installed = $true
+        }
+    } finally { $registry.Close() }
+
+    $tasks = @()
+    if ($installed) {
+        $runValue = (Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name PasteOrbit -ErrorAction SilentlyContinue).PasteOrbit
+        if ($runValue -eq ('"' + $ApplicationPath + '"')) { $tasks += 'autostart' }
+        $desktop = [Environment]::GetFolderPath('DesktopDirectory')
+        if ($desktop -and (Test-Path -LiteralPath (Join-Path $desktop 'PasteOrbit.lnk') -PathType Leaf)) {
+            $tasks += 'desktopicon'
+        }
+        $uninstallStarted = $true
+        $uninstaller = Start-Process -FilePath $uninstallerPath -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -Wait -PassThru
+        if ($uninstaller.ExitCode -ne 0) { throw 'Uninstaller failed' }
+        # Inno 的卸载程序会派生临时副本，等待原卸载文件消失后再安装新版。
+        for ($i = 0; $i -lt 300 -and (Test-Path -LiteralPath $uninstallerPath); $i++) {
+            Start-Sleep -Milliseconds 100
+        }
+        if (Test-Path -LiteralPath $uninstallerPath) { throw 'Uninstaller did not finish' }
+    }
     $args = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CLOSEAPPLICATIONS',('/DIR="' + $ApplicationDirectory + '"'))
+    if ($installed) { $args += ('/TASKS="' + ($tasks -join ',') + '"') }
     $installer = Start-Process -FilePath $InstallerPath -ArgumentList $args -Wait -PassThru
-    if ($installer.ExitCode -ne 0) { throw 'Installer failed' }
-    if (Test-Path -LiteralPath $ApplicationPath -PathType Leaf) {
-        Start-Process -FilePath $ApplicationPath -WorkingDirectory $ApplicationDirectory
+    if ($installer.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $ApplicationPath -PathType Leaf)) {
+        throw 'Installer failed'
     }
+    $success = $true
+    Start-Process -FilePath $ApplicationPath -WorkingDirectory $ApplicationDirectory
 } catch {
-    if (Test-Path -LiteralPath $ApplicationPath -PathType Leaf) {
+    if (-not $uninstallStarted -and (Test-Path -LiteralPath $ApplicationPath -PathType Leaf)) {
         Start-Process -FilePath $ApplicationPath -WorkingDirectory $ApplicationDirectory
     }
+    Add-Type -AssemblyName System.Windows.Forms
+    [System.Windows.Forms.MessageBox]::Show(
+        "PasteOrbit 更新未完成。安装包已保留：$InstallerPath`n$($_.Exception.Message)",
+        'PasteOrbit', 'OK', 'Error') | Out-Null
 } finally {
-    Remove-Item -LiteralPath $InstallerPath -Force -ErrorAction SilentlyContinue
+    if ($success) { Remove-Item -LiteralPath $InstallerPath -Force -ErrorAction SilentlyContinue }
     Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
 }
 )PS");

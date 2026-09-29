@@ -144,12 +144,21 @@ $stagedExecutable = Join-Path $deploymentDirectory 'PasteOrbit.exe'
 Copy-Item -LiteralPath $builtExecutable -Destination $stagedExecutable
 # 使用 Windows 原生网络后端；不部署 TUIO、GLib 和应用未使用的数据库驱动。
 # 必须先筛选插件，再收集动态依赖，避免把 GLib 的整条 DLL 依赖链带入发布包。
-& $deployToolPath --release --no-translations --compiler-runtime `
-    --skip-plugin-types generic `
-    --exclude-plugins qglib,qsqlibase,qsqlmysql,qsqlodbc,qsqlpsql `
+& $deployToolPath --release --no-translations --no-compiler-runtime --no-system-dxc-compiler `
+    --skip-plugin-types generic,styles `
+    --exclude-plugins qglib,qsqlibase,qsqlmimer,qsqloci,qsqlmysql,qsqlodbc,qsqlpsql `
     --dir $deploymentDirectory $stagedExecutable
 if ($LASTEXITCODE -ne 0) {
     throw "Qt 运行库部署失败，退出代码：$LASTEXITCODE"
+}
+if ($useMsvc) {
+    # 将当前 MSVC 工具集的发布版 CRT 放在应用目录，避免捆绑未执行的完整安装器。
+    $redistRoot = Join-Path $env:VCToolsRedistDir 'x64'
+    $crtDirectory = Get-ChildItem -LiteralPath $redistRoot -Directory -Filter 'Microsoft.VC*.CRT' | Select-Object -First 1
+    if (-not $crtDirectory) { throw "未找到 MSVC 发布版运行库：$redistRoot" }
+    foreach ($runtimeFile in (Get-ChildItem -LiteralPath $crtDirectory.FullName -File -Filter '*.dll')) {
+        Copy-Item -LiteralPath $runtimeFile.FullName -Destination $deploymentDirectory -Force
+    }
 }
 # MSYS2 的 windeployqt 不会稳定复制 MinGW 与 SQLite 插件的动态依赖，先显式带上基础运行库。
 foreach ($runtimeName in $(if ($useMsvc) { @() } else { @('libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll', 'libsqlite3-0.dll') })) {
