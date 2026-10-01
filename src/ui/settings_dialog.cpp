@@ -31,7 +31,6 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSet>
-#include <QSettings>
 #include <QStackedWidget>
 #include <QStyle>
 #include <QStyleFactory>
@@ -582,13 +581,9 @@ void SettingsDialog::persist(bool preserveSkippedVersion) {
                              AppLocalization::get(QStringLiteral("SettingsSaveFailed")));
         return;
     }
-    QSettings startup(QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"),
-                       QSettings::NativeFormat);
-    const QString startupCommand = settings_.startWithWindows
-        ? QStringLiteral("\"%1\"").arg(QCoreApplication::applicationFilePath()) : QString{};
-    if (startup.value(QStringLiteral("PasteOrbit")).toString() != startupCommand) {
-        if (startupCommand.isEmpty()) startup.remove(QStringLiteral("PasteOrbit"));
-        else startup.setValue(QStringLiteral("PasteOrbit"), startupCommand);
+    if (!settings_.applyWindowsStartup()) {
+        QMessageBox::warning(this, AppLocalization::get(QStringLiteral("SettingsSaveFailedTitle")),
+                             AppLocalization::get(QStringLiteral("StartupRegistryOpenFailed")));
     }
     QString language = settings_.language;
     if (language.isEmpty()) language = QLocale().name().startsWith(QStringLiteral("en"))

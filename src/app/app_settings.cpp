@@ -1,10 +1,28 @@
 #include "app_settings.h"
 
 #include <QDir>
+#include <QCoreApplication>
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
+#include <QSettings>
+
+bool AppSettings::applyWindowsStartup() const {
+    QSettings startup(QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"),
+                      QSettings::NativeFormat);
+    const QString command = startWithWindows
+        ? QStringLiteral("\"%1\"").arg(QDir::toNativeSeparators(QCoreApplication::applicationFilePath()))
+        : QString{};
+    if (startup.value(QStringLiteral("PasteOrbit")).toString() != command) {
+        if (command.isEmpty()) startup.remove(QStringLiteral("PasteOrbit"));
+        else startup.setValue(QStringLiteral("PasteOrbit"), command);
+    }
+    // 立即落盘并核实结果，避免界面已开启但 Windows 启动项没有生效。
+    startup.sync();
+    return startup.status() == QSettings::NoError
+        && startup.value(QStringLiteral("PasteOrbit")).toString() == command;
+}
 
 AppSettings AppSettings::load(const QString &path) {
     AppSettings settings;

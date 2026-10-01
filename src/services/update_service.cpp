@@ -340,7 +340,10 @@ try {
     $tasks = @()
     if ($installed) {
         $runValue = (Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name PasteOrbit -ErrorAction SilentlyContinue).PasteOrbit
-        if ($runValue -eq ('"' + $ApplicationPath + '"')) { $tasks += 'autostart' }
+        # Qt 路径使用正斜杠，安装器使用反斜杠；规范化后比较，避免更新丢失自启动选项。
+        if ($runValue -and [string]::Equals(
+            [IO.Path]::GetFullPath($runValue.Trim('"')), $applicationFullPath,
+            [StringComparison]::OrdinalIgnoreCase)) { $tasks += 'autostart' }
         $desktop = [Environment]::GetFolderPath('DesktopDirectory')
         if ($desktop -and (Test-Path -LiteralPath (Join-Path $desktop 'PasteOrbit.lnk') -PathType Leaf)) {
             $tasks += 'desktopicon'

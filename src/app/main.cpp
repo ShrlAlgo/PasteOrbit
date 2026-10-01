@@ -142,6 +142,10 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
+    // 更新卸载可能删除启动项；以保存的设置修复当前程序的注册路径。
+    if (settings.startWithWindows && !settings.applyWindowsStartup())
+        qWarning("Could not synchronize PasteOrbit Windows startup registration");
+
     if (settings.runAsAdministrator && !isAdministrator() && !elevatedRestart && startElevated()) return 0;
 
     QLocalServer::removeServer(QString::fromLatin1(ServerName));

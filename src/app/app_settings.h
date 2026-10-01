@@ -25,4 +25,5 @@ struct AppSettings {
 
     static AppSettings load(const QString &path);
     bool save(const QString &path) const;
+    bool applyWindowsStartup() const;
 };
