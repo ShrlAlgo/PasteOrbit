@@ -381,7 +381,8 @@ try {
 }
 )PS");
     QSaveFile scriptFile(scriptPath);
-    const QByteArray scriptBytes = script.toUtf8();
+    // Windows PowerShell 5.1 读取中文脚本需要 UTF-8 BOM，否则会在解析阶段直接退出。
+    const QByteArray scriptBytes = QByteArray::fromHex("efbbbf") + script.toUtf8();
     if (!scriptFile.open(QIODevice::WriteOnly) || scriptFile.write(scriptBytes) != scriptBytes.size()
         || !scriptFile.commit()) return false;
 
