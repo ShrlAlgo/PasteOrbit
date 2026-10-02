@@ -168,6 +168,8 @@
   <data name="RestoreCompletedMessage" xml:space="preserve"><value>历史记录和设置已恢复。</value></data>
   <data name="RestoreFailed" xml:space="preserve"><value>恢复失败</value></data>
   <data name="Ok" xml:space="preserve"><value>确定</value></data>
+  <data name="Yes" xml:space="preserve"><value>是</value></data>
+  <data name="No" xml:space="preserve"><value>否</value></data>
   <data name="SettingsSaveFailed" xml:space="preserve"><value>设置应用失败，请稍后重试。</value></data>
   <data name="SettingsSaveFailedTitle" xml:space="preserve"><value>保存设置失败</value></data>
   <data name="RestoreDefaultsTitle" xml:space="preserve"><value>恢复默认设置</value></data>

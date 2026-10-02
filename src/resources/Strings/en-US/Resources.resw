@@ -168,6 +168,8 @@
   <data name="RestoreCompletedMessage" xml:space="preserve"><value>History and settings were restored.</value></data>
   <data name="RestoreFailed" xml:space="preserve"><value>Restore failed</value></data>
   <data name="Ok" xml:space="preserve"><value>OK</value></data>
+  <data name="Yes" xml:space="preserve"><value>Yes</value></data>
+  <data name="No" xml:space="preserve"><value>No</value></data>
   <data name="SettingsSaveFailed" xml:space="preserve"><value>Settings could not be applied. Try again later.</value></data>
   <data name="SettingsSaveFailedTitle" xml:space="preserve"><value>Could not save settings</value></data>
   <data name="RestoreDefaultsTitle" xml:space="preserve"><value>Restore default settings</value></data>
