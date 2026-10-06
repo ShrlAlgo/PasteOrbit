@@ -66,12 +66,26 @@ public:
     using QComboBox::QComboBox;
 
     void showPopup() override {
-        QComboBox::showPopup();
-        auto *popup = view()->parentWidget();
-        if (!popup->isVisible() || !screen()) return;
-        // Qt 默认把当前项对齐到控件上；设置页始终优先从控件下缘展开。
+        ensurePolished();
+        view()->ensurePolished();
+        if (!screen()) { QComboBox::showPopup(); return; }
         const QRect available = screen()->availableGeometry();
         const QPoint below = mapToGlobal(QPoint(0, height() + 4));
+        const int spaceBelow = available.bottom() - below.y() + 1;
+        const int spaceAbove = mapToGlobal(QPoint(0, -4)).y() - available.top();
+        const auto margins = view()->parentWidget()->layout()->contentsMargins();
+        // 根据实际行高预留完整列表空间，避免 Qt 菜单留白挤掉末项；屏幕不足时仍允许滚动。
+        int contentHeight = 0;
+        view()->doItemsLayout();
+        for (int row = 0; row < count(); ++row) contentHeight += qMax(0, view()->sizeHintForRow(row));
+        setMaxVisibleItems(count());
+        view()->setMinimumHeight(qMin(contentHeight, qMax(1,
+            qMax(spaceBelow, spaceAbove) - margins.top() - margins.bottom() - 2)));
+        view()->parentWidget()->setMaximumHeight(available.height());
+        QComboBox::showPopup();
+        auto *popup = view()->parentWidget();
+        if (!popup->isVisible()) return;
+        // Qt 默认把当前项对齐到控件上；设置页始终优先从控件下缘展开。
         const int preferredY = below.y() + popup->height() <= available.bottom() + 1
             ? below.y() : mapToGlobal(QPoint(0, -popup->height() - 4)).y();
         popup->move(qBound(available.left(), below.x(), qMax(available.left(), available.right() - popup->width() + 1)),
@@ -117,6 +131,8 @@ public:
 };
 
 class SettingsComboDelegate final : public QStyledItemDelegate {
+    // 独立元对象让 Qlementine 识别为自定义委托，避免主题初始化时替换掉行高和绘制逻辑。
+    Q_OBJECT
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
     QSize sizeHint(const QStyleOptionViewItem &, const QModelIndex &) const override { return {0, 34}; }
@@ -445,10 +461,11 @@ void SettingsDialog::applyTheme() {
         auto *view = combo->view();
         auto *popup = view->parentWidget();
         popup->setPalette(palette);
-        view->setPalette(palette);
-        view->viewport()->setPalette(palette);
         popup->setStyleSheet(QStringLiteral("background:%1;border:1px solid %2;border-radius:8px;")
             .arg(palette.color(QPalette::Base).name(), palette.color(QPalette::Mid).name()));
+        // 弹层样式重应用会覆盖子列表调色板，必须在其后同步选项与视口颜色。
+        view->setPalette(palette);
+        view->viewport()->setPalette(palette);
         view->viewport()->update();
     }
     // 不在对话框祖先上设置样式表，否则 Switch::style() 会变成 QStyleSheetStyle。

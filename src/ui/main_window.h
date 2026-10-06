@@ -79,7 +79,7 @@ private:
     void pasteRecord(const QString &id, bool plainText = false, bool asFile = false);
     void openRowMenu(const QString &id, std::optional<QPoint> position = std::nullopt);
     void togglePreview(const QString &id);
-    void showHoverPreview(const QString &id);
+    void showHoverPreview(QString id);
     void closeHoverPreview();
     void updateHoverPreviewImage();
     void showTextPreview(const QString &text, const QString &html, bool markdown);

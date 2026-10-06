@@ -606,7 +606,7 @@ void MainWindow::buildUi() {
     setAttribute(Qt::WA_TranslucentBackground);
     setWindowTitle(QStringLiteral("PasteOrbit"));
     setWindowFlags(Qt::Tool | Qt::FramelessWindowHint);
-    setFixedSize(420, 500);
+    setFixedSize(360, 500);
     auto *root = new QVBoxLayout(this);
     root->setContentsMargins(12, 0, 12, 6);
     root->setSpacing(0);
@@ -1019,7 +1019,10 @@ void MainWindow::positionPanel(bool preferCursor, std::optional<RECT> resolvedBo
     if (!preferCursor && inputBounds) {
         // 先避开整个输入框；区域过大时退回避开插入光标，不能因边缘裁剪再次覆盖它。
         bool positioned = false;
-        for (const RECT &bounds : {controlBounds.value_or(*inputBounds), *inputBounds}) {
+        const RECT regions[]{controlBounds.value_or(*inputBounds), *inputBounds};
+        const int regionCount = EqualRect(&regions[0], &regions[1]) ? 1 : 2;
+        for (int region = 0; region < regionCount; ++region) {
+            const RECT &bounds = regions[region];
             const QRect excluded(bounds.left - 8, bounds.top - 8,
                                  qMax(1L, bounds.right - bounds.left) + 16,
                                  qMax(1L, bounds.bottom - bounds.top) + 16);
@@ -1592,7 +1595,8 @@ void MainWindow::closeHoverPreview() {
     hoverPreview_ = nullptr;
 }
 
-void MainWindow::showHoverPreview(const QString &id) {
+void MainWindow::showHoverPreview(QString id) {
+    // 按值保存 ID；关闭旧浮层会清空待预览成员，引用传参会导致首次加载空记录。
     if (id.isEmpty() || (hoverPreview_ && hoverPreviewId_ == id)) return;
     const int row = model_->rowForId(id);
     const auto *item = model_->itemAt(row);
@@ -1613,12 +1617,53 @@ void MainWindow::showHoverPreview(const QString &id) {
     popup->setStyleSheet(QStringLiteral(
         "QScrollArea{background:transparent;border:0;}"
         "QLabel{background:transparent;color:%1;border:0;}"
-    ).arg(qApp->palette().color(QPalette::ToolTipText).name()));
+        "QLabel[previewBadge=\"true\"]{background:%2;border:1px solid %3;border-radius:5px;padding:3px 7px;}"
+        "QFrame#HoverPreviewContent{background:%4;border:1px solid %3;border-radius:7px;}"
+    ).arg(popup->palette().color(QPalette::ToolTipText).name(),
+          popup->palette().color(QPalette::AlternateBase).name(),
+          popup->palette().color(QPalette::Mid).name(),
+          popup->palette().color(QPalette::Window).name()));
     auto *layout = new QVBoxLayout(popup);
     layout->setContentsMargins(10, 10, 10, 10);
-    auto *loading = new QLabel(QStringLiteral("…"), popup);
-    loading->setAlignment(Qt::AlignCenter);
-    layout->addWidget(loading);
+    // 来源应用、格式与容量统计放在浮层页头，不再占用卡片内容宽度。
+    const QString source = item->sourceApplication.isEmpty()
+        ? AppLocalization::get(QStringLiteral("UnknownApplication")) : item->sourceApplication;
+    const QString format = model_->index(row).data(HistoryModel::FormatRole).toString();
+    const QString statistics = kind == 0
+        ? AppLocalization::format(QStringLiteral("CharacterCount"), {QString::number(item->searchTextLength)})
+        : kind == 1 ? QStringLiteral("%1 KB").arg(qMax(1.0, item->contentSize / 1024.0), 0, 'f', 1)
+                    : AppLocalization::get(QStringLiteral("ContentTypeFiles"));
+    auto *heading = new QHBoxLayout;
+    heading->setContentsMargins(0, 0, 0, 0);
+    heading->setSpacing(6);
+    const auto makeBadge = [popup](const QString &text) {
+        auto *label = new QLabel(text, popup);
+        label->setTextFormat(Qt::PlainText);
+        label->setProperty("previewBadge", true);
+        label->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
+        QFont font = label->font();
+        font.setPixelSize(12);
+        label->setFont(font);
+        return label;
+    };
+    auto *sourceBadge = makeBadge(source);
+    auto *statisticsBadge = makeBadge(statistics);
+    heading->addWidget(sourceBadge);
+    int detailsWidth = statisticsBadge->fontMetrics().horizontalAdvance(statistics) + 16;
+    if (!format.isEmpty()) {
+        auto *formatBadge = makeBadge(format);
+        heading->addWidget(formatBadge);
+        detailsWidth += formatBadge->fontMetrics().horizontalAdvance(format) + 16 + heading->spacing();
+    }
+    heading->addStretch();
+    heading->addWidget(statisticsBadge);
+    layout->addLayout(heading);
+    // 内容背景独立于页头标签，保持文字与图片预览的内边距一致。
+    auto *content = new QFrame(popup);
+    content->setObjectName(QStringLiteral("HoverPreviewContent"));
+    auto *contentLayout = new QVBoxLayout(content);
+    contentLayout->setContentsMargins(8, 8, 8, 8);
+    layout->addWidget(content, 1);
     popup->installEventFilter(this);
     hoverPreview_ = popup;
 
@@ -1629,57 +1674,49 @@ void MainWindow::showHoverPreview(const QString &id) {
     const int width = qMin(kind == 1 ? 520 : 460, available.width() - 20);
     const int height = qMin(kind == 1 ? 400 : 320, available.height() - 20);
     popup->setFixedSize(width, height);
+    const int sourceWidth = qMax(0, width - 20 - detailsWidth - heading->spacing() - 16);
+    sourceBadge->setText(sourceBadge->fontMetrics().elidedText(source, Qt::ElideRight, sourceWidth));
     int x = frameGeometry().right() + 8;
     if (x + width > available.right()) x = frameGeometry().left() - width - 8;
     x = qBound(available.left(), x, available.right() - width + 1);
     const int y = qBound(available.top(), anchor.y(), available.bottom() - height + 1);
     popup->move(x, y);
-    if (kind != 1) popup->show();
-
     const QString path = databasePath_;
     auto *watcher = new QFutureWatcher<PreviewResult>(this);
-    connect(watcher, &QFutureWatcher<PreviewResult>::finished, this, [this, watcher, generation, id] {
+    connect(watcher, &QFutureWatcher<PreviewResult>::finished, this, [this, watcher, generation, id, content] {
         const PreviewResult result = watcher->result();
         watcher->deleteLater();
         if (generation != hoverPreviewGeneration_ || id != hoverPreviewId_ || !hoverPreview_) return;
-        auto *layout = hoverPreview_->layout();
-        auto *item = layout->takeAt(0);
-        delete item->widget();
-        delete item;
+        auto *layout = content->layout();
         if (result.kind == 1) {
             if (result.image.isNull()) {
-                auto *label = new QLabel(AppLocalization::get(QStringLiteral("ImagePreviewUnavailable")), hoverPreview_);
+                auto *label = new QLabel(AppLocalization::get(QStringLiteral("ImagePreviewUnavailable")), content);
                 label->setAlignment(Qt::AlignCenter);
                 layout->addWidget(label);
-                hoverPreview_->show();
-                return;
+            } else {
+                hoverImageSize_ = result.image.size();
+                auto *scroll = new QScrollArea(content);
+                scroll->setFrameShape(QFrame::NoFrame);
+                scroll->verticalScrollBar()->setFixedWidth(historyList_->verticalScrollBar()->width());
+                scroll->horizontalScrollBar()->setFixedHeight(historyList_->verticalScrollBar()->width());
+                scroll->setAlignment(Qt::AlignCenter);
+                scroll->setWidgetResizable(false);
+                scroll->viewport()->setAutoFillBackground(false);
+                scroll->viewport()->setStyleSheet(QStringLiteral("background:transparent;"));
+                auto *label = new QLabel(scroll);
+                label->setAlignment(Qt::AlignCenter);
+                label->setScaledContents(true);
+                label->installEventFilter(this);
+                scroll->setWidget(label);
+                scroll->viewport()->installEventFilter(this);
+                layout->addWidget(scroll);
+                hoverImageScroll_ = scroll;
+                hoverImageLabel_ = label;
+                // 标签持有显示用 QPixmap，不再额外常驻一份解码后的 QImage。
+                hoverImageLabel_->setPixmap(QPixmap::fromImage(result.image));
             }
-            hoverImageSize_ = result.image.size();
-            auto *scroll = new QScrollArea(hoverPreview_);
-            scroll->setFrameShape(QFrame::NoFrame);
-            scroll->verticalScrollBar()->setFixedWidth(historyList_->verticalScrollBar()->width());
-            scroll->horizontalScrollBar()->setFixedHeight(historyList_->verticalScrollBar()->width());
-            scroll->setAlignment(Qt::AlignCenter);
-            scroll->setWidgetResizable(false);
-            scroll->viewport()->setAutoFillBackground(false);
-            scroll->viewport()->setStyleSheet(QStringLiteral("background:transparent;"));
-            auto *label = new QLabel(scroll);
-            label->setAlignment(Qt::AlignCenter);
-            label->setScaledContents(true);
-            label->installEventFilter(this);
-            scroll->setWidget(label);
-            scroll->viewport()->installEventFilter(this);
-            layout->addWidget(scroll);
-            hoverImageScroll_ = scroll;
-            hoverImageLabel_ = label;
-            // 标签持有显示用 QPixmap，不再额外常驻一份解码后的 QImage。
-            hoverImageLabel_->setPixmap(QPixmap::fromImage(result.image));
-            // 图片和尺寸布局完成后一次性显示浮层，避免占位符和二次缩放闪烁。
-            layout->activate();
-            updateHoverPreviewImage();
-            hoverPreview_->show();
         } else {
-            auto *preview = new PreviewTextEdit(hoverPreview_);
+            auto *preview = new PreviewTextEdit(content);
             preview->setReadOnly(true);
             preview->setAcceptDrops(false);
             preview->setFocusPolicy(Qt::NoFocus);
@@ -1687,14 +1724,26 @@ void MainWindow::showHoverPreview(const QString &id) {
             preview->setLineWrapMode(QTextEdit::WidgetWidth);
             preview->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
             preview->verticalScrollBar()->setFixedWidth(historyList_->verticalScrollBar()->width());
+            // 富文本保留来源文字颜色，使用浅色纸张底，避免深蓝、黑色等在暗色背景上不可读。
+            const bool richText = !result.html.isEmpty() || result.markdown;
+            const QColor textColor = richText ? QColor(QStringLiteral("#1A1A1A"))
+                                             : qApp->palette().color(QPalette::ToolTipText);
+            if (richText) content->setStyleSheet(QStringLiteral(
+                "QFrame#HoverPreviewContent{background:#F4F6F8;border:1px solid #CBD5E1;border-radius:7px;}"));
             preview->setStyleSheet(QStringLiteral("QTextEdit{background:transparent;border:0;color:%1;}")
-                .arg(qApp->palette().color(QPalette::ToolTipText).name()));
+                .arg(textColor.name()));
+            preview->viewport()->setAutoFillBackground(false);
             // 优先使用剪贴板提供的富文本格式；普通文本保持原样。
             if (!result.html.isEmpty()) preview->setHtml(result.html);
             else if (result.markdown) preview->setMarkdown(result.text);
             else preview->setPlainText(result.text);
             layout->addWidget(preview);
         }
+        // 内容与嵌套布局都准备好后再首次显示，避免加载占位符及首帧尺寸变化闪烁。
+        hoverPreview_->layout()->activate();
+        layout->activate();
+        if (hoverImageScroll_) updateHoverPreviewImage();
+        hoverPreview_->show();
     });
     watcher->setFuture(QtConcurrent::run(&readPool_, [path, id, kind] {
         PreviewResult result;
@@ -1735,10 +1784,8 @@ void MainWindow::showHoverPreview(const QString &id) {
 
 void MainWindow::updateHoverPreviewImage() {
     if (!hoverPreview_ || !hoverImageLabel_ || !hoverImageScroll_ || hoverImageSize_.isEmpty()) return;
-    // 首次显示前 viewport 宽度尚未确定，改用已固定的浮层宽度作为缩放基准。
-    const QMargins margins = hoverPreview_->layout()->contentsMargins();
-    const int availableWidth = qMax(1, hoverPreview_->width() - margins.left() - margins.right()
-        - hoverImageScroll_->verticalScrollBar()->width());
+    // 首次显示前 viewport 尚未稳定；用已激活布局的滚动容器宽度，包含内容背景的内边距。
+    const int availableWidth = qMax(1, hoverImageScroll_->width() - hoverImageScroll_->verticalScrollBar()->width());
     const double fit = availableWidth / static_cast<double>(hoverImageSize_.width());
     hoverImageLabel_->resize(hoverImageSize_ * (fit * hoverImageZoom_));
 }

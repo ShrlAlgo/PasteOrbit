@@ -47,17 +47,6 @@ void drawPreviewText(QPainter *painter, const QRect &rect, const QString &text) 
     }
     layout.endLayout();
 }
-
-QString metadata(const QModelIndex &index) {
-    const int kind = index.data(HistoryModel::KindRole).toInt();
-    if (kind == 0) return AppLocalization::format(QStringLiteral("CharacterCount"),
-                                                   {QString::number(index.data(HistoryModel::TextLengthRole).toInt())});
-    if (kind == 1) {
-        const auto size = index.data(HistoryModel::SizeRole).toLongLong();
-        return QStringLiteral("%1 KB").arg(qMax(1.0, size / 1024.0), 0, 'f', 1);
-    }
-    return AppLocalization::get(QStringLiteral("ContentTypeFiles"));
-}
 }
 
 HistoryDelegate::HistoryDelegate(QObject *parent) : QStyledItemDelegate(parent) {}
@@ -84,8 +73,9 @@ void HistoryDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
     // 半像素对齐细边框，圆弧与直边平滑相切。
     painter->drawRoundedRect(QRectF(card).adjusted(0.5, 0.5, -0.5, -0.5), 11, 11);
 
-    const int rightX = card.right() - 96 - 8 - 120;
-    const QRect left(card.left() + 10, card.top() + 8, qMax(48, rightX - card.left() - 14), 56);
+    // 元数据与操作按钮共用右侧一列，把来源应用占用的宽度还给内容。
+    const int rightX = actionRect(card, Preview).left();
+    const QRect left(card.left() + 10, card.top() + 8, qMax(48, rightX - card.left() - 18), 56);
     const int kind = index.data(HistoryModel::KindRole).toInt();
     const QImage image = qvariant_cast<QImage>(index.data(HistoryModel::ThumbnailRole));
     if (kind == 1 && !image.isNull()) {
@@ -110,46 +100,18 @@ void HistoryDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
         drawPreviewText(painter, left, index.data(HistoryModel::PreviewRole).toString());
     }
 
-    const QRect details(rightX, card.top() + 8, 120, 66);
-    painter->setFont(option.font);
-    painter->setPen(palette.color(QPalette::PlaceholderText));
-    painter->drawText(QRect(details.left(), details.top(), details.width(), 18),
-                      Qt::AlignRight | Qt::AlignVCenter,
-                      QFontMetrics(option.font).elidedText(index.data(HistoryModel::SourceRole).toString().isEmpty()
-                          ? AppLocalization::get(QStringLiteral("UnknownApplication"))
-                          : index.data(HistoryModel::SourceRole).toString(), Qt::ElideRight, details.width()));
     QFont detailFont = option.font;
     detailFont.setPixelSize(12);
-    painter->setFont(detailFont);
-    const QRect timeRect(details.left(), details.top() + 20, details.width(), 16);
-    painter->drawText(timeRect,
-                      Qt::AlignRight | Qt::AlignVCenter,
-                      QDateTime::fromMSecsSinceEpoch(index.data(HistoryModel::UpdatedRole).toLongLong())
-                          .toLocalTime().toString(QStringLiteral("HH:mm")));
-    const QString formatLabel = index.data(HistoryModel::FormatRole).toString();
-    if (!formatLabel.isEmpty()) {
-        QFont badgeFont = option.font;
-        badgeFont.setPixelSize(10);
-        const QFontMetrics badgeMetrics(badgeFont);
-        const int width = qMin(badgeMetrics.horizontalAdvance(formatLabel) + 10, details.width() - 46);
-        const QRect badge(timeRect.left(), timeRect.top(), width, timeRect.height());
-        painter->setBrush(palette.color(QPalette::AlternateBase));
-        painter->setPen(QPen(palette.color(QPalette::Mid), 0.7));
-        painter->drawRoundedRect(badge, 3, 3);
-        painter->setFont(badgeFont);
-        painter->setPen(palette.color(QPalette::PlaceholderText));
-        painter->drawText(badge, Qt::AlignCenter, badgeMetrics.elidedText(formatLabel, Qt::ElideRight, width - 6));
-    }
+    QRect timeRect(rightX, card.top() + 42, 86, 14);
     const int quickPasteNumber = index.data(HistoryModel::QuickPasteRole).toInt();
-    QRect metadataRect(details.left(), details.top() + 38, details.width(), 16);
     if (quickPasteNumber > 0) {
         QFont badgeFont = option.font;
         badgeFont.setPixelSize(10);
         const QString number = QString::number(quickPasteNumber);
         const int badgeWidth = QFontMetrics(badgeFont).horizontalAdvance(number) + 10;
-        // 数字快捷键与容量统计共用一行，不再占用卡片底部。
-        const QRect badge(details.right() - badgeWidth + 1, metadataRect.top(), badgeWidth, metadataRect.height());
-        metadataRect.setWidth(metadataRect.width() - badgeWidth - 4);
+        // 时间与数字快捷键并排放在按钮下方，保持卡片高度不变。
+        const QRect badge(timeRect.right() - badgeWidth + 1, timeRect.top(), badgeWidth, timeRect.height());
+        timeRect.setWidth(timeRect.width() - badgeWidth - 4);
         painter->setBrush(palette.color(QPalette::AlternateBase));
         painter->setPen(QPen(palette.color(QPalette::Mid), 0.7));
         painter->drawRoundedRect(badge, 3, 3);
@@ -159,9 +121,9 @@ void HistoryDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
     }
     painter->setFont(detailFont);
     painter->setPen(palette.color(QPalette::PlaceholderText));
-    painter->drawText(metadataRect, Qt::AlignRight | Qt::AlignVCenter,
-                      QFontMetrics(detailFont).elidedText(metadata(index), Qt::ElideRight, metadataRect.width()));
-
+    painter->drawText(timeRect, Qt::AlignRight | Qt::AlignVCenter,
+                      QDateTime::fromMSecsSinceEpoch(index.data(HistoryModel::UpdatedRole).toLongLong())
+                          .toLocalTime().toString(QStringLiteral("HH:mm")));
     QFont iconFont;
     iconFont.setFamilies({QStringLiteral("Segoe Fluent Icons"), QStringLiteral("Segoe MDL2 Assets")});
     iconFont.setPixelSize(14);
