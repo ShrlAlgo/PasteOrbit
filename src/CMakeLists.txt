@@ -26,6 +26,7 @@ target_link_libraries(PasteOrbitNative PRIVATE
     bcrypt
     ole32
     oleaut32
+    oleacc
 )
 target_compile_definitions(PasteOrbitNative PRIVATE PASTEORBIT_VERSION="${PASTEORBIT_VERSION}")
 set_target_properties(PasteOrbitNative PROPERTIES OUTPUT_NAME PasteOrbit)

@@ -66,6 +66,7 @@
 #include <thread>
 #include <system_error>
 #include <UIAutomation.h>
+#include <oleacc.h>
 #include <wrl/client.h>
 #include <windows.h>
 
@@ -176,6 +177,29 @@ InputBounds automationInputBounds(HWND foreground) {
     });
 
     using Microsoft::WRL::ComPtr;
+    // Chromium 等自绘输入框没有 Win32 caret，也未必支持 TextPattern2；查询其真实 MSAA 插入光标。
+    GUITHREADINFO info{};
+    info.cbSize = sizeof(info);
+    const DWORD thread = GetWindowThreadProcessId(foreground, nullptr);
+    if (thread && GetGUIThreadInfo(thread, &info) && info.hwndFocus
+        && (info.hwndFocus == foreground || IsChild(foreground, info.hwndFocus))) {
+        ComPtr<IAccessible> caret;
+        if (SUCCEEDED(AccessibleObjectFromWindow(info.hwndFocus, OBJID_CARET,
+                                               IID_PPV_ARGS(caret.GetAddressOf()))) && caret) {
+            VARIANT self{};
+            self.vt = VT_I4;
+            self.lVal = CHILDID_SELF;
+            VARIANT state{};
+            LONG x = 0, y = 0, width = 0, height = 0;
+            if (SUCCEEDED(caret->get_accState(self, &state)) && state.vt == VT_I4
+                && !(state.lVal & (STATE_SYSTEM_INVISIBLE | STATE_SYSTEM_OFFSCREEN))
+                && SUCCEEDED(caret->accLocation(&x, &y, &width, &height, self))
+                && width >= 0 && height > 0 && x <= LONG_MAX - qMax(1L, width)
+                && y <= LONG_MAX - height)
+                bounds.caret = RECT{x, y, x + qMax(1L, width), y + height};
+            VariantClear(&state);
+        }
+    }
     ComPtr<IUIAutomation> automation;
     ComPtr<IUIAutomationElement> focused;
     if (FAILED(CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER,
@@ -188,7 +212,7 @@ InputBounds automationInputBounds(HWND foreground) {
         || static_cast<DWORD>(process) != targetProcess) return bounds;
 
     ComPtr<IUIAutomationTextPattern2> pattern;
-    if (SUCCEEDED(focused->GetCurrentPatternAs(UIA_TextPattern2Id,
+    if (!bounds.caret && SUCCEEDED(focused->GetCurrentPatternAs(UIA_TextPattern2Id,
             __uuidof(IUIAutomationTextPattern2), reinterpret_cast<void **>(pattern.GetAddressOf()))) && pattern) {
         BOOL active = FALSE;
         ComPtr<IUIAutomationTextRange> range;
@@ -205,7 +229,8 @@ InputBounds automationInputBounds(HWND foreground) {
     if (SUCCEEDED(focused->get_CurrentControlType(&controlType))
         && (controlType == UIA_ComboBoxControlTypeId || controlType == UIA_EditControlTypeId
             || controlType == UIA_TextControlTypeId || controlType == UIA_CustomControlTypeId
-            || controlType == UIA_PaneControlTypeId || controlType == UIA_DocumentControlTypeId)
+            || controlType == UIA_PaneControlTypeId || controlType == UIA_DocumentControlTypeId
+            || (controlType == UIA_GroupControlTypeId && bounds.caret))
         && SUCCEEDED(focused->get_CurrentBoundingRectangle(&controlRect))
         && !IsRectEmpty(&controlRect)) bounds.control = controlRect;
     return bounds;
@@ -581,7 +606,7 @@ void MainWindow::buildUi() {
     setAttribute(Qt::WA_TranslucentBackground);
     setWindowTitle(QStringLiteral("PasteOrbit"));
     setWindowFlags(Qt::Tool | Qt::FramelessWindowHint);
-    setFixedSize(480, 580);
+    setFixedSize(420, 500);
     auto *root = new QVBoxLayout(this);
     root->setContentsMargins(12, 0, 12, 6);
     root->setSpacing(0);
@@ -949,7 +974,8 @@ void MainWindow::setTrayPaused(bool paused) {
     updateTrayTooltip();
 }
 
-void MainWindow::positionPanel(bool preferCursor, std::optional<RECT> resolvedBounds) {
+void MainWindow::positionPanel(bool preferCursor, std::optional<RECT> resolvedBounds,
+                               std::optional<RECT> controlBounds) {
     POINT point{};
     bool hasPoint = false;
     std::optional<RECT> inputBounds = resolvedBounds;
@@ -990,6 +1016,30 @@ void MainWindow::positionPanel(bool preferCursor, std::optional<RECT> resolvedBo
     }
     x = qBound(area.left, x, qMax(area.left, area.right - panelWidth));
     y = qBound(area.top, y, qMax(area.top, area.bottom - panelHeight));
+    if (!preferCursor && inputBounds) {
+        // 先避开整个输入框；区域过大时退回避开插入光标，不能因边缘裁剪再次覆盖它。
+        bool positioned = false;
+        for (const RECT &bounds : {controlBounds.value_or(*inputBounds), *inputBounds}) {
+            const QRect excluded(bounds.left - 8, bounds.top - 8,
+                                 qMax(1L, bounds.right - bounds.left) + 16,
+                                 qMax(1L, bounds.bottom - bounds.top) + 16);
+            const QPoint candidates[]{
+                {point.x, excluded.bottom() + 7},
+                {point.x, excluded.top() - panelHeight - 6},
+                {excluded.right() + 7, point.y},
+                {excluded.left() - panelWidth - 6, point.y}};
+            for (const QPoint &candidate : candidates) {
+                const int candidateX = qBound(area.left, candidate.x(), qMax(area.left, area.right - panelWidth));
+                const int candidateY = qBound(area.top, candidate.y(), qMax(area.top, area.bottom - panelHeight));
+                if (QRect(candidateX, candidateY, panelWidth, panelHeight).intersects(excluded)) continue;
+                x = candidateX;
+                y = candidateY;
+                positioned = true;
+                break;
+            }
+            if (positioned) break;
+        }
+    }
     // 按目标屏幕转换物理坐标，并通过 Qt 更新缓存，避免 show() 恢复隐藏前的位置。
     const QPoint origin = screen ? screen->geometry().topLeft()
                                 : QPoint(info.rcMonitor.left, info.rcMonitor.top);
@@ -1021,13 +1071,27 @@ void MainWindow::showPanel(bool fromTray, HWND requestedTarget) {
     const HWND foreground = requestedTarget && IsWindow(requestedTarget) ? requestedTarget : GetForegroundWindow();
     const bool hasTarget = foreground && foreground != reinterpret_cast<HWND>(winId());
     const auto inputBounds = hasTarget ? capturePasteTarget(foreground) : std::nullopt;
+    std::optional<RECT> controlBounds;
+    RECT nativeControl{};
+    if (!fromTray && hasTarget && targetFocusWindow_ && targetFocusWindow_ != foreground) {
+        wchar_t className[128]{};
+        GetClassNameW(targetFocusWindow_, className, 128);
+        const QString controlClass = QString::fromWCharArray(className);
+        // 仅把原生输入控件当成输入框，浏览器视口等包装窗口应继续查询 UIA。
+        const bool nativeInput = controlClass.compare(QStringLiteral("Edit"), Qt::CaseInsensitive) == 0
+            || controlClass.compare(QStringLiteral("ComboBox"), Qt::CaseInsensitive) == 0
+            || controlClass.startsWith(QStringLiteral("RichEdit"), Qt::CaseInsensitive);
+        if (nativeInput && GetWindowRect(targetFocusWindow_, &nativeControl) && !IsRectEmpty(&nativeControl))
+            controlBounds = nativeControl;
+    }
     const auto shown = std::make_shared<bool>(false);
-    const auto present = [this, fromTray, foreground, generation, shown](std::optional<RECT> bounds) {
+    const auto present = [this, fromTray, foreground, generation, shown](std::optional<RECT> bounds,
+                                                                       std::optional<RECT> control) {
         if (*shown || generation != panelShowGeneration_) return;
         *shown = true;
         // 等待定位期间用户已切换窗口时，丢弃这次唤出，避免抢回焦点。
         if (!fromTray && GetForegroundWindow() != foreground) return;
-        positionPanel(fromTray, bounds);
+        positionPanel(fromTray, bounds, control);
         if (!isVisible()) show();
         raise();
         activateWindow();
@@ -1045,27 +1109,28 @@ void MainWindow::showPanel(bool fromTray, HWND requestedTarget) {
         historyList_->setFocus(Qt::ShortcutFocusReason);
         updateVisibleThumbnails();
     };
-    if (fromTray || !hasTarget || inputBounds) {
-        present(inputBounds);
+    if (fromTray || !hasTarget || (inputBounds && controlBounds)) {
+        present(inputBounds, controlBounds);
         return;
     }
-    // UIA 查询限时等待，且只在显示前定位一次。
+    // 无障碍接口查询限时等待，且只在显示前定位一次。
     const auto query = startInputBoundsQuery(foreground);
-    if (!query) { present(inputBounds); return; }
+    if (!query) { present(inputBounds, controlBounds); return; }
     auto *poll = new QTimer(this);
     poll->setInterval(10);
-    connect(poll, &QTimer::timeout, this, [this, query, poll, present, inputBounds, generation, foreground] {
+    connect(poll, &QTimer::timeout, this, [this, query, poll, present, inputBounds, controlBounds, generation, foreground] {
         if (!query->finished.load(std::memory_order_acquire)) return;
         poll->stop();
         if (generation != panelShowGeneration_ || foreground != targetWindow_) return;
-        const auto resolved = query->bounds.caret ? query->bounds.caret : query->bounds.control;
-        present(resolved ? resolved : inputBounds);
+        // 输入框范围只参与避让，不能替代已确认活跃的插入光标作为定位锚点。
+        const auto resolved = query->bounds.caret ? query->bounds.caret : inputBounds;
+        present(resolved, query->bounds.control ? query->bounds.control : controlBounds);
     });
     poll->start();
-    QTimer::singleShot(100, poll, [poll, present, inputBounds] {
+    QTimer::singleShot(100, poll, [poll, present, inputBounds, controlBounds] {
         poll->stop();
         poll->deleteLater();
-        present(inputBounds);
+        present(inputBounds, controlBounds);
     });
 }
 

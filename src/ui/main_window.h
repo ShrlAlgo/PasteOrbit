@@ -68,7 +68,8 @@ private:
     void registerHotkey();
     void updateWinVHook();
     std::optional<RECT> capturePasteTarget(HWND window);
-    void positionPanel(bool preferCursor, std::optional<RECT> resolvedBounds = std::nullopt);
+    void positionPanel(bool preferCursor, std::optional<RECT> resolvedBounds = std::nullopt,
+                       std::optional<RECT> controlBounds = std::nullopt);
     void refreshHistory();
     void loadMoreHistory();
     void updateVisibleThumbnails();
