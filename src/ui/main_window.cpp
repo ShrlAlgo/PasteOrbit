@@ -975,13 +975,13 @@ void MainWindow::positionPanel(bool preferCursor, std::optional<RECT> resolvedBo
     HMONITOR monitor = MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST);
     MONITORINFO info{};
     info.cbSize = sizeof(info);
-    GetMonitorInfoW(monitor, &info);
+    if (!GetMonitorInfoW(monitor, &info)) return;
     const RECT area = info.rcWork;
-    const HWND panel = reinterpret_cast<HWND>(winId());
-    RECT panelRect{};
-    GetWindowRect(panel, &panelRect);
-    const int panelWidth = panelRect.right - panelRect.left;
-    const int panelHeight = panelRect.bottom - panelRect.top;
+    // Windows 下 Qt 保留各屏幕的原点坐标，只缩放屏幕内部的距离。
+    QScreen *screen = QGuiApplication::screenAt(QPoint(info.rcMonitor.left, info.rcMonitor.top));
+    const qreal scale = screen ? screen->devicePixelRatio() : devicePixelRatioF();
+    const int panelWidth = qRound(width() * scale);
+    const int panelHeight = qRound(height() * scale);
     int x = preferCursor ? point.x - panelWidth / 2 : point.x;
     int y = preferCursor ? point.y - panelHeight - 14 : point.y + 14;
     if (inputBounds) {
@@ -990,8 +990,11 @@ void MainWindow::positionPanel(bool preferCursor, std::optional<RECT> resolvedBo
     }
     x = qBound(area.left, x, qMax(area.left, area.right - panelWidth));
     y = qBound(area.top, y, qMax(area.top, area.bottom - panelHeight));
-    // UIA、系统光标和显示器工作区都是物理像素，直接用 HWND 定位以免 DPI 缩放偏移。
-    SetWindowPos(panel, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    // 按目标屏幕转换物理坐标，并通过 Qt 更新缓存，避免 show() 恢复隐藏前的位置。
+    const QPoint origin = screen ? screen->geometry().topLeft()
+                                : QPoint(info.rcMonitor.left, info.rcMonitor.top);
+    move(origin + QPoint(qRound((x - info.rcMonitor.left) / scale),
+                         qRound((y - info.rcMonitor.top) / scale)));
 }
 
 std::optional<RECT> MainWindow::capturePasteTarget(HWND window) {
