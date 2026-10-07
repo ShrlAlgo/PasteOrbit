@@ -2,7 +2,8 @@
 
 [English](README.md)
 
-<img width="465" height="573" alt="PasteOrbit" src="https://github.com/user-attachments/assets/b7b531c8-d7e5-42eb-a77e-9312c4c9c6ee" />
+<img width="360" height="500" alt="PixPin_2026-10-07_08-59-08" src="https://github.com/user-attachments/assets/3226f4bc-8f9b-4bf3-857e-80d07348963c" />
+
 
 PasteOrbit 是一款 Windows 桌面剪切板历史工具。
 
