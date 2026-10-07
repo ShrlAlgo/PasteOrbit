@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md)
 
-<img width="464" height="572" alt="PasteOrbit" src="https://github.com/user-attachments/assets/2a643152-df45-4ad8-bb15-b652c12ff5eb" />
+<img width="360" height="500" alt="PixPin_2026-10-07_09-00-09" src="https://github.com/user-attachments/assets/a42bc60b-c55e-460a-a24e-49d2e35cdcd0" />
 
 PasteOrbit is a Windows desktop clipboard history manager.
 
