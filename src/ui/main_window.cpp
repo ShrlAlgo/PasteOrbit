@@ -20,6 +20,7 @@
 #include <QFile>
 #include <QFrame>
 #include <QGuiApplication>
+#include <QHash>
 #include <QIcon>
 #include <QImageReader>
 #include <QImageWriter>
@@ -48,6 +49,9 @@
 #include <QStyleFactory>
 #include <QStackedLayout>
 #include <QTextEdit>
+#include <QTextBlock>
+#include <QTextCursor>
+#include <QTextDocument>
 #include <QSignalBlocker>
 #include <QStandardPaths>
 #include <QToolButton>
@@ -77,6 +81,69 @@ constexpr UINT TrayResumeMilliseconds = 10 * 60 * 1000;
 constexpr auto TextPayloadPrefix = "PasteOrbit.Text/1\n";
 constexpr char MixedImagePayloadPrefix[] = "PasteOrbit.Image/2\n";
 const QString WindowsRtfMime = QStringLiteral("application/x-qt-windows-mime;value=\"Rich Text Format\"");
+
+void adaptPreviewContrast(QTextDocument *document, const QColor &background, const QColor &defaultText) {
+    const auto luminance = [](const QColor &color) {
+        const auto linear = [](double value) {
+            return value <= 0.04045 ? value / 12.92 : std::pow((value + 0.055) / 1.055, 2.4);
+        };
+        return 0.2126 * linear(color.redF()) + 0.7152 * linear(color.greenF()) + 0.0722 * linear(color.blueF());
+    };
+    struct Span { int position; int length; QColor color; };
+    QList<Span> changes;
+    QHash<quint64, QColor> colors;
+    // 仅调整预览文档的低对比文字，同色系适配明暗底色；原始 HTML 与剪贴板内容不变。
+    for (auto block = document->begin(); block.isValid(); block = block.next()) {
+        for (auto it = block.begin(); !it.atEnd(); ++it) {
+            const auto fragment = it.fragment();
+            if (!fragment.isValid()) continue;
+            const auto format = fragment.charFormat();
+            const QColor ink = format.foreground().style() == Qt::NoBrush ? defaultText : format.foreground().color();
+            const QColor paper = format.background().style() != Qt::NoBrush ? format.background().color()
+                : block.blockFormat().background().style() != Qt::NoBrush ? block.blockFormat().background().color() : background;
+            const quint64 key = (quint64(ink.rgba()) << 32) | paper.rgba();
+            if (!colors.contains(key)) {
+                const double paperLuminance = luminance(paper);
+                const auto contrast = [&](const QColor &color) {
+                    const double alpha = color.alphaF();
+                    const QColor visible = QColor::fromRgbF(color.redF() * alpha + paper.redF() * (1 - alpha),
+                        color.greenF() * alpha + paper.greenF() * (1 - alpha), color.blueF() * alpha + paper.blueF() * (1 - alpha));
+                    const double inkLuminance = luminance(visible);
+                    return (qMax(inkLuminance, paperLuminance) + 0.05) / (qMin(inkLuminance, paperLuminance) + 0.05);
+                };
+                QColor adjusted = ink;
+                if (contrast(ink) < 4.5) {
+                    const double target = paperLuminance < 0.179 ? 1.0 : 0.0;
+                    double low = 0, high = 1;
+                    for (int step = 0; step < 12; ++step) {
+                        const double amount = (low + high) / 2;
+                        const QColor candidate = QColor::fromHslF(ink.hslHueF(), ink.hslSaturationF(),
+                            ink.lightnessF() + (target - ink.lightnessF()) * amount);
+                        if (contrast(candidate) >= 4.5) high = amount;
+                        else low = amount;
+                    }
+                    adjusted = QColor::fromHslF(ink.hslHueF(), ink.hslSaturationF(),
+                        ink.lightnessF() + (target - ink.lightnessF()) * high);
+                    // 低对比的黑白灰直接采用正文色，避免适配后显得发虚；彩色仍保留色相。
+                    if (ink.hslSaturationF() < 0.05 && contrast(defaultText) >= 4.5) adjusted = defaultText;
+                }
+                colors.insert(key, adjusted);
+            }
+            if (colors[key] != ink) changes.append({fragment.position(), fragment.length(), colors[key]});
+        }
+    }
+    // 收集后再应用，避免修改格式时使文档片段迭代器失效；不创建文档副本。
+    QTextCursor cursor(document);
+    cursor.beginEditBlock();
+    for (const auto &span : changes) {
+        cursor.setPosition(span.position);
+        cursor.setPosition(span.position + span.length, QTextCursor::KeepAnchor);
+        QTextCharFormat format;
+        format.setForeground(span.color);
+        cursor.mergeCharFormat(format);
+    }
+    cursor.endEditBlock();
+}
 
 QByteArray clipboardRtf(const QMimeData *mime) {
     for (const auto &format : {WindowsRtfMime, QStringLiteral("text/rtf"), QStringLiteral("application/rtf")}) {
@@ -1614,15 +1681,19 @@ void MainWindow::showHoverPreview(QString id) {
     popup->setAttribute(Qt::WA_ShowWithoutActivating);
     popup->setFocusPolicy(Qt::NoFocus);
     popup->setPalette(qApp->palette());
+    const bool dark = popup->palette().color(QPalette::Window).lightness() < 128;
+    const QColor previewBackground(dark ? QStringLiteral("#272B30") : QStringLiteral("#EBEEF2"));
+    const QColor previewText(dark ? QStringLiteral("#DCE0E5") : QStringLiteral("#252A30"));
+    const QColor previewBorder(dark ? QStringLiteral("#454B52") : QStringLiteral("#CCD2DA"));
     popup->setStyleSheet(QStringLiteral(
         "QScrollArea{background:transparent;border:0;}"
         "QLabel{background:transparent;color:%1;border:0;}"
         "QLabel[previewBadge=\"true\"]{background:%2;border:1px solid %3;border-radius:5px;padding:3px 7px;}"
-        "QFrame#HoverPreviewContent{background:%4;border:1px solid %3;border-radius:7px;}"
+        "QFrame#HoverPreviewContent{background:%4;border:1px solid %5;border-radius:7px;}"
     ).arg(popup->palette().color(QPalette::ToolTipText).name(),
           popup->palette().color(QPalette::AlternateBase).name(),
           popup->palette().color(QPalette::Mid).name(),
-          popup->palette().color(QPalette::Window).name()));
+          previewBackground.name(), previewBorder.name()));
     auto *layout = new QVBoxLayout(popup);
     layout->setContentsMargins(10, 10, 10, 10);
     // 来源应用、格式与容量统计放在浮层页头，不再占用卡片内容宽度。
@@ -1683,7 +1754,7 @@ void MainWindow::showHoverPreview(QString id) {
     popup->move(x, y);
     const QString path = databasePath_;
     auto *watcher = new QFutureWatcher<PreviewResult>(this);
-    connect(watcher, &QFutureWatcher<PreviewResult>::finished, this, [this, watcher, generation, id, content] {
+    connect(watcher, &QFutureWatcher<PreviewResult>::finished, this, [this, watcher, generation, id, content, previewBackground, previewText] {
         const PreviewResult result = watcher->result();
         watcher->deleteLater();
         if (generation != hoverPreviewGeneration_ || id != hoverPreviewId_ || !hoverPreview_) return;
@@ -1718,25 +1789,22 @@ void MainWindow::showHoverPreview(QString id) {
         } else {
             auto *preview = new PreviewTextEdit(content);
             preview->setReadOnly(true);
+            preview->setUndoRedoEnabled(false);
             preview->setAcceptDrops(false);
             preview->setFocusPolicy(Qt::NoFocus);
             preview->setFrameShape(QFrame::NoFrame);
             preview->setLineWrapMode(QTextEdit::WidgetWidth);
             preview->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
             preview->verticalScrollBar()->setFixedWidth(historyList_->verticalScrollBar()->width());
-            // 富文本保留来源文字颜色，使用浅色纸张底，避免深蓝、黑色等在暗色背景上不可读。
             const bool richText = !result.html.isEmpty() || result.markdown;
-            const QColor textColor = richText ? QColor(QStringLiteral("#1A1A1A"))
-                                             : qApp->palette().color(QPalette::ToolTipText);
-            if (richText) content->setStyleSheet(QStringLiteral(
-                "QFrame#HoverPreviewContent{background:#F4F6F8;border:1px solid #CBD5E1;border-radius:7px;}"));
             preview->setStyleSheet(QStringLiteral("QTextEdit{background:transparent;border:0;color:%1;}")
-                .arg(textColor.name()));
+                .arg(previewText.name()));
             preview->viewport()->setAutoFillBackground(false);
             // 优先使用剪贴板提供的富文本格式；普通文本保持原样。
             if (!result.html.isEmpty()) preview->setHtml(result.html);
             else if (result.markdown) preview->setMarkdown(result.text);
             else preview->setPlainText(result.text);
+            if (richText) adaptPreviewContrast(preview->document(), previewBackground, previewText);
             layout->addWidget(preview);
         }
         // 内容与嵌套布局都准备好后再首次显示，避免加载占位符及首帧尺寸变化闪烁。
