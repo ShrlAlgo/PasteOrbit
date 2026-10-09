@@ -762,6 +762,7 @@ void MainWindow::buildUi() {
         button->setObjectName(QStringLiteral("FilterButton"));
         button->setFont(filterIconFont);
         button->setToolTip(AppLocalization::get(tooltips.at(i)));
+        button->installEventFilter(this);
         filterButtons_->addButton(button, i);
         filterLayout->addWidget(button);
     }
@@ -1338,7 +1339,8 @@ QString textFormatLabel(const TextContent &content) {
 void MainWindow::setFilter(int kind) {
     selectedKind_ = kind;
     refreshHistory();
-    historyList_->setFocus(Qt::ShortcutFocusReason);
+    if (historyList_->isVisible()) historyList_->setFocus(Qt::ShortcutFocusReason);
+    else filterButtons_->button(kind + 1)->setFocus(Qt::ShortcutFocusReason);
 }
 
 void MainWindow::switchFilter(int direction) {
@@ -1349,6 +1351,9 @@ void MainWindow::switchFilter(int direction) {
 
 void MainWindow::updateEmptyState() {
     const bool empty = model_->rowCount() == 0 && !loadingPage_;
+    // 空结果会隐藏列表，先将键盘焦点交回当前筛选按钮。
+    if (empty && historyList_->hasFocus())
+        filterButtons_->button(selectedKind_ + 1)->setFocus(Qt::ShortcutFocusReason);
     historyStack_->setCurrentWidget(empty ? static_cast<QWidget *>(emptyLabel_) : static_cast<QWidget *>(historyList_));
 }
 
@@ -1554,7 +1559,8 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
             return true;
         }
     }
-    if ((watched == historyList_ || watched == searchBox_) && event->type() == QEvent::KeyPress) {
+    if ((watched == historyList_ || watched == searchBox_
+         || watched->objectName() == QStringLiteral("FilterButton")) && event->type() == QEvent::KeyPress) {
         auto *key = static_cast<QKeyEvent *>(event);
         if (key->key() == Qt::Key_Escape) { hidePanel(); return true; }
         if (watched == searchBox_ && key->key() == Qt::Key_Down && model_->rowCount() > 0) {
@@ -1566,7 +1572,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
             searchBox_->setFocus(Qt::ShortcutFocusReason);
             return true;
         }
-        if (watched == historyList_ && key->modifiers() == Qt::NoModifier
+        if (watched != searchBox_ && key->modifiers() == Qt::NoModifier
             && (key->key() == Qt::Key_Left || key->key() == Qt::Key_Right)) {
             switchFilter(key->key() == Qt::Key_Right ? 1 : -1);
             return true;
