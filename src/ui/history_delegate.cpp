@@ -51,6 +51,13 @@ void drawPreviewText(QPainter *painter, const QRect &rect, const QString &text) 
 
 HistoryDelegate::HistoryDelegate(QObject *parent) : QStyledItemDelegate(parent) {}
 
+void HistoryDelegate::setActivePreviewId(const QString &id) {
+    if (activePreviewId_ == id) return;
+    activePreviewId_ = id;
+    // 只刷新预览按钮状态，保持卡片高度和布局不变。
+    if (auto *view = qobject_cast<QAbstractItemView *>(parent())) view->viewport()->update();
+}
+
 QSize HistoryDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const {
     return QSize(option.rect.width(), index.data(HistoryModel::ExpandedRole).toBool() ? 260 : 76);
 }
@@ -133,19 +140,23 @@ void HistoryDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
     for (int action = 0; action < 3; ++action) {
         const auto rect = actionRect(card, action);
         const bool hovered = view && view->viewport()->rect().contains(cursor) && rect.contains(cursor);
-        if (hovered) {
-            const bool pressed = QApplication::mouseButtons().testFlag(Qt::LeftButton);
-            QColor feedback = palette.color(QPalette::Text);
+        const bool previewActive = action == Preview
+            && index.data(HistoryModel::IdRole).toString() == activePreviewId_;
+        if (hovered || previewActive) {
+            const bool pressed = hovered && QApplication::mouseButtons().testFlag(Qt::LeftButton);
+            QColor feedback = palette.color(previewActive ? QPalette::Highlight : QPalette::Text);
             feedback.setAlpha(pressed ? 55 : 25);
             painter->setPen(Qt::NoPen);
             painter->setBrush(feedback);
             painter->drawRoundedRect(QRectF(rect).adjusted(0.5, 0.5, -0.5, -0.5), 6, 6);
         }
         QColor iconColor = palette.color(QPalette::PlaceholderText);
-        if (action == Pin && index.data(HistoryModel::PinnedRole).toBool()) iconColor = palette.color(QPalette::Highlight);
+        if (previewActive || (action == Pin && index.data(HistoryModel::PinnedRole).toBool()))
+            iconColor = palette.color(QPalette::Highlight);
         else if (hovered) iconColor = palette.color(QPalette::Text);
         painter->setPen(iconColor);
-        const QChar glyph = action == Preview ? QChar(0xE890)
+        // 预览开启时显示隐藏图标，关闭时恢复查看图标。
+        const QChar glyph = action == Preview ? QChar(previewActive ? 0xED1A : 0xE890)
             : action == Pin ? QChar(index.data(HistoryModel::PinnedRole).toBool() ? 0xE77A : 0xE718)
                             : QChar(0xE712);
         painter->drawText(rect, Qt::AlignCenter, glyph);

@@ -762,7 +762,8 @@ void MainWindow::buildUi() {
         button->setObjectName(QStringLiteral("FilterButton"));
         button->setFont(filterIconFont);
         button->setToolTip(AppLocalization::get(tooltips.at(i)));
-        button->installEventFilter(this);
+        // 分类切换由列表和空状态处理，筛选按钮不占用键盘焦点。
+        button->setFocusPolicy(Qt::NoFocus);
         filterButtons_->addButton(button, i);
         filterLayout->addWidget(button);
     }
@@ -801,23 +802,9 @@ void MainWindow::buildUi() {
     delegate_ = new HistoryDelegate(historyList_);
     historyList_->setModel(model_);
     historyList_->setItemDelegate(delegate_);
-    hoverPreviewTimer_.setSingleShot(true);
-    hoverCloseTimer_.setSingleShot(true);
-    connect(&hoverPreviewTimer_, &QTimer::timeout, this, [this] {
-        if (!pendingHoverPreviewId_.isEmpty()) showHoverPreview(pendingHoverPreviewId_);
-    });
-    connect(&hoverCloseTimer_, &QTimer::timeout, this, [this] {
-        if (!hoverPreview_) return;
-        const QPoint cursor = QCursor::pos();
-        const QPoint position = historyList_->viewport()->mapFromGlobal(cursor);
-        const QModelIndex index = historyList_->indexAt(position);
-        if ((index.isValid() && delegate_->actionAt(historyList_->visualRect(index), position) == HistoryDelegate::Preview)
-            || hoverPreview_->geometry().contains(cursor)) return;
-        closeHoverPreview();
-    });
     connect(model_, &QAbstractItemModel::modelAboutToBeReset, this, &MainWindow::closeTextPreview);
     connect(delegate_, &HistoryDelegate::actionTriggered, this, [this](const QString &id, int action) {
-        if (action == HistoryDelegate::Preview) showHoverPreview(id);
+        if (action == HistoryDelegate::Preview) toggleHoverPreview(id);
         else if (action == HistoryDelegate::Pin) setPinned(id);
         else openRowMenu(id);
     });
@@ -839,6 +826,8 @@ void MainWindow::buildUi() {
     emptyLabel_ = new QLabel(AppLocalization::get(QStringLiteral("MainEmptyHistoryText")), stack);
     emptyLabel_->setObjectName(QStringLiteral("EmptyHistory"));
     emptyLabel_->setAlignment(Qt::AlignCenter);
+    emptyLabel_->setFocusPolicy(Qt::StrongFocus);
+    emptyLabel_->installEventFilter(this);
     historyStack_->addWidget(emptyLabel_);
     listLayout->addWidget(stack);
     statusLabel_ = new QLabel(listHost);
@@ -1177,7 +1166,7 @@ void MainWindow::showPanel(bool fromTray, HWND requestedTarget) {
             refreshHistory();
         historyList_->verticalScrollBar()->setValue(0);
         if (model_->rowCount() > 0) historyList_->setCurrentIndex(model_->index(0));
-        historyList_->setFocus(Qt::ShortcutFocusReason);
+        historyStack_->currentWidget()->setFocus(Qt::ShortcutFocusReason);
         updateVisibleThumbnails();
     };
     if (fromTray || !hasTarget || (inputBounds && controlBounds)) {
@@ -1252,12 +1241,15 @@ void MainWindow::refreshHistory() {
         if (generation != historyGeneration_) return;
         loadingPage_ = false;
         if (!page.error.isEmpty()) { historyDirty_ = true; showStatus(page.error); }
+        // 在模型重置前保存焦点归属，结果返回后继续由列表或空状态接收按键。
+        const bool restoreFocus = historyList_->hasFocus() || emptyLabel_->hasFocus();
         model_->setFirstPage(page);
         model_->setQuickPasteEnabled(searchBox_->text().isEmpty());
         firstPageCursor_ = page.next;
         nextCursor_ = page.next;
         unpinnedCount_ = page.unpinnedCount;
         updateEmptyState();
+        if (restoreFocus) historyStack_->currentWidget()->setFocus(Qt::ShortcutFocusReason);
         updateVisibleThumbnails();
     });
     const QString path = databasePath_;
@@ -1339,8 +1331,7 @@ QString textFormatLabel(const TextContent &content) {
 void MainWindow::setFilter(int kind) {
     selectedKind_ = kind;
     refreshHistory();
-    if (historyList_->isVisible()) historyList_->setFocus(Qt::ShortcutFocusReason);
-    else filterButtons_->button(kind + 1)->setFocus(Qt::ShortcutFocusReason);
+    historyStack_->currentWidget()->setFocus(Qt::ShortcutFocusReason);
 }
 
 void MainWindow::switchFilter(int direction) {
@@ -1351,10 +1342,10 @@ void MainWindow::switchFilter(int direction) {
 
 void MainWindow::updateEmptyState() {
     const bool empty = model_->rowCount() == 0 && !loadingPage_;
-    // 空结果会隐藏列表，先将键盘焦点交回当前筛选按钮。
-    if (empty && historyList_->hasFocus())
-        filterButtons_->button(selectedKind_ + 1)->setFocus(Qt::ShortcutFocusReason);
     historyStack_->setCurrentWidget(empty ? static_cast<QWidget *>(emptyLabel_) : static_cast<QWidget *>(historyList_));
+    // 模型刷新会清除当前项，恢复首条记录以便立即使用卡片快捷键。
+    if (!empty && !historyList_->currentIndex().isValid())
+        historyList_->setCurrentIndex(model_->index(0));
 }
 
 void MainWindow::showStatus(const QString &message) {
@@ -1393,6 +1384,10 @@ bool MainWindow::nativeEventFilter(const QByteArray &, void *message, qintptr *r
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
     if (historyList_ && watched == historyList_->viewport()) {
+        // 新分类加载完成前，拦截旧卡片的点击和预览提示。
+        if (loadingPage_ && (event->type() == QEvent::MouseButtonPress
+            || event->type() == QEvent::MouseButtonRelease || event->type() == QEvent::MouseButtonDblClick
+            || event->type() == QEvent::ToolTip)) return true;
         if (event->type() == QEvent::MouseMove || event->type() == QEvent::MouseButtonPress
             || event->type() == QEvent::MouseButtonRelease || event->type() == QEvent::Leave) {
             const QRect row = event->type() != QEvent::Leave
@@ -1410,13 +1405,11 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
             if (hovered.isValid()) {
                 const int action = delegate_->actionAt(historyList_->visualRect(hovered), help->pos());
                 QString label;
-                if (action == HistoryDelegate::Preview) {
-                    QToolTip::hideText();
-                    // 静止悬停也能打开预览，不依赖后续 MouseMove 事件。
-                    showHoverPreview(hovered.data(HistoryModel::IdRole).toString());
-                    return true;
-                }
-                if (action == HistoryDelegate::Pin)
+                if (action == HistoryDelegate::Preview)
+                    label = AppLocalization::get(hoverPreview_
+                        && hovered.data(HistoryModel::IdRole).toString() == hoverPreviewId_
+                            ? QStringLiteral("CollapsePreview") : QStringLiteral("PreviewContent"));
+                else if (action == HistoryDelegate::Pin)
                     label = AppLocalization::get(hovered.data(HistoryModel::PinnedRole).toBool()
                         ? QStringLiteral("UnpinItem") : QStringLiteral("PinItem"));
                 else if (action == HistoryDelegate::More)
@@ -1441,22 +1434,6 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
             previewDragging_ = false;
         }
         const QModelIndex index = position.x() >= 0 ? historyList_->indexAt(position) : QModelIndex{};
-        if (event->type() == QEvent::MouseMove || event->type() == QEvent::Leave) {
-            const QString id = event->type() == QEvent::MouseMove && index.isValid()
-                && delegate_->actionAt(historyList_->visualRect(index), position) == HistoryDelegate::Preview
-                    ? index.data(HistoryModel::IdRole).toString() : QString{};
-            if (!id.isEmpty()) {
-                hoverCloseTimer_.stop();
-                if (hoverPreviewId_ != id && pendingHoverPreviewId_ != id) {
-                    pendingHoverPreviewId_ = id;
-                    hoverPreviewTimer_.start(300);
-                }
-            } else {
-                pendingHoverPreviewId_.clear();
-                hoverPreviewTimer_.stop();
-                if (hoverPreview_ && !hoverCloseTimer_.isActive()) hoverCloseTimer_.start(180);
-            }
-        }
         if (index.isValid() && index.data(HistoryModel::IdRole).toString() == model_->previewId()
             && delegate_->previewRect(historyList_->visualRect(index)).contains(position)) {
             const int kind = index.data(HistoryModel::KindRole).toInt();
@@ -1495,10 +1472,6 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
                 }
             }
         }
-    }
-    if (watched == hoverPreview_) {
-        if (event->type() == QEvent::Enter) hoverCloseTimer_.stop();
-        else if (event->type() == QEvent::Leave) hoverCloseTimer_.start(180);
     }
     if (hoverImageScroll_ && (watched == hoverImageLabel_ || watched == hoverImageScroll_->viewport())) {
         if (event->type() == QEvent::Wheel && !hoverImageSize_.isEmpty()) {
@@ -1559,22 +1532,26 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
             return true;
         }
     }
-    if ((watched == historyList_ || watched == searchBox_
-         || watched->objectName() == QStringLiteral("FilterButton")) && event->type() == QEvent::KeyPress) {
+    if ((watched == historyList_ || watched == searchBox_ || watched == emptyLabel_)
+        && event->type() == QEvent::KeyPress) {
         auto *key = static_cast<QKeyEvent *>(event);
         if (key->key() == Qt::Key_Escape) { hidePanel(); return true; }
-        if (watched == searchBox_ && key->key() == Qt::Key_Down && model_->rowCount() > 0) {
+        if (watched != searchBox_ && key->modifiers() == Qt::NoModifier
+            && (key->key() == Qt::Key_Left || key->key() == Qt::Key_Right)) {
+            switchFilter(key->key() == Qt::Key_Right ? 1 : -1);
+            return true;
+        }
+        // 加载期间保留关闭和分类切换，避免导航或快捷键操作旧列表。
+        if (loadingPage_ && watched != searchBox_) return true;
+        if (watched == searchBox_ && !loadingPage_
+            && key->key() == Qt::Key_Down && model_->rowCount() > 0) {
             historyList_->setCurrentIndex(model_->index(0));
             historyList_->setFocus(Qt::ShortcutFocusReason);
             return true;
         }
-        if (watched == historyList_ && key->key() == Qt::Key_Up && historyList_->currentIndex().row() <= 0) {
+        if ((watched == historyList_ || watched == emptyLabel_)
+            && key->key() == Qt::Key_Up && historyList_->currentIndex().row() <= 0) {
             searchBox_->setFocus(Qt::ShortcutFocusReason);
-            return true;
-        }
-        if (watched != searchBox_ && key->modifiers() == Qt::NoModifier
-            && (key->key() == Qt::Key_Left || key->key() == Qt::Key_Right)) {
-            switchFilter(key->key() == Qt::Key_Right ? 1 : -1);
             return true;
         }
         if (watched == historyList_ && key->modifiers() == Qt::NoModifier
@@ -1599,7 +1576,10 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
                 pasteRecord(id); return true;
             }
             if (normalized == normalizedShortcut(settings_.previewShortcut)) {
-                showHoverPreview(id); return true;
+                // 再次按预览快捷键关闭当前预览，忽略长按产生的重复事件。
+                if (key->isAutoRepeat()) return true;
+                toggleHoverPreview(id);
+                return true;
             }
             if (normalized == normalizedShortcut(settings_.pinShortcut)) {
                 setPinned(id); return true;
@@ -1655,9 +1635,6 @@ void MainWindow::closeEvent(QCloseEvent *event) {
 
 void MainWindow::closeHoverPreview() {
     ++hoverPreviewGeneration_;
-    hoverPreviewTimer_.stop();
-    hoverCloseTimer_.stop();
-    pendingHoverPreviewId_.clear();
     hoverPreviewId_.clear();
     hoverImageScroll_ = nullptr;
     hoverImageLabel_ = nullptr;
@@ -1666,11 +1643,17 @@ void MainWindow::closeHoverPreview() {
     hoverImageDragging_ = false;
     delete hoverPreview_;
     hoverPreview_ = nullptr;
+    if (delegate_) delegate_->setActivePreviewId({});
 }
 
-void MainWindow::showHoverPreview(QString id) {
+void MainWindow::toggleHoverPreview(QString id) {
     // 按值保存 ID；关闭旧浮层会清空待预览成员，引用传参会导致首次加载空记录。
-    if (id.isEmpty() || (hoverPreview_ && hoverPreviewId_ == id)) return;
+    if (loadingPage_ || id.isEmpty()) return;
+    // 点击和快捷键共用状态：同一卡片关闭预览，另一卡片切换预览。
+    if (hoverPreview_ && hoverPreviewId_ == id) {
+        closeHoverPreview();
+        return;
+    }
     const int row = model_->rowForId(id);
     const auto *item = model_->itemAt(row);
     if (!item) return;
@@ -1741,8 +1724,8 @@ void MainWindow::showHoverPreview(QString id) {
     auto *contentLayout = new QVBoxLayout(content);
     contentLayout->setContentsMargins(8, 8, 8, 8);
     layout->addWidget(content, 1);
-    popup->installEventFilter(this);
     hoverPreview_ = popup;
+    delegate_->setActivePreviewId(id);
 
     const QPoint anchor = historyList_->viewport()->mapToGlobal(QPoint(0, 0));
     QScreen *screen = QGuiApplication::screenAt(anchor);
@@ -1990,6 +1973,7 @@ void MainWindow::upgradePreviewImage(const QString &id) {
 }
 
 void MainWindow::setPinned(const QString &id) {
+    if (loadingPage_) return;
     const auto *item = model_->itemAt(model_->rowForId(id));
     if (!item) return;
     const bool newState = !item->pinned;
@@ -2007,6 +1991,7 @@ void MainWindow::setPinned(const QString &id) {
 }
 
 void MainWindow::deleteRecord(const QString &id) {
+    if (loadingPage_) return;
     const auto *item = model_->itemAt(model_->rowForId(id));
     if (!item) return;
     if (item->pinned && QMessageBox::question(this,
@@ -2051,6 +2036,7 @@ void MainWindow::clearCurrentList() {
 }
 
 void MainWindow::openRowMenu(const QString &id, std::optional<QPoint> position) {
+    if (loadingPage_) return;
     const auto *item = model_->itemAt(model_->rowForId(id));
     if (!item) return;
     // 菜单作为独立弹窗，避免继承透明历史面板的样式表。
@@ -2199,6 +2185,7 @@ void MainWindow::saveCapture(ClipboardCapture capture, QImage fallbackImage, DWO
 }
 
 void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile) {
+    if (loadingPage_) return;
     const int row = model_->rowForId(id);
     const auto *itemPointer = model_->itemAt(row);
     if (!itemPointer) return;

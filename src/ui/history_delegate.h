@@ -15,7 +15,11 @@ public:
                      const QModelIndex &index) override;
     int actionAt(const QRect &itemRect, const QPoint &position) const;
     QRect previewRect(const QRect &itemRect) const;
+    void setActivePreviewId(const QString &id);
 
 signals:
     void actionTriggered(const QString &id, int action);
+
+private:
+    QString activePreviewId_;
 };

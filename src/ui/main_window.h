@@ -79,7 +79,7 @@ private:
     void pasteRecord(const QString &id, bool plainText = false, bool asFile = false);
     void openRowMenu(const QString &id, std::optional<QPoint> position = std::nullopt);
     void togglePreview(const QString &id);
-    void showHoverPreview(QString id);
+    void toggleHoverPreview(QString id);
     void closeHoverPreview();
     void updateHoverPreviewImage();
     void showTextPreview(const QString &text, const QString &html, bool markdown);
@@ -116,9 +116,6 @@ private:
     QScrollArea *hoverImageScroll_ = nullptr;
     QSize hoverImageSize_;
     QString hoverPreviewId_;
-    QString pendingHoverPreviewId_;
-    QTimer hoverPreviewTimer_;
-    QTimer hoverCloseTimer_;
     int hoverPreviewGeneration_ = 0;
     double hoverImageZoom_ = 1.0;
     bool hoverImageDragging_ = false;
