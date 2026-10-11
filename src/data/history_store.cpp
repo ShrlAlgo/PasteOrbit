@@ -214,20 +214,18 @@ HistoryPage HistoryStore::search(const QString &text, int kind, const std::optio
     Connection connection(path_);
     if (!connection.isOpen()) { page.error = connection.error(); return page; }
 
-    QSqlQuery countQuery(connection.database());
     const bool hasSearch = !text.trimmed().isEmpty();
     const QString from = hasSearch
         ? QStringLiteral(" FROM clipboard_items AS item JOIN clipboard_items_fts AS fts ON fts.rowid=item.storage_id")
         : QStringLiteral(" FROM clipboard_items AS item");
-    countQuery.prepare(QStringLiteral("SELECT COUNT(*)") + from + searchClause(text, kind, std::nullopt));
-    bindSearch(countQuery, text, kind, std::nullopt);
-    if (!countQuery.exec() || !countQuery.next()) { page.error = countQuery.lastError().text(); return page; }
-    page.totalCount = countQuery.value(0).toInt();
-    QSqlQuery unpinnedQuery(connection.database());
-    unpinnedQuery.prepare(QStringLiteral("SELECT COUNT(*)") + from + searchClause(text, kind, std::nullopt, true));
-    bindSearch(unpinnedQuery, text, kind, std::nullopt);
-    if (!unpinnedQuery.exec() || !unpinnedQuery.next()) { page.error = unpinnedQuery.lastError().text(); return page; }
-    page.unpinnedCount = unpinnedQuery.value(0).toInt();
+    // 清空按钮只在第一页刷新时需要数量，翻页不重复统计。
+    if (!cursor) {
+        QSqlQuery unpinnedQuery(connection.database());
+        unpinnedQuery.prepare(QStringLiteral("SELECT COUNT(*)") + from + searchClause(text, kind, std::nullopt, true));
+        bindSearch(unpinnedQuery, text, kind, std::nullopt);
+        if (!unpinnedQuery.exec() || !unpinnedQuery.next()) { page.error = unpinnedQuery.lastError().text(); return page; }
+        page.unpinnedCount = unpinnedQuery.value(0).toInt();
+    }
 
     QSqlQuery query(connection.database());
     const QString sql = QStringLiteral("SELECT item.storage_id,item.id,item.kind,item.preview_text,"
@@ -497,9 +495,10 @@ QString HistoryStore::cleanup(int retentionDays, int maxEntries) const {
     auto &database = connection.database();
     if (!database.transaction()) return connection.error();
     QSqlQuery select(database);
-    select.prepare(QStringLiteral("WITH ranked AS (SELECT storage_id,updated_at,ROW_NUMBER() OVER "
-        "(ORDER BY updated_at DESC,storage_id DESC) AS row_number FROM clipboard_items WHERE is_pinned=0) "
-        "SELECT storage_id FROM ranked WHERE updated_at<:cutoff OR row_number>:maximum"));
+    // 使用排序索引筛选过期和超额记录，避免每次保存都对全表计算窗口排名。
+    select.prepare(QStringLiteral("SELECT storage_id FROM clipboard_items WHERE is_pinned=0 AND updated_at<:cutoff "
+        "UNION SELECT storage_id FROM (SELECT storage_id FROM clipboard_items WHERE is_pinned=0 "
+        "ORDER BY updated_at DESC,storage_id DESC LIMIT -1 OFFSET :maximum)"));
     select.bindValue(QStringLiteral(":cutoff"), QDateTime::currentMSecsSinceEpoch()
                      - static_cast<qint64>(retentionDays) * 24 * 60 * 60 * 1000);
     select.bindValue(QStringLiteral(":maximum"), maxEntries);

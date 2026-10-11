@@ -58,8 +58,8 @@ void HistoryDelegate::setActivePreviewId(const QString &id) {
     if (auto *view = qobject_cast<QAbstractItemView *>(parent())) view->viewport()->update();
 }
 
-QSize HistoryDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const {
-    return QSize(option.rect.width(), index.data(HistoryModel::ExpandedRole).toBool() ? 260 : 76);
+QSize HistoryDelegate::sizeHint(const QStyleOptionViewItem &option, const QModelIndex &) const {
+    return QSize(option.rect.width(), 76);
 }
 
 void HistoryDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option,
@@ -162,33 +162,6 @@ void HistoryDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
         painter->drawText(rect, Qt::AlignCenter, glyph);
     }
 
-    if (index.data(HistoryModel::ExpandedRole).toBool()) {
-        const QRect area = previewRect(option.rect);
-        painter->setBrush(palette.color(QPalette::AlternateBase));
-        painter->setPen(QPen(palette.color(QPalette::Mid), 0.7));
-        painter->drawRoundedRect(area, 6, 6);
-        const QRect content = area.adjusted(8, 6, -8, -6);
-        if (index.data(HistoryModel::PreviewLoadingRole).toBool()) {
-            painter->setPen(palette.color(QPalette::PlaceholderText));
-            painter->drawText(content, Qt::AlignCenter, QStringLiteral("…"));
-        } else if (kind == 1) {
-            const QImage expandedImage = qvariant_cast<QImage>(index.data(HistoryModel::PreviewImageRole));
-            if (expandedImage.isNull()) {
-                painter->setPen(palette.color(QPalette::PlaceholderText));
-                painter->drawText(content, Qt::AlignCenter, AppLocalization::get(QStringLiteral("ImagePreviewUnavailable")));
-            } else {
-                const double scale = content.width() / static_cast<double>(expandedImage.width())
-                    * index.data(HistoryModel::PreviewZoomRole).toDouble();
-                const QPointF pan = index.data(HistoryModel::PreviewPanRole).toPointF();
-                const QSizeF size(expandedImage.width() * scale, expandedImage.height() * scale);
-                const QRectF target(QPointF(content.topLeft()) + pan, size);
-                painter->save();
-                painter->setClipRect(content);
-                painter->drawImage(target, expandedImage, expandedImage.rect());
-                painter->restore();
-            }
-        }
-    }
     painter->restore();
 }
 
@@ -196,10 +169,6 @@ int HistoryDelegate::actionAt(const QRect &itemRect, const QPoint &position) con
     const auto card = cardRect(itemRect);
     for (int action = 0; action < 3; ++action) if (actionRect(card, action).contains(position)) return action;
     return -1;
-}
-
-QRect HistoryDelegate::previewRect(const QRect &itemRect) const {
-    return cardRect(itemRect).adjusted(10, 70, -10, -10);
 }
 
 bool HistoryDelegate::editorEvent(QEvent *event, QAbstractItemModel *, const QStyleOptionViewItem &option,

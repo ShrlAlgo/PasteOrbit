@@ -18,6 +18,7 @@
 #include <QCursor>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QFrame>
 #include <QGuiApplication>
 #include <QHash>
@@ -41,6 +42,7 @@
 #include <QPainter>
 #include <QPixmap>
 #include <QSettings>
+#include <QSet>
 #include <QScrollBar>
 #include <QScopeGuard>
 #include <QScreen>
@@ -514,8 +516,14 @@ struct TextContent {
     bool markdown = false;
 };
 
+struct PasteResult {
+    HistoryItem item;
+    QByteArray content;
+    ImageContent image;
+    QImage decoded;
+};
+
 struct PreviewResult {
-    QString id;
     QString text;
     QString html;
     bool markdown = false;
@@ -617,6 +625,7 @@ MainWindow::MainWindow(QString dataDirectory, AppSettings settings)
             HistoryStore(path).cleanup(retention, maximum);
         });
     }
+    cleanupPasteFiles();
 }
 
 MainWindow::~MainWindow() {
@@ -646,10 +655,8 @@ void MainWindow::beginStorageOperation() {
     readPool_.waitForDone();
     writePool_.waitForDone();
     QThreadPool::globalInstance()->waitForDone();
-    ++historyGeneration_;
-    ++previewGeneration_;
-    closeTextPreview();
-    model_->clearPreview();
+    historyGeneration_->fetchAndAddRelaxed(1);
+    closeHoverPreview();
     model_->releaseThumbnails();
 }
 
@@ -802,7 +809,7 @@ void MainWindow::buildUi() {
     delegate_ = new HistoryDelegate(historyList_);
     historyList_->setModel(model_);
     historyList_->setItemDelegate(delegate_);
-    connect(model_, &QAbstractItemModel::modelAboutToBeReset, this, &MainWindow::closeTextPreview);
+    connect(model_, &QAbstractItemModel::modelAboutToBeReset, this, &MainWindow::closeHoverPreview);
     connect(delegate_, &HistoryDelegate::actionTriggered, this, [this](const QString &id, int action) {
         if (action == HistoryDelegate::Preview) toggleHoverPreview(id);
         else if (action == HistoryDelegate::Pin) setPinned(id);
@@ -1126,7 +1133,7 @@ std::optional<RECT> MainWindow::capturePasteTarget(HWND window) {
 
 void MainWindow::showPanel(bool fromTray, HWND requestedTarget) {
     if (suppressClipboardCapture_) return;
-    ++pasteGeneration_;
+    pasteGeneration_->fetchAndAddRelaxed(1);
     const int generation = ++panelShowGeneration_;
     const HWND foreground = requestedTarget && IsWindow(requestedTarget) ? requestedTarget : GetForegroundWindow();
     const bool hasTarget = foreground && foreground != reinterpret_cast<HWND>(winId());
@@ -1162,10 +1169,17 @@ void MainWindow::showPanel(bool fromTray, HWND requestedTarget) {
         }
         if (isPinned_) SetWindowPos(reinterpret_cast<HWND>(winId()), HWND_TOPMOST, 0, 0, 0, 0,
                                     SWP_NOMOVE | SWP_NOSIZE);
-        if (historyDirty_ || (searchBox_->text().isEmpty() && model_->rowCount() == 0 && !loadingPage_))
-            refreshHistory();
-        historyList_->verticalScrollBar()->setValue(0);
-        if (model_->rowCount() > 0) historyList_->setCurrentIndex(model_->index(0));
+        // 无新记录时继续浏览原位置；隐藏期间有新记录才重新展示最新内容。
+        if (newHistoryAvailable_) {
+            searchTimer_.stop();
+            const QSignalBlocker blocker(searchBox_);
+            searchBox_->clear();
+            historyList_->verticalScrollBar()->setValue(0);
+            if (model_->rowCount() > 0) historyList_->setCurrentIndex(model_->index(0));
+            newHistoryAvailable_ = false;
+            historyDirty_ = true;
+        }
+        if (historyDirty_) refreshHistory();
         historyStack_->currentWidget()->setFocus(Qt::ShortcutFocusReason);
         updateVisibleThumbnails();
     };
@@ -1196,38 +1210,20 @@ void MainWindow::showPanel(bool fromTray, HWND requestedTarget) {
 
 void MainWindow::hidePanel() {
     ++panelShowGeneration_;
-    ++pasteGeneration_;
+    pasteGeneration_->fetchAndAddRelaxed(1);
     if (!isVisible()) return;
     hide();
-    if (!searchBox_->text().isEmpty()) {
-        const QSignalBlocker blocker(searchBox_);
-        searchBox_->clear();
-        refreshHistory();
-    } else {
-        // 隐藏后丢弃未完成的后续页，避免裁剪后的列表又被异步回调填满。
-        if (loadingMore_) {
-            ++historyGeneration_;
-            loadingMore_ = false;
-        }
-        model_->trimToFirstPage();
-        nextCursor_ = firstPageCursor_;
-    }
-    historyList_->clearSelection();
-    ++previewGeneration_;
-    closeTextPreview();
-    model_->clearPreview();
-    historyList_->doItemsLayout();
-    highResolutionPreviewId_.clear();
-    highResolutionLoadingId_.clear();
+    // 保留分页、筛选和选择，仅释放可重新加载的图片资源。
+    closeHoverPreview();
     model_->releaseThumbnails();
     targetWindow_ = nullptr;
     targetFocusWindow_ = nullptr;
 }
 
 void MainWindow::refreshHistory() {
-    const int generation = ++historyGeneration_;
+    const int generation = historyGeneration_->fetchAndAddRelaxed(1) + 1;
     historyDirty_ = false;
-    closeTextPreview();
+    closeHoverPreview();
     model_->setQuickPasteEnabled(false);
     loadingPage_ = true;
     loadingMore_ = false;
@@ -1238,14 +1234,13 @@ void MainWindow::refreshHistory() {
     connect(watcher, &QFutureWatcher<HistoryPage>::finished, this, [this, watcher, generation] {
         const auto page = watcher->result();
         watcher->deleteLater();
-        if (generation != historyGeneration_) return;
+        if (generation != historyGeneration_->loadRelaxed()) return;
         loadingPage_ = false;
         if (!page.error.isEmpty()) { historyDirty_ = true; showStatus(page.error); }
         // 在模型重置前保存焦点归属，结果返回后继续由列表或空状态接收按键。
         const bool restoreFocus = historyList_->hasFocus() || emptyLabel_->hasFocus();
         model_->setFirstPage(page);
         model_->setQuickPasteEnabled(searchBox_->text().isEmpty());
-        firstPageCursor_ = page.next;
         nextCursor_ = page.next;
         unpinnedCount_ = page.unpinnedCount;
         updateEmptyState();
@@ -1253,7 +1248,9 @@ void MainWindow::refreshHistory() {
         updateVisibleThumbnails();
     });
     const QString path = databasePath_;
-    watcher->setFuture(QtConcurrent::run(&readPool_, [path, query, kind] {
+    const auto generationState = historyGeneration_;
+    watcher->setFuture(QtConcurrent::run(&readPool_, [path, query, kind, generationState, generation] {
+        if (generationState->loadRelaxed() != generation) return HistoryPage{};
         return HistoryStore(path).search(query, kind, std::nullopt, HistoryPageSize);
     }));
 }
@@ -1261,7 +1258,7 @@ void MainWindow::refreshHistory() {
 void MainWindow::loadMoreHistory() {
     if (!isVisible() || loadingPage_ || loadingMore_ || !nextCursor_) return;
     loadingMore_ = true;
-    const int generation = historyGeneration_;
+    const int generation = historyGeneration_->loadRelaxed();
     const QString query = searchBox_->text();
     const int kind = selectedKind_;
     const auto cursor = nextCursor_;
@@ -1269,7 +1266,7 @@ void MainWindow::loadMoreHistory() {
     connect(watcher, &QFutureWatcher<HistoryPage>::finished, this, [this, watcher, generation] {
         const auto page = watcher->result();
         watcher->deleteLater();
-        if (generation != historyGeneration_) return;
+        if (generation != historyGeneration_->loadRelaxed()) return;
         loadingMore_ = false;
         if (!page.error.isEmpty()) { showStatus(page.error); nextCursor_.reset(); return; }
         model_->appendPage(page);
@@ -1277,26 +1274,19 @@ void MainWindow::loadMoreHistory() {
         updateVisibleThumbnails();
     });
     const QString path = databasePath_;
-    watcher->setFuture(QtConcurrent::run(&readPool_, [path, query, kind, cursor] {
+    const auto generationState = historyGeneration_;
+    watcher->setFuture(QtConcurrent::run(&readPool_, [path, query, kind, cursor, generationState, generation] {
+        if (generationState->loadRelaxed() != generation) return HistoryPage{};
         return HistoryStore(path).search(query, kind, cursor, HistoryPageSize);
     }));
 }
 
 void MainWindow::updateVisibleThumbnails() {
-    if (!historyList_ || !model_) return;
+    if (!isVisible() || loadingPage_ || !historyList_ || !model_) return;
     if (hoverPreview_) {
         const int row = model_->rowForId(hoverPreviewId_);
         if (row < 0 || !historyList_->visualRect(model_->index(row)).intersects(historyList_->viewport()->rect()))
             closeHoverPreview();
-    }
-    const int previewRow = model_->rowForId(model_->previewId());
-    if (previewRow >= 0 && !historyList_->visualRect(model_->index(previewRow)).intersects(historyList_->viewport()->rect())) {
-        ++previewGeneration_;
-        closeTextPreview();
-        model_->clearPreview();
-        historyList_->doItemsLayout();
-        highResolutionPreviewId_.clear();
-        highResolutionLoadingId_.clear();
     }
     int first = model_->rowCount();
     int last = -1;
@@ -1308,7 +1298,6 @@ void MainWindow::updateVisibleThumbnails() {
         last = qMax(last, index.row());
     }
     model_->setVisibleRows(first, last);
-    updateTextPreviewGeometry();
 }
 
 QString textFormatLabel(const TextContent &content) {
@@ -1397,8 +1386,6 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
             hoveredHistoryRow_ = row;
             if (row.isValid()) historyList_->viewport()->update(row);
         }
-        if (event->type() == QEvent::Resize && textPreview_)
-            QTimer::singleShot(0, this, &MainWindow::updateTextPreviewGeometry);
         if (event->type() == QEvent::ToolTip) {
             const auto *help = static_cast<QHelpEvent *>(event);
             const QModelIndex hovered = historyList_->indexAt(help->pos());
@@ -1418,59 +1405,6 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
             }
             QToolTip::hideText();
             return true;
-        }
-        QPoint position(-1, -1);
-        if (event->type() == QEvent::Wheel) position = static_cast<QWheelEvent *>(event)->position().toPoint();
-        else if (event->type() == QEvent::MouseMove || event->type() == QEvent::MouseButtonPress
-                 || event->type() == QEvent::MouseButtonRelease || event->type() == QEvent::MouseButtonDblClick) {
-            position = static_cast<QMouseEvent *>(event)->position().toPoint();
-        }
-        if (previewDragging_ && event->type() == QEvent::MouseMove) {
-            const auto *mouse = static_cast<QMouseEvent *>(event);
-            if (mouse->buttons().testFlag(Qt::LeftButton)) {
-                model_->setPreviewPan(previewPanStart_ + mouse->position() - previewDragStart_);
-                return true;
-            }
-            previewDragging_ = false;
-        }
-        const QModelIndex index = position.x() >= 0 ? historyList_->indexAt(position) : QModelIndex{};
-        if (index.isValid() && index.data(HistoryModel::IdRole).toString() == model_->previewId()
-            && delegate_->previewRect(historyList_->visualRect(index)).contains(position)) {
-            const int kind = index.data(HistoryModel::KindRole).toInt();
-            if (event->type() == QEvent::MouseButtonPress) {
-                const auto *mouse = static_cast<QMouseEvent *>(event);
-                if (mouse->button() == Qt::LeftButton) {
-                    previewDragging_ = kind == 1;
-                    previewDragStart_ = mouse->position().toPoint();
-                    previewPanStart_ = index.data(HistoryModel::PreviewPanRole).toPointF();
-                    return true;
-                }
-            } else if (event->type() == QEvent::MouseButtonRelease && previewDragging_) {
-                previewDragging_ = false;
-                return true;
-            } else if (event->type() == QEvent::MouseButtonDblClick) {
-                const auto *mouse = static_cast<QMouseEvent *>(event);
-                if (mouse->button() == Qt::MiddleButton && kind == 1) {
-                    model_->setPreviewZoom(1.0, {});
-                    return true;
-                }
-            } else if (event->type() == QEvent::Wheel) {
-                const auto *wheel = static_cast<QWheelEvent *>(event);
-                const QRect area = delegate_->previewRect(historyList_->visualRect(index)).adjusted(8, 6, -8, -6);
-                const QPointF anchor = wheel->position() - area.topLeft();
-                const QPointF oldPan = index.data(HistoryModel::PreviewPanRole).toPointF();
-                if (kind == 1 && !qvariant_cast<QImage>(index.data(HistoryModel::PreviewImageRole)).isNull()) {
-                    const double oldZoom = index.data(HistoryModel::PreviewZoomRole).toDouble();
-                    const double factor = wheel->angleDelta().y() > 0 ? 1.25 : 0.8;
-                    const double zoom = qBound(1.0, oldZoom * factor, 4.0);
-                    if (!qFuzzyCompare(zoom, oldZoom)) {
-                        const QPointF pan = anchor - (anchor - oldPan) * (zoom / oldZoom);
-                        model_->setPreviewZoom(zoom, pan);
-                        if (zoom >= 1.25) upgradePreviewImage(model_->previewId());
-                    }
-                    return true;
-                }
-            }
         }
     }
     if (hoverImageScroll_ && (watched == hoverImageLabel_ || watched == hoverImageScroll_->viewport())) {
@@ -1634,7 +1568,7 @@ void MainWindow::closeEvent(QCloseEvent *event) {
 }
 
 void MainWindow::closeHoverPreview() {
-    ++hoverPreviewGeneration_;
+    hoverPreviewGeneration_->fetchAndAddRelaxed(1);
     hoverPreviewId_.clear();
     hoverImageScroll_ = nullptr;
     hoverImageLabel_ = nullptr;
@@ -1661,9 +1595,9 @@ void MainWindow::toggleHoverPreview(QString id) {
     closeHoverPreview();
     QToolTip::hideText();
     hoverPreviewId_ = id;
-    const int generation = hoverPreviewGeneration_;
+    const int generation = hoverPreviewGeneration_->loadRelaxed();
 
-    // 浮层独立于列表项，悬停预览不会改变卡片高度或触发列表重排。
+    // 浮层独立于列表项，切换预览不会改变卡片高度或触发列表重排。
     auto *popup = new HoverPreviewFrame(this, Qt::Tool | Qt::FramelessWindowHint | Qt::WindowDoesNotAcceptFocus);
     popup->setObjectName(QStringLiteral("HoverPreview"));
     popup->setAttribute(Qt::WA_TranslucentBackground);
@@ -1688,7 +1622,7 @@ void MainWindow::toggleHoverPreview(QString id) {
     // 来源应用、格式与容量统计放在浮层页头，不再占用卡片内容宽度。
     const QString source = item->sourceApplication.isEmpty()
         ? AppLocalization::get(QStringLiteral("UnknownApplication")) : item->sourceApplication;
-    const QString format = model_->index(row).data(HistoryModel::FormatRole).toString();
+    const QString format = kind == 0 ? AppLocalization::get(QStringLiteral("ContentTypeText")) : QString{};
     const QString statistics = kind == 0
         ? AppLocalization::format(QStringLiteral("CharacterCount"), {QString::number(item->searchTextLength)})
         : kind == 1 ? QStringLiteral("%1 KB").arg(qMax(1.0, item->contentSize / 1024.0), 0, 'f', 1)
@@ -1710,11 +1644,11 @@ void MainWindow::toggleHoverPreview(QString id) {
     auto *statisticsBadge = makeBadge(statistics);
     heading->addWidget(sourceBadge);
     int detailsWidth = statisticsBadge->fontMetrics().horizontalAdvance(statistics) + 16;
-    if (!format.isEmpty()) {
-        auto *formatBadge = makeBadge(format);
-        heading->addWidget(formatBadge);
+    auto *formatBadge = makeBadge(format);
+    heading->addWidget(formatBadge);
+    formatBadge->setVisible(!format.isEmpty());
+    if (!format.isEmpty())
         detailsWidth += formatBadge->fontMetrics().horizontalAdvance(format) + 16 + heading->spacing();
-    }
     heading->addStretch();
     heading->addWidget(statisticsBadge);
     layout->addLayout(heading);
@@ -1743,10 +1677,17 @@ void MainWindow::toggleHoverPreview(QString id) {
     popup->move(x, y);
     const QString path = databasePath_;
     auto *watcher = new QFutureWatcher<PreviewResult>(this);
-    connect(watcher, &QFutureWatcher<PreviewResult>::finished, this, [this, watcher, generation, id, content, previewBackground, previewText] {
+    connect(watcher, &QFutureWatcher<PreviewResult>::finished, this, [this, watcher, generation, id, content, previewBackground, previewText,
+                                                                 sourceBadge, statisticsBadge, formatBadge, heading, source] {
         const PreviewResult result = watcher->result();
         watcher->deleteLater();
-        if (generation != hoverPreviewGeneration_ || id != hoverPreviewId_ || !hoverPreview_) return;
+        if (generation != hoverPreviewGeneration_->loadRelaxed() || id != hoverPreviewId_ || !hoverPreview_) return;
+        if (!result.formatLabel.isEmpty()) {
+            formatBadge->setText(result.formatLabel);
+            const int sourceWidth = qMax(0, hoverPreview_->width() - 20 - statisticsBadge->sizeHint().width()
+                - formatBadge->sizeHint().width() - heading->spacing() * 3);
+            sourceBadge->setText(sourceBadge->fontMetrics().elidedText(source, Qt::ElideRight, sourceWidth));
+        }
         auto *layout = content->layout();
         if (result.kind == 1) {
             if (result.image.isNull()) {
@@ -1802,16 +1743,20 @@ void MainWindow::toggleHoverPreview(QString id) {
         if (hoverImageScroll_) updateHoverPreviewImage();
         hoverPreview_->show();
     });
-    watcher->setFuture(QtConcurrent::run(&readPool_, [path, id, kind] {
+    const auto generationState = hoverPreviewGeneration_;
+    watcher->setFuture(QtConcurrent::run(&readPool_, [path, id, kind, generationState, generation] {
         PreviewResult result;
-        result.id = id;
         result.kind = kind;
+        if (generationState->loadRelaxed() != generation) return result;
         const QByteArray content = HistoryStore(path).content(id, false);
+        if (generationState->loadRelaxed() != generation) return result;
         if (kind == 1) {
             // 优先从原图按上限解码，预览图仅作为原图损坏时的回退。
             for (const bool preferPreview : {false, true}) {
+                if (generationState->loadRelaxed() != generation) return result;
                 const QByteArray bytes = decodeImageContent(preferPreview
                     ? HistoryStore(path).content(id, true) : content).bytes;
+                if (generationState->loadRelaxed() != generation) return result;
                 if (bytes.isEmpty()) continue;
                 QBuffer buffer;
                 buffer.setData(bytes);
@@ -1822,77 +1767,6 @@ void MainWindow::toggleHoverPreview(QString id) {
                 if (target.isValid()) reader.setScaledSize(target);
                 result.image = reader.read();
                 if (!result.image.isNull()) break;
-            }
-        } else if (kind == 0) {
-            const auto text = decodeTextContent(content);
-            result.text = text.text;
-            result.html = text.html;
-            result.markdown = text.markdown;
-        } else {
-            const auto paths = QJsonDocument::fromJson(content).array();
-            QStringList values;
-            values.reserve(paths.size());
-            for (const auto &pathValue : paths) values.push_back(pathValue.toString());
-            result.text = values.join(QLatin1Char('\n'));
-        }
-        return result;
-    }));
-}
-
-void MainWindow::updateHoverPreviewImage() {
-    if (!hoverPreview_ || !hoverImageLabel_ || !hoverImageScroll_ || hoverImageSize_.isEmpty()) return;
-    // 首次显示前 viewport 尚未稳定；用已激活布局的滚动容器宽度，包含内容背景的内边距。
-    const int availableWidth = qMax(1, hoverImageScroll_->width() - hoverImageScroll_->verticalScrollBar()->width());
-    const double fit = availableWidth / static_cast<double>(hoverImageSize_.width());
-    hoverImageLabel_->resize(hoverImageSize_ * (fit * hoverImageZoom_));
-}
-
-void MainWindow::togglePreview(const QString &id) {
-    if (model_->previewId() == id) {
-        ++previewGeneration_;
-        closeTextPreview();
-        model_->clearPreview();
-        historyList_->doItemsLayout();
-        highResolutionPreviewId_.clear();
-        highResolutionLoadingId_.clear();
-        updateVisibleThumbnails();
-        return;
-    }
-    const auto *item = model_->itemAt(model_->rowForId(id));
-    if (!item) return;
-    const int kind = item->kind;
-    const int generation = ++previewGeneration_;
-    closeTextPreview();
-    highResolutionPreviewId_.clear();
-    highResolutionLoadingId_.clear();
-    model_->beginPreview(id);
-    historyList_->doItemsLayout();
-    auto *watcher = new QFutureWatcher<PreviewResult>(this);
-    connect(watcher, &QFutureWatcher<PreviewResult>::finished, this, [this, watcher, generation] {
-        const auto result = watcher->result();
-        watcher->deleteLater();
-        if (generation != previewGeneration_ || result.id != model_->previewId()) return;
-        if (result.kind == 1) model_->setPreviewImage(result.id, result.image);
-        else model_->finishTextPreview(result.id);
-        if (result.kind == 0) model_->setFormatLabel(result.id, result.formatLabel);
-        historyList_->doItemsLayout();
-        if (result.kind != 1) showTextPreview(result.text, result.html, result.markdown);
-    });
-    const QString path = databasePath_;
-    watcher->setFuture(QtConcurrent::run(&readPool_, [path, id, kind] {
-        PreviewResult result;
-        result.id = id;
-        result.kind = kind;
-        const QByteArray content = HistoryStore(path).content(id, kind == 1);
-        if (kind == 1) {
-            QBuffer buffer;
-            buffer.setData(decodeImageContent(content).bytes);
-            if (buffer.open(QIODevice::ReadOnly)) {
-                QImageReader reader(&buffer);
-                reader.setAutoTransform(true);
-                const QSize target = boundedSize(reader.size(), 800, 0, 1'000'000);
-                if (target.isValid()) reader.setScaledSize(target);
-                result.image = reader.read();
             }
         } else if (kind == 0) {
             const auto text = decodeTextContent(content);
@@ -1911,65 +1785,12 @@ void MainWindow::togglePreview(const QString &id) {
     }));
 }
 
-void MainWindow::showTextPreview(const QString &text, const QString &html, bool markdown) {
-    closeTextPreview();
-    auto *preview = new PreviewTextEdit(historyList_->viewport());
-    preview->setReadOnly(true);
-    preview->setAcceptDrops(false);
-    preview->setFocusPolicy(Qt::NoFocus);
-    preview->setFrameShape(QFrame::NoFrame);
-    preview->setLineWrapMode(QTextEdit::WidgetWidth);
-    preview->setWordWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
-    preview->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    preview->setStyleSheet(QStringLiteral("QTextEdit{background:transparent;border:0;padding:0;}"));
-    if (!html.isEmpty()) preview->setHtml(html);
-    else if (markdown) preview->setMarkdown(text);
-    else preview->setPlainText(text);
-    textPreview_ = preview;
-    updateTextPreviewGeometry();
-}
-
-void MainWindow::closeTextPreview() {
-    closeHoverPreview();
-    delete textPreview_;
-    textPreview_ = nullptr;
-}
-
-void MainWindow::updateTextPreviewGeometry() {
-    if (!textPreview_) return;
-    const int row = model_->rowForId(model_->previewId());
-    if (row < 0) { closeTextPreview(); return; }
-    const QRect card = historyList_->visualRect(model_->index(row));
-    const QRect content = delegate_->previewRect(card).adjusted(8, 6, -8, -6);
-    textPreview_->setGeometry(content);
-    textPreview_->setVisible(content.intersects(historyList_->viewport()->rect()));
-}
-
-void MainWindow::upgradePreviewImage(const QString &id) {
-    if (id.isEmpty() || id == highResolutionPreviewId_ || id == highResolutionLoadingId_) return;
-    highResolutionLoadingId_ = id;
-    const int generation = previewGeneration_;
-    auto *watcher = new QFutureWatcher<QImage>(this);
-    connect(watcher, &QFutureWatcher<QImage>::finished, this, [this, watcher, id, generation] {
-        const QImage image = watcher->result();
-        watcher->deleteLater();
-        if (highResolutionLoadingId_ == id) highResolutionLoadingId_.clear();
-        if (generation != previewGeneration_ || id != model_->previewId() || image.isNull()) return;
-        highResolutionPreviewId_ = id;
-        model_->setPreviewImage(id, image);
-    });
-    const QString path = databasePath_;
-    watcher->setFuture(QtConcurrent::run(&readPool_, [path, id] {
-        const QByteArray content = decodeImageContent(HistoryStore(path).content(id, true)).bytes;
-        QBuffer buffer;
-        buffer.setData(content);
-        if (!buffer.open(QIODevice::ReadOnly)) return QImage{};
-        QImageReader reader(&buffer);
-        reader.setAutoTransform(true);
-        const QSize target = boundedSize(reader.size(), 1600, 0, 4'000'000);
-        if (target.isValid()) reader.setScaledSize(target);
-        return reader.read();
-    }));
+void MainWindow::updateHoverPreviewImage() {
+    if (!hoverPreview_ || !hoverImageLabel_ || !hoverImageScroll_ || hoverImageSize_.isEmpty()) return;
+    // 首次显示前 viewport 尚未稳定；用已激活布局的滚动容器宽度，包含内容背景的内边距。
+    const int availableWidth = qMax(1, hoverImageScroll_->width() - hoverImageScroll_->verticalScrollBar()->width());
+    const double fit = availableWidth / static_cast<double>(hoverImageSize_.width());
+    hoverImageLabel_->resize(hoverImageSize_ * (fit * hoverImageZoom_));
 }
 
 void MainWindow::setPinned(const QString &id) {
@@ -2166,6 +1987,7 @@ void MainWindow::saveCapture(ClipboardCapture capture, QImage fallbackImage, DWO
         else {
             // 隐藏期间只标记待刷新，下一次打开时再查询第一页。
             historyDirty_ = true;
+            newHistoryAvailable_ = !isVisible();
             if (isVisible()) refreshHistory();
         }
         if (GetClipboardSequenceNumber() != lastClipboardSequence_) scheduleCapture();
@@ -2184,6 +2006,33 @@ void MainWindow::saveCapture(ClipboardCapture capture, QImage fallbackImage, DWO
     }));
 }
 
+void MainWindow::cleanupPasteFiles() {
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    constexpr qint64 day = 24LL * 60 * 60 * 1000;
+    // 每日最多清理一次，避免连续粘贴文件时重复扫描目录。
+    if (lastPasteFileCleanup_ && now - lastPasteFileCleanup_ < day) return;
+    lastPasteFileCleanup_ = now;
+    const QString directory = QStandardPaths::writableLocation(QStandardPaths::CacheLocation)
+        + QStringLiteral("/PasteOrbit/PasteFiles");
+    QSet<QString> protectedPaths;
+    if (const auto *mime = QApplication::clipboard()->mimeData()) {
+        for (const auto &url : mime->urls()) {
+            if (url.isLocalFile()) protectedPaths.insert(QDir::cleanPath(url.toLocalFile()).toCaseFolded());
+        }
+    }
+    const QString prefix = QDir::cleanPath(QDir(directory).absolutePath()).toCaseFolded() + QLatin1Char('/');
+    writePool_.start([directory, prefix, protectedPaths, cutoff = now - 7 * day] {
+        const auto files = QDir(directory).entryInfoList({QStringLiteral("PasteOrbit_*")}, QDir::Files | QDir::NoSymLinks);
+        for (const auto &file : files) {
+            const QString path = QDir::cleanPath(file.absoluteFilePath()).toCaseFolded();
+            // 只删除指定目录中的生成文件；保留当前剪贴板引用和最近七天的文件。
+            if (path.startsWith(prefix) && !protectedPaths.contains(path)
+                && file.lastModified().toMSecsSinceEpoch() < cutoff)
+                QFile::remove(file.absoluteFilePath());
+        }
+    });
+}
+
 void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile) {
     if (loadingPage_) return;
     const int row = model_->rowForId(id);
@@ -2191,7 +2040,7 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile) {
     if (!itemPointer) return;
     const HistoryItem item = *itemPointer;
     if (asFile && item.kind == 2) return;
-    const int generation = ++pasteGeneration_;
+    const int generation = pasteGeneration_->fetchAndAddRelaxed(1) + 1;
     HWND target = targetWindow_;
     const HWND targetFocus = targetFocusWindow_;
     if (!target) {
@@ -2199,16 +2048,16 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile) {
         if (foreground != reinterpret_cast<HWND>(winId())) target = foreground;
     }
     const QString path = databasePath_;
-    auto *watcher = new QFutureWatcher<QPair<HistoryItem, QByteArray>>(this);
-    connect(watcher, &QFutureWatcher<QPair<HistoryItem, QByteArray>>::finished, this,
+    auto *watcher = new QFutureWatcher<PasteResult>(this);
+    connect(watcher, &QFutureWatcher<PasteResult>::finished, this,
             [this, watcher, target, targetFocus, plainText, asFile, id, generation] {
         const auto result = watcher->result();
         watcher->deleteLater();
-        if (generation != pasteGeneration_) return;
-        const HistoryItem item = result.first;
-        const QByteArray content = result.second;
+        if (generation != pasteGeneration_->loadRelaxed()) return;
+        const HistoryItem &item = result.item;
+        const QByteArray &content = result.content;
         if (content.isEmpty()) { showStatus(AppLocalization::get(QStringLiteral("ContentRestoreFailed"))); return; }
-        const ImageContent image = item.kind == 1 ? decodeImageContent(content) : ImageContent{};
+        const ImageContent &image = result.image;
         if (item.kind == 1 && image.bytes.isEmpty()) {
             showStatus(AppLocalization::get(QStringLiteral("ContentRestoreFailed")));
             return;
@@ -2216,6 +2065,7 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile) {
 
         auto *mime = new QMimeData();
         if (asFile) {
+            cleanupPasteFiles();
             QString suffix = QStringLiteral("txt");
             QByteArray fileBytes;
             if (item.kind == 0) fileBytes = decodeTextContent(content).text.toUtf8();
@@ -2250,14 +2100,13 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile) {
             if (plainText && !image.text.isEmpty()) {
                 mime->setText(image.text);
             } else {
-                const QImage decoded = readBoundedImage(image.bytes, {});
-                if (decoded.isNull()) {
+                if (result.decoded.isNull()) {
                     delete mime;
                     showStatus(AppLocalization::get(QStringLiteral("ContentRestoreFailed")));
                     return;
                 }
                 // Windows 粘贴目标通常读取位图格式，原始 image/png 等 MIME 单独提供并不可靠。
-                mime->setImageData(decoded);
+                mime->setImageData(result.decoded);
                 mime->setData(imageMimeType(image.bytes), image.bytes);
                 if (!image.text.isEmpty()) mime->setText(image.text);
                 if (!image.html.isEmpty()) mime->setHtml(image.html);
@@ -2290,8 +2139,8 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile) {
         auto attempts = std::make_shared<int>(0);
         connect(timer, &QTimer::timeout, this, [this, timer, attempts, target, targetFocus, id, keepPanel,
                                               directTextPaste = item.kind == 0 && !asFile,
-                                              generation = pasteGeneration_, pasteSequence] {
-            if (generation != pasteGeneration_ || GetClipboardSequenceNumber() != pasteSequence) {
+                                              generation = pasteGeneration_->loadRelaxed(), pasteSequence] {
+            if (generation != pasteGeneration_->loadRelaxed() || GetClipboardSequenceNumber() != pasteSequence) {
                 timer->stop(); timer->deleteLater();
                 return;
             }
@@ -2367,7 +2216,20 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile) {
         });
         QTimer::singleShot(100, this, [timer] { timer->start(); });
     });
-    watcher->setFuture(QtConcurrent::run(&readPool_, [path, item] {
-        return qMakePair(item, HistoryStore(path).content(item.id));
+    const auto generationState = pasteGeneration_;
+    watcher->setFuture(QtConcurrent::run(&readPool_, [path, item, plainText, asFile, generationState, generation] {
+        PasteResult result;
+        result.item = item;
+        if (generationState->loadRelaxed() != generation) return result;
+        result.content = HistoryStore(path).content(item.id);
+        if (generationState->loadRelaxed() != generation) return result;
+        if (item.kind == 1) {
+            result.image = decodeImageContent(result.content);
+            // 恢复位图需要原图；存为文件或已有纯文本时无需解码。
+            if (!asFile && !(plainText && !result.image.text.isEmpty())
+                && generationState->loadRelaxed() == generation)
+                result.decoded = readBoundedImage(result.image.bytes, {});
+        }
+        return result;
     }));
 }

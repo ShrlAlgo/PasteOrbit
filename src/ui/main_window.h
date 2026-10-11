@@ -4,11 +4,12 @@
 #include "history_store.h"
 
 #include <QAbstractNativeEventFilter>
+#include <QAtomicInteger>
+#include <QSharedPointer>
 #include <QFutureWatcher>
 #include <QColor>
 #include <QImage>
 #include <QPoint>
-#include <QPointF>
 #include <QRect>
 #include <QSize>
 #include <QSystemTrayIcon>
@@ -30,7 +31,6 @@ class QPushButton;
 class QToolButton;
 class QMenu;
 class QStackedLayout;
-class QTextEdit;
 
 class MainWindow final : public QWidget, public QAbstractNativeEventFilter {
     Q_OBJECT
@@ -76,16 +76,12 @@ private:
     void scheduleCapture();
     void captureClipboard();
     void saveCapture(ClipboardCapture capture, QImage fallbackImage, DWORD sequence);
+    void cleanupPasteFiles();
     void pasteRecord(const QString &id, bool plainText = false, bool asFile = false);
     void openRowMenu(const QString &id, std::optional<QPoint> position = std::nullopt);
-    void togglePreview(const QString &id);
     void toggleHoverPreview(QString id);
     void closeHoverPreview();
     void updateHoverPreviewImage();
-    void showTextPreview(const QString &text, const QString &html, bool markdown);
-    void closeTextPreview();
-    void updateTextPreviewGeometry();
-    void upgradePreviewImage(const QString &id);
     void setPinned(const QString &id);
     void deleteRecord(const QString &id);
     void clearCurrentList();
@@ -110,13 +106,12 @@ private:
     QLabel *emptyLabel_ = nullptr;
     QLabel *statusLabel_ = nullptr;
     QStackedLayout *historyStack_ = nullptr;
-    QTextEdit *textPreview_ = nullptr;
     QWidget *hoverPreview_ = nullptr;
     QLabel *hoverImageLabel_ = nullptr;
     QScrollArea *hoverImageScroll_ = nullptr;
     QSize hoverImageSize_;
     QString hoverPreviewId_;
-    int hoverPreviewGeneration_ = 0;
+    QSharedPointer<QAtomicInteger<int>> hoverPreviewGeneration_ = QSharedPointer<QAtomicInteger<int>>::create(0);
     double hoverImageZoom_ = 1.0;
     bool hoverImageDragging_ = false;
     QPoint hoverDragStart_;
@@ -132,11 +127,11 @@ private:
     QTimer captureTimer_;
     QTimer clipboardPollTimer_;
     QTimer pauseTimer_;
-    std::optional<HistoryCursor> firstPageCursor_;
     std::optional<HistoryCursor> nextCursor_;
     int selectedKind_ = -1;
-    int historyGeneration_ = 0;
+    QSharedPointer<QAtomicInteger<int>> historyGeneration_ = QSharedPointer<QAtomicInteger<int>>::create(0);
     bool historyDirty_ = false;
+    bool newHistoryAvailable_ = false;
     bool loadingPage_ = false;
     bool loadingMore_ = false;
     int unpinnedCount_ = 0;
@@ -147,6 +142,7 @@ private:
     bool suppressClipboardCapture_ = false;
     bool captureSaving_ = false;
     bool startupUpdateCheckRequested_ = false;
+    qint64 lastPasteFileCleanup_ = 0;
     DWORD lastClipboardSequence_ = 0;
     DWORD ownClipboardSequence_ = 0;
     HWND targetWindow_ = nullptr;
@@ -155,16 +151,10 @@ private:
     QPoint dragWindowStart_;
     bool dragging_ = false;
     HHOOK winVHook_ = nullptr;
-    bool previewDragging_ = false;
     QRect hoveredHistoryRow_;
     bool restoreWasPaused_ = false;
-    QPoint previewDragStart_;
-    QPointF previewPanStart_;
-    QString highResolutionPreviewId_;
-    QString highResolutionLoadingId_;
-    int previewGeneration_ = 0;
     int panelShowGeneration_ = 0;
-    int pasteGeneration_ = 0;
+    QSharedPointer<QAtomicInteger<int>> pasteGeneration_ = QSharedPointer<QAtomicInteger<int>>::create(0);
     QThreadPool readPool_;
     QThreadPool writePool_;
     QColor pageColor_;

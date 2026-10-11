@@ -29,7 +29,6 @@ struct HistoryCursor {
 struct HistoryPage {
     QVector<HistoryItem> items;
     std::optional<HistoryCursor> next;
-    int totalCount = 0;
     int unpinnedCount = 0;
     QString error;
 };

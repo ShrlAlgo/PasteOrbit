@@ -14,7 +14,6 @@ public:
     bool editorEvent(QEvent *event, QAbstractItemModel *model, const QStyleOptionViewItem &option,
                      const QModelIndex &index) override;
     int actionAt(const QRect &itemRect, const QPoint &position) const;
-    QRect previewRect(const QRect &itemRect) const;
     void setActivePreviewId(const QString &id);
 
 signals:

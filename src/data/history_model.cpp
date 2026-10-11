@@ -25,11 +25,6 @@ QVariant HistoryModel::data(const QModelIndex &index, int role) const {
     case SizeRole: return item.contentSize;
     case TextLengthRole: return item.searchTextLength;
     case ThumbnailRole: return thumbnails_.value(item.id);
-    case ExpandedRole: return item.id == previewId_;
-    case PreviewImageRole: return item.id == previewId_ ? QVariant::fromValue(previewImage_) : QVariant{};
-    case PreviewLoadingRole: return item.id == previewId_ && previewLoading_;
-    case PreviewZoomRole: return item.id == previewId_ ? previewZoom_ : 1.0;
-    case PreviewPanRole: return item.id == previewId_ ? previewPan_ : QPointF{};
     case QuickPasteRole: {
         if (!quickPasteEnabled_ || item.pinned) return {};
         int number = 0;
@@ -38,8 +33,7 @@ QVariant HistoryModel::data(const QModelIndex &index, int role) const {
         }
         return number <= 9 ? QVariant(number) : QVariant{};
     }
-    case FormatRole: return formatLabels_.value(item.id);
-    case Qt::SizeHintRole: return QSize(1, item.id == previewId_ ? 278 : 94);
+    case Qt::SizeHintRole: return QSize(1, 94);
     default: return {};
     }
 }
@@ -48,13 +42,7 @@ void HistoryModel::setFirstPage(const HistoryPage &page) {
     thumbnailGeneration_->fetchAndAddRelaxed(1);
     beginResetModel();
     items_ = page.items;
-    previewId_.clear();
-    previewImage_ = {};
-    previewPan_ = {};
-    previewZoom_ = 1.0;
-    previewLoading_ = false;
     thumbnails_.clear();
-    formatLabels_.clear();
     visibleIds_.clear();
     loadingIds_.clear();
     endResetModel();
@@ -72,20 +60,6 @@ void HistoryModel::appendPage(const HistoryPage &page) {
     beginInsertRows({}, first, first + additions.size() - 1);
     for (auto &item : additions) items_.push_back(std::move(item));
     endInsertRows();
-}
-
-void HistoryModel::trimToFirstPage() {
-    if (items_.size() <= 30) return;
-    if (rowForId(previewId_) >= 30) clearPreview();
-    thumbnailGeneration_->fetchAndAddRelaxed(1);
-    beginRemoveRows({}, 30, items_.size() - 1);
-    for (int row = 30; row < items_.size(); ++row) formatLabels_.remove(items_.at(row).id);
-    items_.resize(30);
-    thumbnails_.clear();
-    visibleIds_.clear();
-    loadingIds_.clear();
-    endRemoveRows();
-    items_.squeeze();
 }
 
 const HistoryItem *HistoryModel::itemAt(int row) const {
@@ -123,70 +97,12 @@ void HistoryModel::setPinned(const QString &id, bool pinned) {
 void HistoryModel::remove(const QString &id) {
     const int row = rowForId(id);
     if (row < 0) return;
-    if (previewId_ == id) clearPreview();
     beginRemoveRows({}, row, row);
     thumbnails_.remove(id);
-    formatLabels_.remove(id);
     visibleIds_.remove(id);
     loadingIds_.remove(id);
     items_.removeAt(row);
     endRemoveRows();
-}
-
-void HistoryModel::beginPreview(const QString &id) {
-    clearPreview();
-    previewId_ = id;
-    previewLoading_ = true;
-    const int row = rowForId(id);
-    if (row >= 0) emit dataChanged(index(row), index(row), {Qt::SizeHintRole, ExpandedRole, PreviewLoadingRole});
-}
-
-void HistoryModel::finishTextPreview(const QString &id) {
-    if (previewId_ != id) return;
-    previewLoading_ = false;
-    const int row = rowForId(id);
-    if (row >= 0) emit dataChanged(index(row), index(row), {PreviewLoadingRole});
-}
-
-void HistoryModel::setFormatLabel(const QString &id, const QString &label) {
-    const int row = rowForId(id);
-    if (row < 0) return;
-    if (label.isEmpty()) formatLabels_.remove(id);
-    else formatLabels_.insert(id, label);
-    emit dataChanged(index(row), index(row), {Qt::SizeHintRole, FormatRole});
-}
-
-void HistoryModel::setPreviewImage(const QString &id, const QImage &image) {
-    if (previewId_ != id) return;
-    previewImage_ = image;
-    previewLoading_ = false;
-    const int row = rowForId(id);
-    if (row >= 0) emit dataChanged(index(row), index(row), {PreviewImageRole, PreviewLoadingRole});
-}
-
-void HistoryModel::setPreviewZoom(double zoom, const QPointF &pan) {
-    previewZoom_ = zoom;
-    previewPan_ = pan;
-    const int row = rowForId(previewId_);
-    if (row >= 0) emit dataChanged(index(row), index(row), {PreviewZoomRole, PreviewPanRole});
-}
-
-void HistoryModel::setPreviewPan(const QPointF &pan) {
-    previewPan_ = pan;
-    const int row = rowForId(previewId_);
-    if (row >= 0) emit dataChanged(index(row), index(row), {PreviewPanRole});
-}
-
-void HistoryModel::clearPreview() {
-    const QString oldId = std::exchange(previewId_, {});
-    previewImage_ = {};
-    previewPan_ = {};
-    previewZoom_ = 1.0;
-    previewLoading_ = false;
-    const int row = rowForId(oldId);
-    if (row >= 0) emit dataChanged(index(row), index(row), {Qt::SizeHintRole, ExpandedRole,
-                                                            PreviewImageRole,
-                                                            PreviewLoadingRole, PreviewZoomRole, PreviewPanRole});
 }
 
 void HistoryModel::setVisibleRows(int first, int last) {
