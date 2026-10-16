@@ -103,7 +103,9 @@ QString searchClause(const QString &text, int kind, const std::optional<HistoryC
                      bool includeUnpinnedOnly = false) {
     QString sql = QStringLiteral(" WHERE 1=1");
     if (includeUnpinnedOnly) sql += QStringLiteral(" AND item.is_pinned=0");
-    if (kind >= 0) sql += QStringLiteral(" AND item.kind=:kind");
+    // 收藏复用旧置顶标记，不改变记录的文本、图片或文件类型。
+    if (kind == 3) sql += QStringLiteral(" AND item.is_pinned=1");
+    else if (kind >= 0) sql += QStringLiteral(" AND item.kind=:kind");
     const auto term = text.trimmed();
     if (!term.isEmpty()) {
         if (term.size() >= 3) {
@@ -114,15 +116,15 @@ QString searchClause(const QString &text, int kind, const std::optional<HistoryC
         }
     }
     if (cursor) {
-        sql += QStringLiteral(" AND (item.is_pinned<:pinned OR (item.is_pinned=:pinned AND item.updated_at<:updated)"
-                              " OR (item.is_pinned=:pinned AND item.updated_at=:updated AND item.storage_id<:storage))");
+        sql += QStringLiteral(" AND (item.updated_at<:updated"
+                              " OR (item.updated_at=:updated AND item.storage_id<:storage))");
     }
     return sql;
 }
 
 void bindSearch(QSqlQuery &query, const QString &text, int kind,
                 const std::optional<HistoryCursor> &cursor) {
-    if (kind >= 0) query.bindValue(QStringLiteral(":kind"), kind);
+    if (kind >= 0 && kind < 3) query.bindValue(QStringLiteral(":kind"), kind);
     const auto term = text.trimmed();
     if (!term.isEmpty()) {
         if (term.size() >= 3) {
@@ -135,7 +137,6 @@ void bindSearch(QSqlQuery &query, const QString &text, int kind,
         }
     }
     if (cursor) {
-        query.bindValue(QStringLiteral(":pinned"), cursor->pinned ? 1 : 0);
         query.bindValue(QStringLiteral(":updated"), cursor->updatedAt);
         query.bindValue(QStringLiteral(":storage"), cursor->storageId);
     }
@@ -181,6 +182,8 @@ QString HistoryStore::initialize() const {
             "created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,is_pinned INTEGER NOT NULL)"),
         QStringLiteral("CREATE INDEX IF NOT EXISTS ix_clipboard_items_order ON clipboard_items(is_pinned DESC,updated_at DESC,storage_id DESC)"),
         QStringLiteral("CREATE INDEX IF NOT EXISTS ix_clipboard_items_kind_order ON clipboard_items(kind,is_pinned DESC,updated_at DESC,storage_id DESC)"),
+        QStringLiteral("CREATE INDEX IF NOT EXISTS ix_clipboard_items_recent ON clipboard_items(updated_at DESC,storage_id DESC)"),
+        QStringLiteral("CREATE INDEX IF NOT EXISTS ix_clipboard_items_kind_recent ON clipboard_items(kind,updated_at DESC,storage_id DESC)"),
         QStringLiteral("CREATE VIRTUAL TABLE IF NOT EXISTS clipboard_items_fts USING fts5(search_text,source_application,full_pinyin,pinyin_initials,tokenize='trigram')"),
         QStringLiteral("CREATE TABLE IF NOT EXISTS clipboard_image_previews(storage_id INTEGER PRIMARY KEY,content BLOB NOT NULL)"),
         QStringLiteral("CREATE TRIGGER IF NOT EXISTS delete_clipboard_image_preview AFTER DELETE ON clipboard_items BEGIN DELETE FROM clipboard_image_previews WHERE storage_id=OLD.storage_id; END")};
@@ -231,7 +234,7 @@ HistoryPage HistoryStore::search(const QString &text, int kind, const std::optio
     const QString sql = QStringLiteral("SELECT item.storage_id,item.id,item.kind,item.preview_text,"
         "item.search_text_length,item.source_application,item.created_at,item.updated_at,item.is_pinned,item.content_size")
         + from + searchClause(text, kind, cursor)
-        + QStringLiteral(" ORDER BY item.is_pinned DESC,item.updated_at DESC,item.storage_id DESC LIMIT :limit");
+        + QStringLiteral(" ORDER BY item.updated_at DESC,item.storage_id DESC LIMIT :limit");
     query.prepare(sql);
     bindSearch(query, text, kind, cursor);
     query.bindValue(QStringLiteral(":limit"), pageSize + 1);
@@ -402,9 +405,9 @@ QString HistoryStore::setPinned(const QString &id, bool pinned) const {
     Connection connection(path_);
     if (!connection.isOpen()) return connection.error();
     QSqlQuery query(connection.database());
-    query.prepare(QStringLiteral("UPDATE clipboard_items SET is_pinned=:pinned,updated_at=:now WHERE id=:id"));
+    // 收藏不刷新复制时间，避免在普通历史中改变记录的位置。
+    query.prepare(QStringLiteral("UPDATE clipboard_items SET is_pinned=:pinned WHERE id=:id"));
     query.bindValue(QStringLiteral(":pinned"), pinned ? 1 : 0);
-    query.bindValue(QStringLiteral(":now"), QDateTime::currentMSecsSinceEpoch());
     query.bindValue(QStringLiteral(":id"), id);
     return query.exec() ? QString{} : query.lastError().text();
 }

@@ -157,7 +157,7 @@ void HistoryDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
         painter->setPen(iconColor);
         // 预览开启时显示隐藏图标，关闭时恢复查看图标。
         const QChar glyph = action == Preview ? QChar(previewActive ? 0xED1A : 0xE890)
-            : action == Pin ? QChar(index.data(HistoryModel::PinnedRole).toBool() ? 0xE77A : 0xE718)
+            : action == Pin ? QChar(index.data(HistoryModel::PinnedRole).toBool() ? 0xE735 : 0xE734)
                             : QChar(0xE712);
         painter->drawText(rect, Qt::AlignCenter, glyph);
     }

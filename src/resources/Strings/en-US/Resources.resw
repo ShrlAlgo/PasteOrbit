@@ -71,16 +71,16 @@
   <data name="SettingsPasteShortcutCard.Header" xml:space="preserve"><value>Paste selected item</value></data>
   <data name="SettingsPlainTextShortcutCard.Header" xml:space="preserve"><value>Paste as plain text</value></data>
   <data name="SettingsPreviewShortcutCard.Header" xml:space="preserve"><value>Expand or collapse preview</value></data>
-  <data name="SettingsPinShortcutCard.Header" xml:space="preserve"><value>Pin or unpin item</value></data>
+  <data name="SettingsPinShortcutCard.Header" xml:space="preserve"><value>Add or remove favorite</value></data>
   <data name="SettingsDeleteShortcutCard.Header" xml:space="preserve"><value>Delete selected item</value></data>
   <data name="SettingsPasteAsFileShortcutCard.Header" xml:space="preserve"><value>Paste as file</value></data>
   <data name="SettingsShortcutHint.Text" xml:space="preserve"><value>Esc hides the panel. Arrow keys navigate the list. These system actions cannot be changed.</value></data>
   <data name="SettingsHistorySection.Text" xml:space="preserve"><value>History</value></data>
   <data name="SettingsRetentionCard.Header" xml:space="preserve"><value>Retention period</value></data>
-  <data name="SettingsRetentionCard.Description" xml:space="preserve"><value>Automatically remove unpinned items older than this period</value></data>
+  <data name="SettingsRetentionCard.Description" xml:space="preserve"><value>Automatically remove non-favorite items older than this period</value></data>
   <data name="SettingsMaxEntriesCard.Header" xml:space="preserve"><value>Maximum items</value></data>
-  <data name="SettingsMaxEntriesCard.Description" xml:space="preserve"><value>Remove unpinned items first when the limit is reached</value></data>
-  <data name="SettingsPinnedRetentionHint.Text" xml:space="preserve"><value>Pinned items are excluded from automatic expiration and count limits.</value></data>
+  <data name="SettingsMaxEntriesCard.Description" xml:space="preserve"><value>Remove non-favorite items first when the limit is reached</value></data>
+  <data name="SettingsPinnedRetentionHint.Text" xml:space="preserve"><value>Favorites are excluded from automatic expiration and count limits.</value></data>
   <data name="SettingsPrivacySection.Text" xml:space="preserve"><value>Privacy &amp; security</value></data>
   <data name="SettingsAboutSection.Text" xml:space="preserve"><value>About</value></data>
   <data name="SettingsExcludedAppsCard.Header" xml:space="preserve"><value>Excluded applications</value></data>
@@ -100,8 +100,8 @@
   <data name="ContentTypeImage" xml:space="preserve"><value>Image</value></data>
   <data name="ContentTypeFiles" xml:space="preserve"><value>Files</value></data>
   <data name="UnknownApplication" xml:space="preserve"><value>Unknown app</value></data>
-  <data name="UnpinItem" xml:space="preserve"><value>Unpin item</value></data>
-  <data name="PinItem" xml:space="preserve"><value>Pin item</value></data>
+  <data name="UnpinItem" xml:space="preserve"><value>Remove from favorites</value></data>
+  <data name="PinItem" xml:space="preserve"><value>Add to favorites</value></data>
   <data name="ImagePreviewUnavailable" xml:space="preserve"><value>Image · Preview unavailable</value></data>
   <data name="FileInfoUnavailable" xml:space="preserve"><value>Files · Information unavailable</value></data>
   <data name="PreviewDispatchUnavailable" xml:space="preserve"><value>The image preview update could not be dispatched.</value></data>
@@ -131,21 +131,21 @@
   <data name="OpenExplorerFolderFirst" xml:space="preserve"><value>Open a folder in File Explorer first</value></data>
   <data name="SaveAsFileFailed" xml:space="preserve"><value>Could not save as file</value></data>
   <data name="ClearCurrentListTitle" xml:space="preserve"><value>Clear the current list?</value></data>
-  <data name="ClearCurrentListMessage" xml:space="preserve"><value>This will delete {0} unpinned items in the current filtered results. Pinned and hidden items will remain. This action cannot be undone.</value></data>
-  <data name="DeletePinnedItemTitle" xml:space="preserve"><value>Delete pinned item?</value></data>
+  <data name="ClearCurrentListMessage" xml:space="preserve"><value>This will delete {0} non-favorite items in the current filtered results. Favorites and hidden items will remain. This action cannot be undone.</value></data>
+  <data name="DeletePinnedItemTitle" xml:space="preserve"><value>Delete favorite?</value></data>
   <data name="DeletePinnedItemMessage" xml:space="preserve"><value>This action cannot be undone.</value></data>
   <data name="Delete" xml:space="preserve"><value>Delete</value></data>
   <data name="Clear" xml:space="preserve"><value>Clear</value></data>
   <data name="Cancel" xml:space="preserve"><value>Cancel</value></data>
-  <data name="CurrentListCleared" xml:space="preserve"><value>Cleared {0} items from the current list. Pinned items were preserved.</value></data>
+  <data name="CurrentListCleared" xml:space="preserve"><value>Cleared {0} items from the current list. Favorites were preserved.</value></data>
   <data name="ClearHistoryFailed" xml:space="preserve"><value>Could not clear clipboard history</value></data>
   <data name="PreviewUnavailable" xml:space="preserve"><value>This item cannot be previewed</value></data>
   <data name="RichTextPreview" xml:space="preserve"><value>Rich text preview</value></data>
   <data name="TextPreview" xml:space="preserve"><value>Text preview</value></data>
   <data name="CollapsePreview" xml:space="preserve"><value>Collapse preview</value></data>
   <data name="PreviewContent" xml:space="preserve"><value>Preview content</value></data>
-  <data name="ItemPinned" xml:space="preserve"><value>Item pinned</value></data>
-  <data name="ItemUnpinned" xml:space="preserve"><value>Item unpinned</value></data>
+  <data name="ItemPinned" xml:space="preserve"><value>Added to favorites</value></data>
+  <data name="ItemUnpinned" xml:space="preserve"><value>Removed from favorites</value></data>
   <data name="ItemDeleted" xml:space="preserve"><value>Item deleted</value></data>
   <data name="HotKeyNotApplied" xml:space="preserve"><value>Shortcut was not applied: {0}</value></data>
   <data name="SettingsApplied" xml:space="preserve"><value>Settings applied</value></data>
@@ -238,7 +238,7 @@
   <data name="SettingsPrivacySectionText" xml:space="preserve"><value>Privacy &amp; security</value></data>
   <data name="SettingsAboutSectionText" xml:space="preserve"><value>About</value></data>
   <data name="AboutVersionText" xml:space="preserve"><value>Version {0}</value></data>
-  <data name="AboutDescriptionText" xml:space="preserve"><value>A local clipboard history manager for text, images, files, search, and pinned items.</value></data>
+  <data name="AboutDescriptionText" xml:space="preserve"><value>A local clipboard history manager for text, images, files, search, and favorites.</value></data>
   <data name="AboutPrivacyText" xml:space="preserve"><value>Clipboard data stays on this device and is protected with the current Windows user credentials.</value></data>
   <data name="AboutCopyrightText" xml:space="preserve"><value>© 2026 PasteOrbit contributors</value></data>
   <data name="GitHubProjectCardHeader" xml:space="preserve"><value>GitHub project</value></data>
@@ -270,13 +270,13 @@
   <data name="SettingsPasteShortcutCardHeader" xml:space="preserve"><value>Paste selected item</value></data>
   <data name="SettingsPlainTextShortcutCardHeader" xml:space="preserve"><value>Paste as plain text</value></data>
   <data name="SettingsPreviewShortcutCardHeader" xml:space="preserve"><value>Expand or collapse preview</value></data>
-  <data name="SettingsPinShortcutCardHeader" xml:space="preserve"><value>Pin or unpin item</value></data>
+  <data name="SettingsPinShortcutCardHeader" xml:space="preserve"><value>Add or remove favorite</value></data>
   <data name="SettingsDeleteShortcutCardHeader" xml:space="preserve"><value>Delete selected item</value></data>
   <data name="SettingsPasteAsFileShortcutCardHeader" xml:space="preserve"><value>Paste as file</value></data>
   <data name="SettingsRetentionCardHeader" xml:space="preserve"><value>Retention days</value></data>
-  <data name="SettingsRetentionCardDescription" xml:space="preserve"><value>Automatically clean up unpinned items older than this</value></data>
+  <data name="SettingsRetentionCardDescription" xml:space="preserve"><value>Automatically clean up non-favorite items older than this</value></data>
   <data name="SettingsMaxEntriesCardHeader" xml:space="preserve"><value>Maximum entries</value></data>
-  <data name="SettingsMaxEntriesCardDescription" xml:space="preserve"><value>Clean up unpinned items first when the limit is reached</value></data>
+  <data name="SettingsMaxEntriesCardDescription" xml:space="preserve"><value>Clean up non-favorite items first when the limit is reached</value></data>
   <data name="SettingsExcludedAppsCardHeader" xml:space="preserve"><value>Exclude applications</value></data>
   <data name="SettingsExcludedAppsCardDescription" xml:space="preserve"><value>Enter process names or choose running processes; separate multiple names with semicolons</value></data>
   <data name="SettingsBackupCardHeader" xml:space="preserve"><value>Encrypted local backup</value></data>
@@ -290,7 +290,7 @@
   <data name="ToggleOnContent" xml:space="preserve"><value>On</value></data>
   <data name="ToggleOffContent" xml:space="preserve"><value>Off</value></data>
   <data name="SettingsShortcutHintText" xml:space="preserve"><value>Esc hides the panel, and arrow keys navigate the list. These system actions stay fixed.</value></data>
-  <data name="SettingsPinnedRetentionHintText" xml:space="preserve"><value>Pinned items are excluded from automatic expiration and count cleanup.</value></data>
+  <data name="SettingsPinnedRetentionHintText" xml:space="preserve"><value>Favorites are excluded from automatic expiration and count cleanup.</value></data>
   <data name="ExcludedApplicationsTextBoxPlaceholder" xml:space="preserve"><value>Process names, separated by semicolons</value></data>
   <data name="SelectProcessButtonContent" xml:space="preserve"><value>Choose processes</value></data>
   <data name="ExportBackupButtonContent" xml:space="preserve"><value>Export backup</value></data>
@@ -313,6 +313,7 @@
   <data name="FilterImageButtonTooltip" xml:space="preserve"><value>Images</value></data>
   <data name="FilterFilesButtonAutomationName" xml:space="preserve"><value>Filter files</value></data>
   <data name="FilterFilesButtonTooltip" xml:space="preserve"><value>Files</value></data>
+  <data name="FilterFavoritesButtonTooltip" xml:space="preserve"><value>Favorites</value></data>
   <data name="ClearHistoryButtonAutomationName" xml:space="preserve"><value>Clear clipboard history</value></data>
   <data name="ClearHistoryButtonTooltip" xml:space="preserve"><value>Clear clipboard history</value></data>
   <data name="HistoryListAutomationName" xml:space="preserve"><value>Clipboard history</value></data>

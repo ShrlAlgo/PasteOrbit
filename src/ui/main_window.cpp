@@ -758,9 +758,10 @@ void MainWindow::buildUi() {
     filterLayout->setSpacing(0);
     filterButtons_ = new QButtonGroup(this);
     filterButtons_->setExclusive(true);
-    const QStringList labels{QString(QChar(0xE8A9)), QString(QChar(0xE8D2)), QString(QChar(0xE8B9)), QString(QChar(0xE8B7))};
+    const QStringList labels{QString(QChar(0xE8A9)), QString(QChar(0xE8D2)), QString(QChar(0xE8B9)), QString(QChar(0xE8B7)), QString(QChar(0xE734))};
     const QStringList tooltips{QStringLiteral("FilterAllButtonTooltip"), QStringLiteral("FilterTextButtonTooltip"),
-                               QStringLiteral("FilterImageButtonTooltip"), QStringLiteral("FilterFilesButtonTooltip")};
+                               QStringLiteral("FilterImageButtonTooltip"), QStringLiteral("FilterFilesButtonTooltip"),
+                               QStringLiteral("FilterFavoritesButtonTooltip")};
     // QButtonGroup 将 -1 保留给“无选择”，按钮序号通过偏移映射到记录类型。
     for (int i = 0; i < labels.size(); ++i) {
         auto *button = new QToolButton(filterRow);
@@ -968,7 +969,8 @@ void MainWindow::applySettings(const AppSettings &settings) {
         emptyLabel_->setText(AppLocalization::get(QStringLiteral("MainEmptyHistoryText")));
         clearButton_->setToolTip(AppLocalization::get(QStringLiteral("ClearHistoryButtonTooltip")));
         const QStringList tooltips{QStringLiteral("FilterAllButtonTooltip"), QStringLiteral("FilterTextButtonTooltip"),
-                                   QStringLiteral("FilterImageButtonTooltip"), QStringLiteral("FilterFilesButtonTooltip")};
+                                   QStringLiteral("FilterImageButtonTooltip"), QStringLiteral("FilterFilesButtonTooltip"),
+                                   QStringLiteral("FilterFavoritesButtonTooltip")};
         for (int i = 0; i < tooltips.size(); ++i) {
             if (auto *button = filterButtons_->button(i)) button->setToolTip(AppLocalization::get(tooltips.at(i)));
         }
@@ -1319,12 +1321,15 @@ QString textFormatLabel(const TextContent &content) {
 
 void MainWindow::setFilter(int kind) {
     selectedKind_ = kind;
+    // 收藏受保留规则保护，不提供整批清空；单条删除仍需确认。
+    clearButton_->setEnabled(kind != 3);
     refreshHistory();
     historyStack_->currentWidget()->setFocus(Qt::ShortcutFocusReason);
 }
 
 void MainWindow::switchFilter(int direction) {
-    const int next = (selectedKind_ + 1 + direction + 4) % 4;
+    const int count = filterButtons_->buttons().size();
+    const int next = (selectedKind_ + 1 + direction + count) % count;
     filterButtons_->button(next)->setChecked(true);
     setFilter(next - 1);
 }

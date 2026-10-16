@@ -26,12 +26,9 @@ QVariant HistoryModel::data(const QModelIndex &index, int role) const {
     case TextLengthRole: return item.searchTextLength;
     case ThumbnailRole: return thumbnails_.value(item.id);
     case QuickPasteRole: {
-        if (!quickPasteEnabled_ || item.pinned) return {};
-        int number = 0;
-        for (int row = 0; row <= index.row() && number < 10; ++row) {
-            if (!items_.at(row).pinned) ++number;
-        }
-        return number <= 9 ? QVariant(number) : QVariant{};
+        // 收藏分类同样支持数字粘贴，编号与当前列表的可见顺序一致。
+        if (!quickPasteEnabled_ || index.row() >= 9) return {};
+        return index.row() + 1;
     }
     case Qt::SizeHintRole: return QSize(1, 94);
     default: return {};
@@ -72,12 +69,8 @@ int HistoryModel::rowForId(const QString &id) const {
 }
 
 int HistoryModel::quickPasteRow(int number) const {
-    if (!quickPasteEnabled_ || number < 1 || number > 9) return -1;
-    int current = 0;
-    for (int row = 0; row < items_.size(); ++row) {
-        if (!items_.at(row).pinned && ++current == number) return row;
-    }
-    return -1;
+    if (!quickPasteEnabled_ || number < 1 || number > 9 || number > items_.size()) return -1;
+    return number - 1;
 }
 
 void HistoryModel::setQuickPasteEnabled(bool enabled) {

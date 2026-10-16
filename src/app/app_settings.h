@@ -9,7 +9,7 @@ struct AppSettings {
     QString pasteShortcut = QStringLiteral("Enter");
     QString plainTextPasteShortcut = QStringLiteral("Shift + Enter");
     QString previewShortcut = QStringLiteral("Space");
-    QString pinShortcut = QStringLiteral("Ctrl + P");
+    QString pinShortcut = QStringLiteral("Ctrl + D");
     QString pasteAsFileShortcut = QStringLiteral("Ctrl + Shift + S");
     bool startWithWindows = false;
     bool runAsAdministrator = false;
