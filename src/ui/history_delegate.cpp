@@ -91,12 +91,17 @@ void HistoryDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
         painter->setRenderHint(QPainter::SmoothPixmapTransform);
         painter->drawImage(target, image, image.rect());
     } else if (kind == 2) {
-        QFont fileFont;
-        fileFont.setFamilies({QStringLiteral("Segoe Fluent Icons"), QStringLiteral("Segoe MDL2 Assets")});
-        fileFont.setPixelSize(24);
-        painter->setFont(fileFont);
-        painter->setPen(palette.color(QPalette::PlaceholderText));
-        painter->drawText(QRect(left.left(), left.top(), 32, 50), Qt::AlignLeft | Qt::AlignVCenter, QChar(0xE8A5));
+        if (!image.isNull()) {
+            painter->setRenderHint(QPainter::SmoothPixmapTransform);
+            painter->drawImage(QRect(left.left() + 2, left.top() + 16, 24, 24), image);
+        } else {
+            QFont fileFont;
+            fileFont.setFamilies({QStringLiteral("Segoe Fluent Icons"), QStringLiteral("Segoe MDL2 Assets")});
+            fileFont.setPixelSize(24);
+            painter->setFont(fileFont);
+            painter->setPen(palette.color(QPalette::PlaceholderText));
+            painter->drawText(QRect(left.left(), left.top(), 32, 50), Qt::AlignLeft | Qt::AlignVCenter, QChar(0xE8A5));
+        }
         const QRect textRect(left.left() + 34, left.top(), left.width() - 34, 56);
         painter->setFont(option.font);
         painter->setPen(palette.color(QPalette::Text));

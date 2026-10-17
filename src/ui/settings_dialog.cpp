@@ -27,6 +27,7 @@
 #include <QMessageBox>
 #include <QKeyEvent>
 #include <QKeySequence>
+#include <QShortcut>
 #include <QLocale>
 #include <QPushButton>
 #include <QScrollArea>
@@ -181,11 +182,21 @@ class ShortcutButton final : public QPushButton {
     Q_OBJECT
 public:
     explicit ShortcutButton(bool needsModifier, QWidget *parent = nullptr)
-        : QPushButton(parent), needsModifier_(needsModifier) {}
+        : QPushButton(parent), needsModifier_(needsModifier) {
+        // 录入时也注册 Shift+F10，避免改掉默认快捷键后无法再录回去。
+        contextShortcut_ = new QShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F10), this);
+        contextShortcut_->setContext(Qt::WidgetShortcut);
+        contextShortcut_->setEnabled(false);
+        connect(contextShortcut_, &QShortcut::activated, this, [this] {
+            QKeyEvent event(QEvent::KeyPress, Qt::Key_F10, Qt::ShiftModifier);
+            keyPressEvent(&event);
+        });
+    }
 
     void beginCapture() {
         previous_ = text();
         capturing_ = true;
+        contextShortcut_->setEnabled(true);
         setText(AppLocalization::get(QStringLiteral("ShortcutPlaceholder")));
         setFocus(Qt::ShortcutFocusReason);
     }
@@ -198,6 +209,7 @@ protected:
         if (!capturing_) { QPushButton::keyPressEvent(event); return; }
         if (event->key() == Qt::Key_Escape) {
             capturing_ = false;
+            contextShortcut_->setEnabled(false);
             setText(previous_);
             event->accept();
             return;
@@ -208,6 +220,7 @@ protected:
         const QString value = shortcutText(event);
         if (value.isEmpty()) return;
         capturing_ = false;
+        contextShortcut_->setEnabled(false);
         setText(value);
         emit valueCaptured(value);
         event->accept();
@@ -216,6 +229,7 @@ protected:
 private:
     friend class SettingsDialog;
     bool needsModifier_ = false;
+    QShortcut *contextShortcut_ = nullptr;
     bool capturing_ = false;
     QString previous_;
 };
@@ -314,7 +328,8 @@ SettingsDialog::SettingsDialog(AppSettings settings, QString databasePath, QStri
         {"SettingsPlainTextShortcutCardHeader", "", "PlainTextPasteShortcut", false},
         {"SettingsPreviewShortcutCardHeader", "", "PreviewShortcut", false},
         {"SettingsPinShortcutCardHeader", "", "PinShortcut", false},
-        {"SettingsPasteAsFileShortcutCardHeader", "", "PasteAsFileShortcut", false}};
+        {"SettingsPasteAsFileShortcutCardHeader", "", "PasteAsFileShortcut", false},
+        {"SettingsMoreShortcutCardHeader", "SettingsMoreShortcutCardDescription", "MoreShortcut", false}};
     for (const auto &definition : shortcutDefs) {
         auto *button = new ShortcutButton(definition.global, hotkeys);
         button->setObjectName(QString::fromLatin1(definition.key));
@@ -329,7 +344,8 @@ SettingsDialog::SettingsDialog(AppSettings settings, QString databasePath, QStri
             else if (key == QStringLiteral("PlainTextPasteShortcut")) settings_.plainTextPasteShortcut = value;
             else if (key == QStringLiteral("PreviewShortcut")) settings_.previewShortcut = value;
             else if (key == QStringLiteral("PinShortcut")) settings_.pinShortcut = value;
-            else settings_.pasteAsFileShortcut = value;
+            else if (key == QStringLiteral("PasteAsFileShortcut")) settings_.pasteAsFileShortcut = value;
+            else settings_.moreShortcut = value;
             persist();
         });
     }
@@ -568,7 +584,8 @@ void SettingsDialog::loadControls(const AppSettings &settings) {
     excludedApplications_->setText(settings.excludedApplications);
     const QHash<QString, QString> values{{"GlobalHotKey", settings.globalHotKey}, {"PasteShortcut", settings.pasteShortcut},
         {"PlainTextPasteShortcut", settings.plainTextPasteShortcut}, {"PreviewShortcut", settings.previewShortcut},
-        {"PinShortcut", settings.pinShortcut}, {"PasteAsFileShortcut", settings.pasteAsFileShortcut}};
+        {"PinShortcut", settings.pinShortcut}, {"PasteAsFileShortcut", settings.pasteAsFileShortcut},
+        {"MoreShortcut", settings.moreShortcut}};
     for (auto it = values.cbegin(); it != values.cend(); ++it) if (shortcuts_.contains(it.key())) shortcuts_[it.key()]->setText(it.value());
     loading_ = false;
 }

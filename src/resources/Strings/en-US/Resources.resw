@@ -34,8 +34,8 @@
   <data name="ClearHistoryButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Clear clipboard history</value></data>
   <data name="ClearHistoryButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Clear clipboard history</value></data>
   <data name="HistoryList.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Clipboard history</value></data>
-  <data name="RecordPreviewButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>Preview content</value></data>
-  <data name="RecordPreviewButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>Preview content</value></data>
+  <data name="RecordPreviewButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>View content</value></data>
+  <data name="RecordPreviewButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>View content</value></data>
   <data name="RecordMoreButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>More actions</value></data>
   <data name="RecordMoreButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>More actions</value></data>
   <data name="PastePlainTextMenuItem.Text" xml:space="preserve"><value>Paste as plain text</value></data>
@@ -70,7 +70,7 @@
   <data name="SettingsInterceptWinVCard.Description" xml:space="preserve"><value>Open PasteOrbit with Win + V and prevent Windows clipboard history from appearing</value></data>
   <data name="SettingsPasteShortcutCard.Header" xml:space="preserve"><value>Paste selected item</value></data>
   <data name="SettingsPlainTextShortcutCard.Header" xml:space="preserve"><value>Paste as plain text</value></data>
-  <data name="SettingsPreviewShortcutCard.Header" xml:space="preserve"><value>Expand or collapse preview</value></data>
+  <data name="SettingsPreviewShortcutCard.Header" xml:space="preserve"><value>Open or close viewer</value></data>
   <data name="SettingsPinShortcutCard.Header" xml:space="preserve"><value>Add or remove favorite</value></data>
   <data name="SettingsDeleteShortcutCard.Header" xml:space="preserve"><value>Delete selected item</value></data>
   <data name="SettingsPasteAsFileShortcutCard.Header" xml:space="preserve"><value>Paste as file</value></data>
@@ -102,9 +102,9 @@
   <data name="UnknownApplication" xml:space="preserve"><value>Unknown app</value></data>
   <data name="UnpinItem" xml:space="preserve"><value>Remove from favorites</value></data>
   <data name="PinItem" xml:space="preserve"><value>Add to favorites</value></data>
-  <data name="ImagePreviewUnavailable" xml:space="preserve"><value>Image · Preview unavailable</value></data>
+  <data name="ImagePreviewUnavailable" xml:space="preserve"><value>Image · View unavailable</value></data>
   <data name="FileInfoUnavailable" xml:space="preserve"><value>Files · Information unavailable</value></data>
-  <data name="PreviewDispatchUnavailable" xml:space="preserve"><value>The image preview update could not be dispatched.</value></data>
+  <data name="PreviewDispatchUnavailable" xml:space="preserve"><value>The image view update could not be dispatched.</value></data>
   <data name="FileCount" xml:space="preserve"><value>{0} files</value></data>
   <data name="MissingFileCount" xml:space="preserve"><value>{0} · {1} unavailable</value></data>
   <data name="ImageContent" xml:space="preserve"><value>Image content</value></data>
@@ -131,7 +131,7 @@
   <data name="OpenExplorerFolderFirst" xml:space="preserve"><value>Open a folder in File Explorer first</value></data>
   <data name="SaveAsFileFailed" xml:space="preserve"><value>Could not save as file</value></data>
   <data name="ClearCurrentListTitle" xml:space="preserve"><value>Clear the current list?</value></data>
-  <data name="ClearCurrentListMessage" xml:space="preserve"><value>This will delete {0} non-favorite items in the current filtered results. Favorites and hidden items will remain. This action cannot be undone.</value></data>
+  <data name="ClearCurrentListMessage" xml:space="preserve"><value>Delete {0} non-favorite items matching this filter? This cannot be undone.</value></data>
   <data name="DeletePinnedItemTitle" xml:space="preserve"><value>Delete favorite?</value></data>
   <data name="DeletePinnedItemMessage" xml:space="preserve"><value>This action cannot be undone.</value></data>
   <data name="Delete" xml:space="preserve"><value>Delete</value></data>
@@ -139,11 +139,22 @@
   <data name="Cancel" xml:space="preserve"><value>Cancel</value></data>
   <data name="CurrentListCleared" xml:space="preserve"><value>Cleared {0} items from the current list. Favorites were preserved.</value></data>
   <data name="ClearHistoryFailed" xml:space="preserve"><value>Could not clear clipboard history</value></data>
-  <data name="PreviewUnavailable" xml:space="preserve"><value>This item cannot be previewed</value></data>
-  <data name="RichTextPreview" xml:space="preserve"><value>Rich text preview</value></data>
-  <data name="TextPreview" xml:space="preserve"><value>Text preview</value></data>
-  <data name="CollapsePreview" xml:space="preserve"><value>Collapse preview</value></data>
-  <data name="PreviewContent" xml:space="preserve"><value>Preview content</value></data>
+  <data name="PreviewUnavailable" xml:space="preserve"><value>This item cannot be viewed</value></data>
+  <data name="RichTextPreview" xml:space="preserve"><value>Rich text view</value></data>
+  <data name="TextPreview" xml:space="preserve"><value>Text view</value></data>
+  <data name="CollapsePreview" xml:space="preserve"><value>Close viewer</value></data>
+  <data name="PreviewContent" xml:space="preserve"><value>View content</value></data>
+  <data name="EditViewedText" xml:space="preserve"><value>Edit</value></data>
+  <data name="EditViewedPlainText" xml:space="preserve"><value>Edit as plain text</value></data>
+  <data name="PasteEditedText" xml:space="preserve"><value>Paste</value></data>
+  <data name="EditViewedTextHint" xml:space="preserve"><value>Paste leaves history unchanged; Replace and paste saves edits. Unsaved edits are discarded when closing or switching items.</value></data>
+  <data name="ReplaceOriginalRecord" xml:space="preserve"><value>Replace and paste</value></data>
+  <data name="ReplaceOriginalRecordHint" xml:space="preserve"><value>Save edits, then paste. Keeps the source and favorite status. Does not paste if saving fails.</value></data>
+  <data name="OriginalRecordReplaced" xml:space="preserve"><value>Original record replaced</value></data>
+  <data name="ReplaceRecordInvalid" xml:space="preserve"><value>Cannot replace with empty content.</value></data>
+  <data name="ReplaceRecordMissing" xml:space="preserve"><value>The original text record no longer exists.</value></data>
+  <data name="ReplaceRecordDuplicate" xml:space="preserve"><value>An identical history record already exists. Nothing was replaced.</value></data>
+  <data name="RtfEditNotice" xml:space="preserve"><value>RTF formatting cannot be preserved when editing. Paste and replace use plain text.</value></data>
   <data name="ItemPinned" xml:space="preserve"><value>Added to favorites</value></data>
   <data name="ItemUnpinned" xml:space="preserve"><value>Removed from favorites</value></data>
   <data name="ItemDeleted" xml:space="preserve"><value>Item deleted</value></data>
@@ -269,7 +280,7 @@
   <data name="SettingsInterceptWinVCardDescription" xml:space="preserve"><value>Open PasteOrbit with Win + V and prevent Windows clipboard history from appearing</value></data>
   <data name="SettingsPasteShortcutCardHeader" xml:space="preserve"><value>Paste selected item</value></data>
   <data name="SettingsPlainTextShortcutCardHeader" xml:space="preserve"><value>Paste as plain text</value></data>
-  <data name="SettingsPreviewShortcutCardHeader" xml:space="preserve"><value>Expand or collapse preview</value></data>
+  <data name="SettingsPreviewShortcutCardHeader" xml:space="preserve"><value>Open or close viewer</value></data>
   <data name="SettingsPinShortcutCardHeader" xml:space="preserve"><value>Add or remove favorite</value></data>
   <data name="SettingsDeleteShortcutCardHeader" xml:space="preserve"><value>Delete selected item</value></data>
   <data name="SettingsPasteAsFileShortcutCardHeader" xml:space="preserve"><value>Paste as file</value></data>
@@ -319,9 +330,16 @@
   <data name="HistoryListAutomationName" xml:space="preserve"><value>Clipboard history</value></data>
   <data name="MainEmptyHistoryText" xml:space="preserve"><value>No clipboard history</value></data>
   <data name="RecordMoreButtonTooltip" xml:space="preserve"><value>More actions</value></data>
+  <data name="RecordMoreShortcutTooltip" xml:space="preserve"><value>More actions ({0})</value></data>
+  <data name="SettingsMoreShortcutCardHeader" xml:space="preserve"><value>Open more actions</value></data>
+  <data name="SettingsMoreShortcutCardDescription" xml:space="preserve"><value>Use with a selected history item; the Menu key also works</value></data>
   <data name="PastePlainTextMenuItemText" xml:space="preserve"><value>Paste as plain text</value></data>
   <data name="PasteAsFileMenuItemText" xml:space="preserve"><value>Paste as file</value></data>
   <data name="DeleteRecordMenuItemText" xml:space="preserve"><value>Delete item</value></data>
+  <data name="OpenLinkMenuItemText" xml:space="preserve"><value>Open link</value></data>
+  <data name="RevealFileMenuItemText" xml:space="preserve"><value>Show in folder</value></data>
+  <data name="OpenLinkFailed" xml:space="preserve"><value>Could not open the link. Check your default browser settings.</value></data>
+  <data name="RevealFileFailed" xml:space="preserve"><value>The file no longer exists or its location cannot be accessed.</value></data>
   <data name="DoNotRemindUpdateButton" xml:space="preserve"><value>Don't remind me again</value></data>
   <data name="ShowUpdateDetails" xml:space="preserve"><value>Show details</value></data>
   <data name="HideUpdateDetails" xml:space="preserve"><value>Hide details</value></data>

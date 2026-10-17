@@ -376,6 +376,57 @@ QString HistoryStore::save(const ClipboardCapture &capture, HistoryItem *saved) 
     return {};
 }
 
+QString HistoryStore::replaceText(const QString &id, const QByteArray &content, const QString &text) const {
+    if (id.isEmpty() || content.isEmpty() || text.isEmpty()) return QStringLiteral("ReplaceRecordInvalid");
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    const char kind = 0;
+    hash.addData(QByteArrayView(&kind, 1));
+    hash.addData(content);
+    const QString contentHash = QString::fromLatin1(hash.result().toHex().toUpper());
+    auto preview = text.left(160);
+    preview.replace(QLatin1Char('\r'), QLatin1Char(' '));
+    preview.replace(QLatin1Char('\n'), QLatin1Char(' '));
+    if (text.size() > 160) preview.append(QChar(0x2026));
+    const auto protectedContent = protect(content);
+    const auto protectedPreview = protect(preview.toUtf8());
+    if (!protectedContent || !protectedPreview) return QStringLiteral("DPAPI 加密失败");
+    Connection connection(path_);
+    if (!connection.isOpen()) return connection.error();
+    auto &database = connection.database();
+    if (!database.transaction()) return connection.error();
+    QSqlQuery lookup(database);
+    lookup.prepare(QStringLiteral("SELECT storage_id FROM clipboard_items WHERE id=:id AND kind=0"));
+    lookup.bindValue(QStringLiteral(":id"), id);
+    if (!lookup.exec()) { database.rollback(); return lookup.lastError().text(); }
+    if (!lookup.next()) { database.rollback(); return QStringLiteral("ReplaceRecordMissing"); }
+    const qint64 storageId = lookup.value(0).toLongLong();
+    lookup.finish();
+    QSqlQuery duplicate(database);
+    duplicate.prepare(QStringLiteral("SELECT 1 FROM clipboard_items WHERE content_hash=:hash AND id<>:id"));
+    duplicate.bindValue(QStringLiteral(":hash"), contentHash);
+    duplicate.bindValue(QStringLiteral(":id"), id);
+    if (!duplicate.exec()) { database.rollback(); return duplicate.lastError().text(); }
+    if (duplicate.next()) { database.rollback(); return QStringLiteral("ReplaceRecordDuplicate"); }
+    duplicate.finish();
+    // 内容、加密摘要和全文索引在同一事务内替换，失败时不留下半更新状态。
+    QSqlQuery write(database);
+    write.prepare(QStringLiteral("UPDATE clipboard_items SET content=:content,content_hash=:hash,preview_text=:preview,"
+        "search_text_length=:length,content_size=:size WHERE storage_id=:storage"));
+    write.bindValue(QStringLiteral(":content"), *protectedContent);
+    write.bindValue(QStringLiteral(":hash"), contentHash);
+    write.bindValue(QStringLiteral(":preview"), *protectedPreview);
+    write.bindValue(QStringLiteral(":length"), text.size());
+    write.bindValue(QStringLiteral(":size"), content.size());
+    write.bindValue(QStringLiteral(":storage"), storageId);
+    if (!write.exec()) { database.rollback(); return write.lastError().text(); }
+    QSqlQuery index(database);
+    index.prepare(QStringLiteral("UPDATE clipboard_items_fts SET search_text=:text WHERE rowid=:storage"));
+    index.bindValue(QStringLiteral(":text"), text);
+    index.bindValue(QStringLiteral(":storage"), storageId);
+    if (!index.exec()) { database.rollback(); return index.lastError().text(); }
+    return database.commit() ? QString{} : connection.error();
+}
+
 QByteArray HistoryStore::content(const QString &id, bool preferPreview) const {
     Connection connection(path_);
     if (!connection.isOpen()) return {};

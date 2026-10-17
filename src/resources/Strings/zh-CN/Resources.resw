@@ -34,8 +34,8 @@
   <data name="ClearHistoryButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>清空剪切板历史</value></data>
   <data name="ClearHistoryButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>清空剪切板历史</value></data>
   <data name="HistoryList.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>剪切板历史记录</value></data>
-  <data name="RecordPreviewButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>预览内容</value></data>
-  <data name="RecordPreviewButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>预览内容</value></data>
+  <data name="RecordPreviewButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>查看内容</value></data>
+  <data name="RecordPreviewButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>查看内容</value></data>
   <data name="RecordMoreButton.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>更多操作</value></data>
   <data name="RecordMoreButton.[using:Microsoft.UI.Xaml.Controls]ToolTipService.ToolTip" xml:space="preserve"><value>更多操作</value></data>
   <data name="PastePlainTextMenuItem.Text" xml:space="preserve"><value>粘贴为纯文本</value></data>
@@ -70,7 +70,7 @@
   <data name="SettingsInterceptWinVCard.Description" xml:space="preserve"><value>使用 Win + V 打开 PasteOrbit，并阻止系统剪切板历史弹出</value></data>
   <data name="SettingsPasteShortcutCard.Header" xml:space="preserve"><value>粘贴选中记录</value></data>
   <data name="SettingsPlainTextShortcutCard.Header" xml:space="preserve"><value>粘贴为纯文本</value></data>
-  <data name="SettingsPreviewShortcutCard.Header" xml:space="preserve"><value>展开或收起预览</value></data>
+  <data name="SettingsPreviewShortcutCard.Header" xml:space="preserve"><value>打开或关闭查看窗口</value></data>
   <data name="SettingsPinShortcutCard.Header" xml:space="preserve"><value>收藏或取消收藏</value></data>
   <data name="SettingsDeleteShortcutCard.Header" xml:space="preserve"><value>删除选中记录</value></data>
   <data name="SettingsPasteAsFileShortcutCard.Header" xml:space="preserve"><value>粘贴为文件</value></data>
@@ -102,9 +102,9 @@
   <data name="UnknownApplication" xml:space="preserve"><value>未知应用</value></data>
   <data name="UnpinItem" xml:space="preserve"><value>取消收藏</value></data>
   <data name="PinItem" xml:space="preserve"><value>收藏记录</value></data>
-  <data name="ImagePreviewUnavailable" xml:space="preserve"><value>图片 · 预览不可用</value></data>
+  <data name="ImagePreviewUnavailable" xml:space="preserve"><value>图片 · 查看不可用</value></data>
   <data name="FileInfoUnavailable" xml:space="preserve"><value>文件 · 信息不可用</value></data>
-  <data name="PreviewDispatchUnavailable" xml:space="preserve"><value>无法调度图片预览更新。</value></data>
+  <data name="PreviewDispatchUnavailable" xml:space="preserve"><value>无法调度图片查看更新。</value></data>
   <data name="FileCount" xml:space="preserve"><value>{0} 个文件</value></data>
   <data name="MissingFileCount" xml:space="preserve"><value>{0} · {1} 项已失效</value></data>
   <data name="ImageContent" xml:space="preserve"><value>图片内容</value></data>
@@ -131,7 +131,7 @@
   <data name="OpenExplorerFolderFirst" xml:space="preserve"><value>请先切换到资源管理器文件夹视图</value></data>
   <data name="SaveAsFileFailed" xml:space="preserve"><value>无法保存为文件</value></data>
   <data name="ClearCurrentListTitle" xml:space="preserve"><value>清空当前列表？</value></data>
-  <data name="ClearCurrentListMessage" xml:space="preserve"><value>将删除当前筛选结果中的 {0} 条未收藏记录，收藏记录会保留。未显示的记录不会受到影响。此操作不可撤销。</value></data>
+  <data name="ClearCurrentListMessage" xml:space="preserve"><value>删除当前筛选下的 {0} 条未收藏记录？无法撤销。</value></data>
   <data name="DeletePinnedItemTitle" xml:space="preserve"><value>删除收藏记录？</value></data>
   <data name="DeletePinnedItemMessage" xml:space="preserve"><value>删除后无法恢复。</value></data>
   <data name="Delete" xml:space="preserve"><value>删除</value></data>
@@ -139,11 +139,22 @@
   <data name="Cancel" xml:space="preserve"><value>取消</value></data>
   <data name="CurrentListCleared" xml:space="preserve"><value>已清空当前列表 · {0} 条，收藏记录已保留</value></data>
   <data name="ClearHistoryFailed" xml:space="preserve"><value>清空历史失败</value></data>
-  <data name="PreviewUnavailable" xml:space="preserve"><value>无法预览该条记录</value></data>
-  <data name="RichTextPreview" xml:space="preserve"><value>富文本预览</value></data>
-  <data name="TextPreview" xml:space="preserve"><value>文本预览</value></data>
-  <data name="CollapsePreview" xml:space="preserve"><value>收起预览</value></data>
-  <data name="PreviewContent" xml:space="preserve"><value>预览内容</value></data>
+  <data name="PreviewUnavailable" xml:space="preserve"><value>无法查看该条记录</value></data>
+  <data name="RichTextPreview" xml:space="preserve"><value>富文本查看</value></data>
+  <data name="TextPreview" xml:space="preserve"><value>文本查看</value></data>
+  <data name="CollapsePreview" xml:space="preserve"><value>关闭查看窗口</value></data>
+  <data name="PreviewContent" xml:space="preserve"><value>查看内容</value></data>
+  <data name="EditViewedText" xml:space="preserve"><value>编辑</value></data>
+  <data name="EditViewedPlainText" xml:space="preserve"><value>按纯文本编辑</value></data>
+  <data name="PasteEditedText" xml:space="preserve"><value>粘贴</value></data>
+  <data name="EditViewedTextHint" xml:space="preserve"><value>“粘贴”不改历史；“替换并粘贴”会保存修改。未保存的修改在关闭或切换时丢弃。</value></data>
+  <data name="ReplaceOriginalRecord" xml:space="preserve"><value>替换并粘贴</value></data>
+  <data name="ReplaceOriginalRecordHint" xml:space="preserve"><value>保存编辑内容后粘贴，保留来源和收藏状态；保存失败则不粘贴。</value></data>
+  <data name="OriginalRecordReplaced" xml:space="preserve"><value>已替换原记录</value></data>
+  <data name="ReplaceRecordInvalid" xml:space="preserve"><value>内容为空，无法替换。</value></data>
+  <data name="ReplaceRecordMissing" xml:space="preserve"><value>原文本记录已不存在，无法替换。</value></data>
+  <data name="ReplaceRecordDuplicate" xml:space="preserve"><value>已有相同内容的历史记录，未替换。</value></data>
+  <data name="RtfEditNotice" xml:space="preserve"><value>暂不支持 RTF 保格式编辑，粘贴和替换时使用纯文本。</value></data>
   <data name="ItemPinned" xml:space="preserve"><value>记录已收藏</value></data>
   <data name="ItemUnpinned" xml:space="preserve"><value>已取消记录收藏</value></data>
   <data name="ItemDeleted" xml:space="preserve"><value>记录已删除</value></data>
@@ -269,7 +280,7 @@
   <data name="SettingsInterceptWinVCardDescription" xml:space="preserve"><value>使用 Win + V 打开 PasteOrbit，并阻止系统剪切板历史弹出</value></data>
   <data name="SettingsPasteShortcutCardHeader" xml:space="preserve"><value>粘贴选中记录</value></data>
   <data name="SettingsPlainTextShortcutCardHeader" xml:space="preserve"><value>粘贴为纯文本</value></data>
-  <data name="SettingsPreviewShortcutCardHeader" xml:space="preserve"><value>展开或收起预览</value></data>
+  <data name="SettingsPreviewShortcutCardHeader" xml:space="preserve"><value>打开或关闭查看窗口</value></data>
   <data name="SettingsPinShortcutCardHeader" xml:space="preserve"><value>收藏或取消收藏</value></data>
   <data name="SettingsDeleteShortcutCardHeader" xml:space="preserve"><value>删除选中记录</value></data>
   <data name="SettingsPasteAsFileShortcutCardHeader" xml:space="preserve"><value>粘贴为文件</value></data>
@@ -319,9 +330,16 @@
   <data name="HistoryListAutomationName" xml:space="preserve"><value>剪切板历史记录</value></data>
   <data name="MainEmptyHistoryText" xml:space="preserve"><value>暂无剪切板记录</value></data>
   <data name="RecordMoreButtonTooltip" xml:space="preserve"><value>更多操作</value></data>
+  <data name="RecordMoreShortcutTooltip" xml:space="preserve"><value>更多操作（{0}）</value></data>
+  <data name="SettingsMoreShortcutCardHeader" xml:space="preserve"><value>打开更多操作</value></data>
+  <data name="SettingsMoreShortcutCardDescription" xml:space="preserve"><value>选中历史记录后使用；也支持菜单键</value></data>
   <data name="PastePlainTextMenuItemText" xml:space="preserve"><value>粘贴为纯文本</value></data>
   <data name="PasteAsFileMenuItemText" xml:space="preserve"><value>粘贴为文件</value></data>
   <data name="DeleteRecordMenuItemText" xml:space="preserve"><value>删除记录</value></data>
+  <data name="OpenLinkMenuItemText" xml:space="preserve"><value>打开链接</value></data>
+  <data name="RevealFileMenuItemText" xml:space="preserve"><value>打开所在位置</value></data>
+  <data name="OpenLinkFailed" xml:space="preserve"><value>无法打开链接，请检查默认浏览器设置。</value></data>
+  <data name="RevealFileFailed" xml:space="preserve"><value>文件已不存在，或无法访问其所在位置。</value></data>
   <data name="DoNotRemindUpdateButton" xml:space="preserve"><value>不再提示</value></data>
   <data name="ShowUpdateDetails" xml:space="preserve"><value>显示详情</value></data>
   <data name="HideUpdateDetails" xml:space="preserve"><value>隐藏详情</value></data>

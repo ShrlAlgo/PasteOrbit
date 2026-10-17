@@ -11,6 +11,7 @@ struct AppSettings {
     QString previewShortcut = QStringLiteral("Space");
     QString pinShortcut = QStringLiteral("Ctrl + D");
     QString pasteAsFileShortcut = QStringLiteral("Ctrl + Shift + S");
+    QString moreShortcut = QStringLiteral("Shift + F10");
     bool startWithWindows = false;
     bool runAsAdministrator = false;
     bool autoHideOnDeactivate = true;

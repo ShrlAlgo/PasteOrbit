@@ -40,6 +40,7 @@ AppSettings AppSettings::load(const QString &path) {
     settings.previewShortcut = json.value(QStringLiteral("PreviewShortcut")).toString(settings.previewShortcut);
     settings.pinShortcut = json.value(QStringLiteral("PinShortcut")).toString(settings.pinShortcut);
     settings.pasteAsFileShortcut = json.value(QStringLiteral("PasteAsFileShortcut")).toString(settings.pasteAsFileShortcut);
+    settings.moreShortcut = json.value(QStringLiteral("MoreShortcut")).toString(settings.moreShortcut);
     settings.startWithWindows = json.value(QStringLiteral("StartWithWindows")).toBool();
     settings.runAsAdministrator = json.value(QStringLiteral("RunAsAdministrator")).toBool();
     settings.autoHideOnDeactivate = json.value(QStringLiteral("AutoHideOnDeactivate")).toBool(true);
@@ -74,6 +75,7 @@ bool AppSettings::save(const QString &path) const {
     json.insert(QStringLiteral("PreviewShortcut"), previewShortcut);
     json.insert(QStringLiteral("PinShortcut"), pinShortcut);
     json.insert(QStringLiteral("PasteAsFileShortcut"), pasteAsFileShortcut);
+    json.insert(QStringLiteral("MoreShortcut"), moreShortcut);
     json.insert(QStringLiteral("StartWithWindows"), startWithWindows);
     json.insert(QStringLiteral("RunAsAdministrator"), runAsAdministrator);
     json.insert(QStringLiteral("AutoHideOnDeactivate"), autoHideOnDeactivate);

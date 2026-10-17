@@ -30,6 +30,7 @@ class QScrollArea;
 class QPushButton;
 class QToolButton;
 class QMenu;
+class QShortcut;
 class QStackedLayout;
 
 class MainWindow final : public QWidget, public QAbstractNativeEventFilter {
@@ -77,7 +78,8 @@ private:
     void captureClipboard();
     void saveCapture(ClipboardCapture capture, QImage fallbackImage, DWORD sequence);
     void cleanupPasteFiles();
-    void pasteRecord(const QString &id, bool plainText = false, bool asFile = false);
+    void pasteRecord(const QString &id, bool plainText = false, bool asFile = false,
+                     std::optional<QByteArray> editedContent = std::nullopt);
     void openRowMenu(const QString &id, std::optional<QPoint> position = std::nullopt);
     void toggleHoverPreview(QString id);
     void closeHoverPreview();
@@ -102,6 +104,7 @@ private:
     HistoryModel *model_ = nullptr;
     HistoryDelegate *delegate_ = nullptr;
     QListView *historyList_ = nullptr;
+    QShortcut *moreShortcut_ = nullptr;
     QLineEdit *searchBox_ = nullptr;
     QLabel *emptyLabel_ = nullptr;
     QLabel *statusLabel_ = nullptr;

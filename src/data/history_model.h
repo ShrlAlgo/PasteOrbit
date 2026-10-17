@@ -13,6 +13,7 @@
 struct ThumbnailResult {
     QString id;
     QByteArray bytes;
+    QImage fileIcon;
 };
 
 class HistoryModel final : public QAbstractListModel {
@@ -31,6 +32,7 @@ public:
     int quickPasteRow(int number) const;
     void setQuickPasteEnabled(bool enabled);
     void setPinned(const QString &id, bool pinned);
+    void setText(const QString &id, const QString &text, qint64 contentSize);
     void remove(const QString &id);
     void setVisibleRows(int first, int last);
     void releaseThumbnails();

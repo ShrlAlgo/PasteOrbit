@@ -17,6 +17,7 @@
 #include <QCloseEvent>
 #include <QCursor>
 #include <QDir>
+#include <QDesktopServices>
 #include <QFile>
 #include <QFileInfo>
 #include <QFrame>
@@ -41,7 +42,12 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPixmap>
+#include <QPointer>
+#include <QPushButton>
+#include <QFontDatabase>
+#include <QRegularExpression>
 #include <QSettings>
+#include <QShortcut>
 #include <QSet>
 #include <QScrollBar>
 #include <QScopeGuard>
@@ -73,6 +79,7 @@
 #include <system_error>
 #include <UIAutomation.h>
 #include <oleacc.h>
+#include <shlobj.h>
 #include <wrl/client.h>
 #include <windows.h>
 
@@ -83,6 +90,7 @@ constexpr UINT TrayResumeMilliseconds = 10 * 60 * 1000;
 constexpr auto TextPayloadPrefix = "PasteOrbit.Text/1\n";
 constexpr char MixedImagePayloadPrefix[] = "PasteOrbit.Image/2\n";
 const QString WindowsRtfMime = QStringLiteral("application/x-qt-windows-mime;value=\"Rich Text Format\"");
+constexpr int OriginalForegroundProperty = QTextFormat::UserProperty + 1;
 
 void adaptPreviewContrast(QTextDocument *document, const QColor &background, const QColor &defaultText) {
     const auto luminance = [](const QColor &color) {
@@ -91,7 +99,7 @@ void adaptPreviewContrast(QTextDocument *document, const QColor &background, con
         };
         return 0.2126 * linear(color.redF()) + 0.7152 * linear(color.greenF()) + 0.0722 * linear(color.blueF());
     };
-    struct Span { int position; int length; QColor color; };
+    struct Span { int position; int length; QColor color; QBrush original; };
     QList<Span> changes;
     QHash<quint64, QColor> colors;
     // 仅调整预览文档的低对比文字，同色系适配明暗底色；原始 HTML 与剪贴板内容不变。
@@ -131,7 +139,7 @@ void adaptPreviewContrast(QTextDocument *document, const QColor &background, con
                 }
                 colors.insert(key, adjusted);
             }
-            if (colors[key] != ink) changes.append({fragment.position(), fragment.length(), colors[key]});
+            if (colors[key] != ink) changes.append({fragment.position(), fragment.length(), colors[key], format.foreground()});
         }
     }
     // 收集后再应用，避免修改格式时使文档片段迭代器失效；不创建文档副本。
@@ -142,9 +150,36 @@ void adaptPreviewContrast(QTextDocument *document, const QColor &background, con
         cursor.setPosition(span.position + span.length, QTextCursor::KeepAnchor);
         QTextCharFormat format;
         format.setForeground(span.color);
+        format.setProperty(OriginalForegroundProperty, span.original);
         cursor.mergeCharFormat(format);
     }
     cursor.endEditBlock();
+}
+
+QString editedHtml(const QTextDocument *document) {
+    // 对比度适配仅用于显示，输出时在临时文档中恢复原文字色，不污染粘贴样式。
+    std::unique_ptr<QTextDocument> output(document->clone());
+    struct Span { int position; int length; QTextCharFormat format; };
+    QList<Span> changes;
+    for (auto block = output->begin(); block.isValid(); block = block.next()) {
+        for (auto it = block.begin(); !it.atEnd(); ++it) {
+            const auto fragment = it.fragment();
+            auto format = fragment.charFormat();
+            if (!format.hasProperty(OriginalForegroundProperty)) continue;
+            const auto original = qvariant_cast<QBrush>(format.property(OriginalForegroundProperty));
+            if (original.style() == Qt::NoBrush) format.clearProperty(QTextFormat::ForegroundBrush);
+            else format.setForeground(original);
+            format.clearProperty(OriginalForegroundProperty);
+            changes.append({fragment.position(), fragment.length(), format});
+        }
+    }
+    QTextCursor cursor(output.get());
+    for (const auto &span : changes) {
+        cursor.setPosition(span.position);
+        cursor.setPosition(span.position + span.length, QTextCursor::KeepAnchor);
+        cursor.setCharFormat(span.format);
+    }
+    return output->toHtml();
 }
 
 QByteArray clipboardRtf(const QMimeData *mime) {
@@ -575,6 +610,59 @@ TextContent decodeTextContent(const QByteArray &content) {
     result.markdown = json.value(QStringLiteral("Markdown")).toBool();
     return result;
 }
+
+QStringList webLinks(const QByteArray &content) {
+    const auto text = decodeTextContent(content);
+    QStringList links;
+    QSet<QString> seen;
+    const auto append = [&links, &seen](const QString &value) {
+        const QUrl url(value, QUrl::StrictMode);
+        // 剪切板是不可信输入，仅允许网页协议，不执行文件或自定义协议。
+        if (!url.isValid() || url.host().isEmpty()
+            || (url.scheme() != QStringLiteral("http") && url.scheme() != QStringLiteral("https"))) return;
+        const QString encoded = url.toString(QUrl::FullyEncoded);
+        if (!seen.contains(encoded)) { seen.insert(encoded); links.append(encoded); }
+    };
+    static const QRegularExpression pattern(QStringLiteral(R"(https?://[^\s<>"'\x{3000}-\x{303f}\x{ff00}-\x{ffef}]+)"),
+                                             QRegularExpression::CaseInsensitiveOption);
+    auto matches = pattern.globalMatch(text.text);
+    while (matches.hasNext()) {
+        QString value = matches.next().captured();
+        while (!value.isEmpty()) {
+            const QChar last = value.back();
+            const bool extraBracket = (last == QLatin1Char(')') && value.count(')') > value.count('('))
+                || (last == QLatin1Char(']') && value.count(']') > value.count('['))
+                || (last == QLatin1Char('}') && value.count('}') > value.count('{'));
+            if (!extraBracket && !QStringLiteral(".,;!?").contains(last)) break;
+            value.chop(1);
+        }
+        append(value);
+    }
+    if (!text.html.isEmpty()) {
+        class LinkDocument final : public QTextDocument {
+            QVariant loadResource(int, const QUrl &) override { return {}; }
+        } document;
+        // 读取富文本锚点，但不下载图片、样式或读取本地资源。
+        document.setHtml(text.html);
+        for (auto block = document.begin(); block.isValid(); block = block.next()) {
+            for (auto it = block.begin(); !it.atEnd(); ++it)
+                append(it.fragment().charFormat().anchorHref());
+        }
+    }
+    return links;
+}
+
+bool revealFile(const QString &path) {
+    if (!QDir::isAbsolutePath(path)) return false;
+    const HRESULT initialized = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    if (FAILED(initialized)) return false;
+    const auto uninitialize = qScopeGuard([] { CoUninitialize(); });
+    PIDLIST_ABSOLUTE item = nullptr;
+    const QString nativePath = QDir::toNativeSeparators(path);
+    const HRESULT parsed = SHParseDisplayName(reinterpret_cast<LPCWSTR>(nativePath.utf16()), nullptr, &item, 0, nullptr);
+    const auto freeItem = qScopeGuard([&] { CoTaskMemFree(item); });
+    return SUCCEEDED(parsed) && SUCCEEDED(SHOpenFolderAndSelectItems(item, 0, nullptr, 0));
+}
 }
 
 MainWindow::MainWindow(QString dataDirectory, AppSettings settings)
@@ -810,6 +898,16 @@ void MainWindow::buildUi() {
     delegate_ = new HistoryDelegate(historyList_);
     historyList_->setModel(model_);
     historyList_->setItemDelegate(delegate_);
+    // Windows 的 Shift+F10 必须正式注册，否则 Qt 会交回系统，不发送 KeyPress。
+    moreShortcut_ = new QShortcut(QKeySequence(QString(settings_.moreShortcut).remove(QLatin1Char(' '))), historyList_);
+    moreShortcut_->setContext(Qt::WidgetShortcut);
+    moreShortcut_->setAutoRepeat(false);
+    connect(moreShortcut_, &QShortcut::activated, this, [this] {
+        const auto current = historyList_->currentIndex();
+        if (!current.isValid()) return;
+        openRowMenu(current.data(HistoryModel::IdRole).toString(),
+                    historyList_->viewport()->mapToGlobal(historyList_->visualRect(current).topRight()));
+    });
     connect(model_, &QAbstractItemModel::modelAboutToBeReset, this, &MainWindow::closeHoverPreview);
     connect(delegate_, &HistoryDelegate::actionTriggered, this, [this](const QString &id, int action) {
         if (action == HistoryDelegate::Preview) toggleHoverPreview(id);
@@ -822,7 +920,6 @@ void MainWindow::buildUi() {
         pasteRecord(index.data(HistoryModel::IdRole).toString());
     });
     connect(historyList_->verticalScrollBar(), &QScrollBar::valueChanged, this, [this] {
-        closeHoverPreview();
         updateVisibleThumbnails();
         auto *bar = historyList_->verticalScrollBar();
         if (bar->maximum() > 0 && bar->value() >= bar->maximum() - qMax(40, bar->pageStep() / 3)) loadMoreHistory();
@@ -963,6 +1060,7 @@ void MainWindow::applySettings(const AppSettings &settings) {
     const bool cleanupChanged = settings_.retentionDays != settings.retentionDays
         || settings_.maxHistoryEntries != settings.maxHistoryEntries;
     settings_ = settings;
+    moreShortcut_->setKey(QKeySequence(QString(settings_.moreShortcut).remove(QLatin1Char(' '))));
     if (themeChanged || languageChanged) applyTheme();
     if (languageChanged) {
         searchBox_->setPlaceholderText(AppLocalization::get(QStringLiteral("MainSearchBoxPlaceholder")));
@@ -1287,8 +1385,7 @@ void MainWindow::updateVisibleThumbnails() {
     if (!isVisible() || loadingPage_ || !historyList_ || !model_) return;
     if (hoverPreview_) {
         const int row = model_->rowForId(hoverPreviewId_);
-        if (row < 0 || !historyList_->visualRect(model_->index(row)).intersects(historyList_->viewport()->rect()))
-            closeHoverPreview();
+        if (row < 0) closeHoverPreview();
     }
     int first = model_->rowCount();
     int last = -1;
@@ -1377,6 +1474,7 @@ bool MainWindow::nativeEventFilter(const QByteArray &, void *message, qintptr *r
 }
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
+    if (watched == hoverPreview_ && event->type() == QEvent::WindowDeactivate) scheduleAutoHide();
     if (historyList_ && watched == historyList_->viewport()) {
         // 新分类加载完成前，拦截旧卡片的点击和预览提示。
         if (loadingPage_ && (event->type() == QEvent::MouseButtonPress
@@ -1405,7 +1503,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
                     label = AppLocalization::get(hovered.data(HistoryModel::PinnedRole).toBool()
                         ? QStringLiteral("UnpinItem") : QStringLiteral("PinItem"));
                 else if (action == HistoryDelegate::More)
-                    label = AppLocalization::get(QStringLiteral("RecordMoreButtonTooltip"));
+                    label = AppLocalization::format(QStringLiteral("RecordMoreShortcutTooltip"), {settings_.moreShortcut});
                 if (!label.isEmpty()) { QToolTip::showText(help->globalPos(), label, historyList_->viewport()); return true; }
             }
             QToolTip::hideText();
@@ -1500,7 +1598,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
         }
         if (watched == historyList_ && historyList_->currentIndex().isValid()) {
             const auto id = historyList_->currentIndex().data(HistoryModel::IdRole).toString();
-            if (key->key() == Qt::Key_Menu || (key->key() == Qt::Key_F10 && key->modifiers() == Qt::ShiftModifier)) {
+            if (key->key() == Qt::Key_Menu) {
                 const QRect card = historyList_->visualRect(historyList_->currentIndex());
                 openRowMenu(id, historyList_->viewport()->mapToGlobal(card.topRight()));
                 return true;
@@ -1536,11 +1634,13 @@ bool MainWindow::event(QEvent *event) {
     // 托盘唤出的顶层窗口失去激活时不会触发 QWidget::focusOutEvent。
     if (event->type() == QEvent::WindowDeactivate) {
         if (isPinned_ && !settingsWindowOpen_) {
-            targetFocusWindow_ = nullptr;
             const HWND foreground = GetForegroundWindow();
             DWORD processId = 0;
             if (foreground) GetWindowThreadProcessId(foreground, &processId);
-            if (processId && processId != GetCurrentProcessId()) targetWindow_ = foreground;
+            if (processId && processId != GetCurrentProcessId()) {
+                targetFocusWindow_ = nullptr;
+                targetWindow_ = foreground;
+            }
         }
         scheduleAutoHide();
     }
@@ -1561,6 +1661,7 @@ void MainWindow::scheduleAutoHide() {
     QTimer::singleShot(120, this, [this, generation] {
         if (generation != panelShowGeneration_) return;
         if (isVisible() && !isActiveWindow() && !isPinned_ && !settingsWindowOpen_
+            && (!hoverPreview_ || !hoverPreview_->isActiveWindow())
             && settings_.autoHideOnDeactivate && !qApp->activePopupWidget() && !qApp->activeModalWidget()) {
             hidePanel();
         }
@@ -1597,14 +1698,25 @@ void MainWindow::toggleHoverPreview(QString id) {
     const auto *item = model_->itemAt(row);
     if (!item) return;
     const int kind = item->kind;
-    closeHoverPreview();
+    const int generation = hoverPreviewGeneration_->fetchAndAddRelaxed(1) + 1;
     QToolTip::hideText();
     hoverPreviewId_ = id;
-    const int generation = hoverPreviewGeneration_->loadRelaxed();
 
-    // 浮层独立于列表项，切换预览不会改变卡片高度或触发列表重排。
-    auto *popup = new HoverPreviewFrame(this, Qt::Tool | Qt::FramelessWindowHint | Qt::WindowDoesNotAcceptFocus);
+    // 复用顶层窗口，新页面准备好之前保留旧内容，避免先关闭再打开导致闪烁。
+    auto *popup = hoverPreview_;
+    if (!popup) {
+        popup = new HoverPreviewFrame(this, Qt::Tool | Qt::FramelessWindowHint);
+        popup->installEventFilter(this);
+        auto *close = new QShortcut(QKeySequence(Qt::Key_Escape), popup);
+        connect(close, &QShortcut::activated, this, [this] {
+            closeHoverPreview();
+            if (isVisible()) { activateWindow(); historyList_->setFocus(Qt::ShortcutFocusReason); }
+        });
+        auto *pages = new QStackedLayout(popup);
+        pages->setContentsMargins(0, 0, 0, 0);
+    }
     popup->setObjectName(QStringLiteral("HoverPreview"));
+    popup->setWindowTitle(AppLocalization::get(QStringLiteral("PreviewContent")));
     popup->setAttribute(Qt::WA_TranslucentBackground);
     popup->setAttribute(Qt::WA_ShowWithoutActivating);
     popup->setFocusPolicy(Qt::NoFocus);
@@ -1613,7 +1725,7 @@ void MainWindow::toggleHoverPreview(QString id) {
     const QColor previewBackground(dark ? QStringLiteral("#272B30") : QStringLiteral("#EBEEF2"));
     const QColor previewText(dark ? QStringLiteral("#DCE0E5") : QStringLiteral("#252A30"));
     const QColor previewBorder(dark ? QStringLiteral("#454B52") : QStringLiteral("#CCD2DA"));
-    popup->setStyleSheet(QStringLiteral(
+    const QString previewStyle = QStringLiteral(
         "QScrollArea{background:transparent;border:0;}"
         "QLabel{background:transparent;color:%1;border:0;}"
         "QLabel[previewBadge=\"true\"]{background:%2;border:1px solid %3;border-radius:5px;padding:3px 7px;}"
@@ -1621,8 +1733,11 @@ void MainWindow::toggleHoverPreview(QString id) {
     ).arg(popup->palette().color(QPalette::ToolTipText).name(),
           popup->palette().color(QPalette::AlternateBase).name(),
           popup->palette().color(QPalette::Mid).name(),
-          previewBackground.name(), previewBorder.name()));
-    auto *layout = new QVBoxLayout(popup);
+          previewBackground.name(), previewBorder.name());
+    if (popup->styleSheet() != previewStyle) popup->setStyleSheet(previewStyle);
+    auto *page = new QWidget(popup);
+    page->hide();
+    auto *layout = new QVBoxLayout(page);
     layout->setContentsMargins(10, 10, 10, 10);
     // 来源应用、格式与容量统计放在浮层页头，不再占用卡片内容宽度。
     const QString source = item->sourceApplication.isEmpty()
@@ -1672,21 +1787,37 @@ void MainWindow::toggleHoverPreview(QString id) {
     const QRect available = screen ? screen->availableGeometry() : QRect(anchor, QSize(800, 600));
     const int width = qMin(kind == 1 ? 520 : 460, available.width() - 20);
     const int height = qMin(kind == 1 ? 400 : 320, available.height() - 20);
-    popup->setFixedSize(width, height);
     const int sourceWidth = qMax(0, width - 20 - detailsWidth - heading->spacing() - 16);
     sourceBadge->setText(sourceBadge->fontMetrics().elidedText(source, Qt::ElideRight, sourceWidth));
     int x = frameGeometry().right() + 8;
     if (x + width > available.right()) x = frameGeometry().left() - width - 8;
     x = qBound(available.left(), x, available.right() - width + 1);
     const int y = qBound(available.top(), anchor.y(), available.bottom() - height + 1);
-    popup->move(x, y);
     const QString path = databasePath_;
     auto *watcher = new QFutureWatcher<PreviewResult>(this);
-    connect(watcher, &QFutureWatcher<PreviewResult>::finished, this, [this, watcher, generation, id, content, previewBackground, previewText,
+    connect(watcher, &QFutureWatcher<PreviewResult>::finished, this, [this, watcher, generation, id, page = QPointer<QWidget>(page), width, height, x, y,
+                                                                 content, previewBackground, previewText,
                                                                  sourceBadge, statisticsBadge, formatBadge, heading, source] {
         const PreviewResult result = watcher->result();
         watcher->deleteLater();
-        if (generation != hoverPreviewGeneration_->loadRelaxed() || id != hoverPreviewId_ || !hoverPreview_) return;
+        if (generation != hoverPreviewGeneration_->loadRelaxed() || id != hoverPreviewId_ || !hoverPreview_) {
+            if (page) page->deleteLater();
+            return;
+        }
+        hoverPreview_->setUpdatesEnabled(false);
+        hoverImageScroll_ = nullptr;
+        hoverImageLabel_ = nullptr;
+        hoverImageSize_ = {};
+        hoverImageZoom_ = 1.0;
+        hoverImageDragging_ = false;
+        auto *pages = static_cast<QStackedLayout *>(hoverPreview_->layout());
+        while (auto *old = pages->takeAt(0)) {
+            delete old->widget();
+            delete old;
+        }
+        pages->addWidget(page);
+        hoverPreview_->setFixedSize(width, height);
+        hoverPreview_->move(x, y);
         if (!result.formatLabel.isEmpty()) {
             formatBadge->setText(result.formatLabel);
             const int sourceWidth = qMax(0, hoverPreview_->width() - 20 - statisticsBadge->sizeHint().width()
@@ -1731,6 +1862,7 @@ void MainWindow::toggleHoverPreview(QString id) {
             preview->setLineWrapMode(QTextEdit::WidgetWidth);
             preview->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
             preview->verticalScrollBar()->setFixedWidth(historyList_->verticalScrollBar()->width());
+            preview->horizontalScrollBar()->setFixedHeight(historyList_->verticalScrollBar()->width());
             const bool richText = !result.html.isEmpty() || result.markdown;
             preview->setStyleSheet(QStringLiteral("QTextEdit{background:transparent;border:0;color:%1;}")
                 .arg(previewText.name()));
@@ -1741,12 +1873,138 @@ void MainWindow::toggleHoverPreview(QString id) {
             else preview->setPlainText(result.text);
             if (richText) adaptPreviewContrast(preview->document(), previewBackground, previewText);
             layout->addWidget(preview);
+            if (result.kind == 0) {
+                const bool markdown = result.markdown;
+                const bool html = !markdown && !result.html.isEmpty();
+                const bool plainRtf = !markdown && !html && result.formatLabel == QStringLiteral("RTF");
+                auto *actions = new QHBoxLayout;
+                actions->addStretch();
+                auto *edit = new QPushButton(AppLocalization::get(plainRtf
+                    ? QStringLiteral("EditViewedPlainText") : QStringLiteral("EditViewedText")), content);
+                edit->setObjectName(QStringLiteral("EditViewedText"));
+                auto *paste = new QPushButton(AppLocalization::get(QStringLiteral("PasteEditedText")), content);
+                paste->setObjectName(QStringLiteral("PasteEditedText"));
+                auto *replace = new QPushButton(AppLocalization::get(QStringLiteral("ReplaceOriginalRecord")), content);
+                replace->setObjectName(QStringLiteral("ReplaceOriginalRecord"));
+                replace->setToolTip(AppLocalization::get(QStringLiteral("ReplaceOriginalRecordHint")));
+                replace->hide();
+                paste->hide();
+                edit->setToolTip(AppLocalization::get(plainRtf ? QStringLiteral("RtfEditNotice") : QStringLiteral("EditViewedTextHint")));
+                paste->setToolTip(edit->toolTip());
+                actions->addWidget(edit);
+                actions->addWidget(replace);
+                actions->addWidget(paste);
+                static_cast<QVBoxLayout *>(layout)->addLayout(actions);
+                const auto beginEdit = [this, generation, preview, edit, paste, replace, html] {
+                    if (generation != hoverPreviewGeneration_->loadRelaxed()) return;
+                    preview->setAcceptRichText(false);
+                    preview->setUndoRedoEnabled(true);
+                    preview->document()->setModified(false);
+                    preview->setReadOnly(false);
+                    preview->setFocusPolicy(Qt::StrongFocus);
+                    if (!html) {
+                        preview->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+                        preview->setLineWrapMode(QTextEdit::NoWrap);
+                    }
+                    edit->hide();
+                    paste->show();
+                    replace->show();
+                    replace->setEnabled(false);
+                    preview->setFocus(Qt::MouseFocusReason);
+                };
+                connect(edit, &QPushButton::clicked, this, [this, id, generation, markdown, preview, edit, beginEdit] {
+                    if (generation != hoverPreviewGeneration_->loadRelaxed()) return;
+                    if (!markdown) { beginEdit(); return; }
+                    // Markdown 编辑源文本，按需重读，不让查看窗口额外常驻一份源码。
+                    edit->setEnabled(false);
+                    auto *watcher = new QFutureWatcher<QString>(this);
+                    connect(watcher, &QFutureWatcher<QString>::finished, this,
+                            [this, watcher, generation, guard = QPointer<QTextEdit>(preview), edit, beginEdit] {
+                        const QString source = watcher->result();
+                        watcher->deleteLater();
+                        if (!guard || generation != hoverPreviewGeneration_->loadRelaxed()) return;
+                        if (source.isEmpty()) {
+                            edit->setEnabled(true);
+                            showStatus(AppLocalization::get(QStringLiteral("ContentRestoreFailed")));
+                            return;
+                        }
+                        guard->setPlainText(source);
+                        beginEdit();
+                    });
+                    const QString path = databasePath_;
+                    watcher->setFuture(QtConcurrent::run(&readPool_, [path, id] {
+                        return decodeTextContent(HistoryStore(path).content(id)).text;
+                    }));
+                });
+                connect(preview, &QTextEdit::textChanged, paste, [preview, paste, statisticsBadge] {
+                    paste->setEnabled(!preview->document()->isEmpty());
+                    statisticsBadge->setText(AppLocalization::format(QStringLiteral("CharacterCount"),
+                        {QString::number(qMax(0, preview->document()->characterCount() - 1))}));
+                });
+                const auto updateReplace = [preview, replace] {
+                    replace->setEnabled(!preview->document()->isEmpty() && preview->document()->isModified()
+                        && !replace->property("saving").toBool());
+                };
+                connect(preview, &QTextEdit::textChanged, replace, updateReplace);
+                connect(preview->document(), &QTextDocument::modificationChanged, replace, updateReplace);
+                const auto editedContent = [preview, markdown, html] {
+                    QJsonObject payload{{QStringLiteral("Text"), preview->toPlainText()}, {QStringLiteral("Markdown"), markdown}};
+                    if (html) payload.insert(QStringLiteral("Html"), editedHtml(preview->document()));
+                    return QByteArray(TextPayloadPrefix) + QJsonDocument(payload).toJson(QJsonDocument::Compact);
+                };
+                connect(paste, &QPushButton::clicked, this, [this, id, generation, editedContent] {
+                    if (generation != hoverPreviewGeneration_->loadRelaxed()) return;
+                    pasteRecord(id, false, false, editedContent());
+                });
+                connect(replace, &QPushButton::clicked, this, [this, id, generation, preview, replace, paste,
+                                                             editedContent, formatBadge, markdown, html] {
+                    if (generation != hoverPreviewGeneration_->loadRelaxed()) return;
+                    const QString text = preview->toPlainText();
+                    const QByteArray content = editedContent();
+                    replace->setProperty("saving", true);
+                    replace->setEnabled(false);
+                    paste->setEnabled(false);
+                    preview->setReadOnly(true);
+                    const QString path = databasePath_;
+                    auto *watcher = new QFutureWatcher<QString>(this);
+                    connect(watcher, &QFutureWatcher<QString>::finished, this,
+                            [this, watcher, id, generation, text, content, guard = QPointer<QTextEdit>(preview),
+                             replace, paste, formatBadge, markdown, html] {
+                        const QString error = watcher->result();
+                        watcher->deleteLater();
+                        // 存储成功后才更新卡片；切换或关闭查看窗口不影响已确认的保存。
+                        if (error.isEmpty()) {
+                            model_->setText(id, text, content.size());
+                            if (loadingPage_ || !searchBox_->text().isEmpty()) historyDirty_ = true;
+                        }
+                        if (guard && generation == hoverPreviewGeneration_->loadRelaxed()) {
+                            guard->setReadOnly(false);
+                            replace->setProperty("saving", false);
+                            if (error.isEmpty()) {
+                                guard->document()->setModified(false);
+                                formatBadge->setText(markdown ? QStringLiteral("Markdown") : html ? QStringLiteral("HTML")
+                                    : AppLocalization::get(QStringLiteral("ContentTypeText")));
+                            } else replace->setEnabled(true);
+                            paste->setEnabled(!guard->document()->isEmpty());
+                        }
+                        // 保存成功且仍在当前查看窗口时才粘贴，防止异步保存后误操作已切换的目标。
+                        if (!error.isEmpty()) showStatus(AppLocalization::get(error));
+                        else if (guard && generation == hoverPreviewGeneration_->loadRelaxed() && isVisible())
+                            pasteRecord(id, false, false, content);
+                        else showStatus(AppLocalization::get(QStringLiteral("OriginalRecordReplaced")));
+                    });
+                    watcher->setFuture(QtConcurrent::run(&writePool_, [path, id, content, text] {
+                        return HistoryStore(path).replaceText(id, content, text);
+                    }));
+                });
+            }
         }
         // 内容与嵌套布局都准备好后再首次显示，避免加载占位符及首帧尺寸变化闪烁。
         hoverPreview_->layout()->activate();
         layout->activate();
         if (hoverImageScroll_) updateHoverPreviewImage();
-        hoverPreview_->show();
+        hoverPreview_->setUpdatesEnabled(true);
+        if (!hoverPreview_->isVisible()) hoverPreview_->show();
     });
     const auto generationState = hoverPreviewGeneration_;
     watcher->setFuture(QtConcurrent::run(&readPool_, [path, id, kind, generationState, generation] {
@@ -1805,11 +2063,30 @@ void MainWindow::setPinned(const QString &id) {
     const bool newState = !item->pinned;
     const QString path = databasePath_;
     auto *watcher = new QFutureWatcher<QString>(this);
-    connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher] {
+    connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher, id, newState] {
         const auto error = watcher->result();
         watcher->deleteLater();
-        if (!error.isEmpty()) showStatus(error);
-        refreshHistory();
+        if (!error.isEmpty()) { showStatus(error); return; }
+        // 切换分类期间可能读到了写入前的数据，重新查询当前分类即可。
+        if (loadingPage_) { refreshHistory(); return; }
+        const int row = model_->rowForId(id);
+        const auto *current = model_->itemAt(row);
+        if (!current) { historyDirty_ = true; return; }
+        if (current->pinned == newState) return;
+        // 收藏不再影响排序，只更新角色，保留选中项、滚动位置和已加载的分页。
+        if (selectedKind_ != 3) unpinnedCount_ = qMax(0, unpinnedCount_ + (newState ? -1 : 1));
+        model_->setPinned(id, newState);
+        if (selectedKind_ == 3 && !newState) {
+            const bool restoreFocus = historyList_->hasFocus();
+            const bool removingCurrent = historyList_->currentIndex().data(HistoryModel::IdRole).toString() == id;
+            model_->remove(id);
+            if (model_->rowCount() == 0 && nextCursor_) { refreshHistory(); return; }
+            if (removingCurrent && model_->rowCount() > 0)
+                historyList_->setCurrentIndex(model_->index(qMin(row, model_->rowCount() - 1)));
+            updateEmptyState();
+            if (restoreFocus) historyStack_->currentWidget()->setFocus(Qt::ShortcutFocusReason);
+            updateVisibleThumbnails();
+        }
     });
     watcher->setFuture(QtConcurrent::run(&writePool_, [path, id, newState] {
         return HistoryStore(path).setPinned(id, newState);
@@ -1865,26 +2142,85 @@ void MainWindow::openRowMenu(const QString &id, std::optional<QPoint> position) 
     if (loadingPage_) return;
     const auto *item = model_->itemAt(model_->rowForId(id));
     if (!item) return;
-    // 菜单作为独立弹窗，避免继承透明历史面板的样式表。
-    auto *menu = new QMenu();
-    stylePopupMenu(menu, qApp->palette());
-    QAction *plain = nullptr;
-    QAction *asFile = nullptr;
-    if (item->kind == 0) plain = menu->addAction(AppLocalization::get(QStringLiteral("PastePlainTextMenuItem.Text")));
-    if (item->kind == 0 || item->kind == 1) asFile = menu->addAction(AppLocalization::get(QStringLiteral("PasteAsFileMenuItem.Text")));
-    if (plain || asFile) menu->addSeparator();
-    auto *remove = menu->addAction(AppLocalization::get(QStringLiteral("DeleteRecordMenuItem.Text")));
-    if (plain) connect(plain, &QAction::triggered, this, [this, id] { pasteRecord(id, true); });
-    if (asFile) connect(asFile, &QAction::triggered, this, [this, id] { pasteRecord(id, false, true); });
-    connect(remove, &QAction::triggered, this, [this, id] {
-        // 删除留在历史面板，菜单关闭后重新激活以免失焦回调误隐藏。
-        activateWindow();
-        SetForegroundWindow(reinterpret_cast<HWND>(winId()));
-        deleteRecord(id);
+    const int kind = item->kind;
+    const int generation = panelShowGeneration_;
+    const QPoint popupPosition = position.value_or(QCursor::pos());
+    const auto showMenu = [this, id, kind, generation, popupPosition](const QStringList &targets) {
+        // 异步识别完成时面板可能已关闭，不能再弹出过期菜单。
+        if (!isVisible() || generation != panelShowGeneration_ || loadingPage_
+            || model_->rowForId(id) < 0 || QApplication::activePopupWidget()) return;
+        // 菜单作为独立弹窗，避免继承透明历史面板的样式表。
+        auto *menu = new QMenu();
+        stylePopupMenu(menu, qApp->palette());
+        connect(this, &QObject::destroyed, menu, &QObject::deleteLater);
+        if (!targets.isEmpty()) {
+            const QString title = AppLocalization::get(kind == 0
+                ? QStringLiteral("OpenLinkMenuItemText") : QStringLiteral("RevealFileMenuItemText"));
+            QMenu *choices = menu;
+            if (targets.size() > 1) {
+                choices = menu->addMenu(title);
+                stylePopupMenu(choices, qApp->palette());
+            }
+            choices->setToolTipsVisible(true);
+            for (const auto &target : targets) {
+                const QString label = kind == 0 ? QUrl(target).toDisplayString() : QDir::toNativeSeparators(target);
+                auto *action = choices->addAction(targets.size() == 1 ? title
+                    : choices->fontMetrics().elidedText(label, Qt::ElideMiddle, 360).replace(QLatin1Char('&'), QStringLiteral("&&")));
+                action->setToolTip(label);
+                connect(action, &QAction::triggered, this, [this, kind, target] {
+                    if (kind == 0) {
+                        if (!QDesktopServices::openUrl(QUrl(target)))
+                            showStatus(AppLocalization::get(QStringLiteral("OpenLinkFailed")));
+                        return;
+                    }
+                    auto *watcher = new QFutureWatcher<bool>(this);
+                    connect(watcher, &QFutureWatcher<bool>::finished, this, [this, watcher] {
+                        const bool opened = watcher->result();
+                        watcher->deleteLater();
+                        if (!opened) showStatus(AppLocalization::get(QStringLiteral("RevealFileFailed")));
+                    });
+                    // 网络路径、Shell 扩展可能很慢，只在用户选择后由后台访问。
+                    watcher->setFuture(QtConcurrent::run(&readPool_, [target] { return revealFile(target); }));
+                });
+            }
+            menu->addSeparator();
+        }
+        QAction *plain = nullptr;
+        QAction *asFile = nullptr;
+        if (kind == 0) plain = menu->addAction(AppLocalization::get(QStringLiteral("PastePlainTextMenuItem.Text")));
+        if (kind == 0 || kind == 1) asFile = menu->addAction(AppLocalization::get(QStringLiteral("PasteAsFileMenuItem.Text")));
+        if (plain || asFile) menu->addSeparator();
+        auto *remove = menu->addAction(AppLocalization::get(QStringLiteral("DeleteRecordMenuItem.Text")));
+        if (plain) connect(plain, &QAction::triggered, this, [this, id] { pasteRecord(id, true); });
+        if (asFile) connect(asFile, &QAction::triggered, this, [this, id] { pasteRecord(id, false, true); });
+        connect(remove, &QAction::triggered, this, [this, id] {
+            // 删除留在历史面板，菜单关闭后重新激活以免失焦回调误隐藏。
+            activateWindow();
+            SetForegroundWindow(reinterpret_cast<HWND>(winId()));
+            deleteRecord(id);
+        });
+        connect(menu, &QMenu::aboutToHide, this, &MainWindow::scheduleAutoHide);
+        connect(menu, &QMenu::aboutToHide, menu, &QObject::deleteLater);
+        menu->popup(popupPosition);
+    };
+    if (kind == 1) { showMenu({}); return; }
+    const QString path = databasePath_;
+    auto *watcher = new QFutureWatcher<QStringList>(this);
+    connect(watcher, &QFutureWatcher<QStringList>::finished, this, [watcher, showMenu] {
+        const auto targets = watcher->result();
+        watcher->deleteLater();
+        showMenu(targets);
     });
-    connect(menu, &QMenu::aboutToHide, this, &MainWindow::scheduleAutoHide);
-    connect(menu, &QMenu::aboutToHide, menu, &QObject::deleteLater);
-    menu->popup(position.value_or(QCursor::pos()));
+    watcher->setFuture(QtConcurrent::run(&readPool_, [path, id, kind] {
+        const QByteArray content = HistoryStore(path).content(id);
+        if (kind == 0) return webLinks(content);
+        QStringList paths;
+        for (const auto &entry : QJsonDocument::fromJson(content).array()) {
+            const QString path = entry.toString();
+            if (QDir::isAbsolutePath(path) && !paths.contains(path)) paths.append(path);
+        }
+        return paths;
+    }));
 }
 
 void MainWindow::scheduleCapture() {
@@ -2038,12 +2374,13 @@ void MainWindow::cleanupPasteFiles() {
     });
 }
 
-void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile) {
+void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile, std::optional<QByteArray> editedContent) {
     if (loadingPage_) return;
     const int row = model_->rowForId(id);
     const auto *itemPointer = model_->itemAt(row);
     if (!itemPointer) return;
     const HistoryItem item = *itemPointer;
+    if (editedContent && item.kind != 0) return;
     if (asFile && item.kind == 2) return;
     const int generation = pasteGeneration_->fetchAndAddRelaxed(1) + 1;
     HWND target = targetWindow_;
@@ -2222,11 +2559,11 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile) {
         QTimer::singleShot(100, this, [timer] { timer->start(); });
     });
     const auto generationState = pasteGeneration_;
-    watcher->setFuture(QtConcurrent::run(&readPool_, [path, item, plainText, asFile, generationState, generation] {
+    watcher->setFuture(QtConcurrent::run(&readPool_, [path, item, plainText, asFile, generationState, generation, editedContent] {
         PasteResult result;
         result.item = item;
         if (generationState->loadRelaxed() != generation) return result;
-        result.content = HistoryStore(path).content(item.id);
+        result.content = editedContent ? *editedContent : HistoryStore(path).content(item.id);
         if (generationState->loadRelaxed() != generation) return result;
         if (item.kind == 1) {
             result.image = decodeImageContent(result.content);

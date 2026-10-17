@@ -1,8 +1,53 @@
 #include "history_model.h"
 
+#include <QCache>
+#include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QMutex>
+#include <QMutexLocker>
+#include <QScopeGuard>
 #include <QtConcurrent>
+#include <windows.h>
+#include <shellapi.h>
 
 #include <utility>
+
+namespace {
+QImage fileTypeIcon(const QByteArray &content) {
+    const auto paths = QJsonDocument::fromJson(content).array();
+    // 多文件保留组合图标；单文件只按扩展名查关联，不访问可能已失效的本地或网络路径。
+    if (paths.size() != 1 || !paths.first().isString()) return {};
+    auto suffix = QFileInfo(paths.first().toString()).suffix().toLower();
+    if (suffix.size() > 32) suffix.clear();
+    const auto key = suffix.isEmpty() ? QString{} : QStringLiteral(".") + suffix;
+    static QMutex mutex;
+    static QCache<QString, QImage> cache(256); // 成本按 KiB 计算，缓存最多约 256 KiB。
+    // 只在后台持锁，同类文件并发加载时也只查一次 Shell，避免缓存重复分配。
+    QMutexLocker lock(&mutex);
+    if (const auto *cached = cache.object(key)) return *cached;
+    const auto initialized = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    if (FAILED(initialized) && initialized != RPC_E_CHANGED_MODE) return {};
+    const auto releaseCom = qScopeGuard([&] { if (SUCCEEDED(initialized)) CoUninitialize(); });
+    // Shell 查询在工作线程执行，取到的 HICON 转为图像后立即释放。
+    const auto query = [](const QString &extension) {
+        const auto name = QStringLiteral("PasteOrbit") + extension;
+        SHFILEINFOW info{};
+        QImage image;
+        if (SHGetFileInfoW(reinterpret_cast<LPCWSTR>(name.utf16()), FILE_ATTRIBUTE_NORMAL, &info, sizeof(info),
+                           SHGFI_USEFILEATTRIBUTES | SHGFI_ICON | SHGFI_LARGEICON) && info.hIcon)
+            image = QImage::fromHICON(info.hIcon);
+        if (info.hIcon) DestroyIcon(info.hIcon);
+        return image;
+    };
+    const auto fallback = QStringLiteral(".pasteorbit_unknown");
+    auto image = query(key.isEmpty() ? fallback : key);
+    if (image.isNull() && !key.isEmpty()) image = query(fallback);
+    const int cost = qMax(1, int((image.sizeInBytes() + 1023) / 1024));
+    cache.insert(key, new QImage(image), cost);
+    return image;
+}
+}
 
 HistoryModel::HistoryModel(QString databasePath, QObject *parent)
     : QAbstractListModel(parent), databasePath_(std::move(databasePath)) {}
@@ -87,6 +132,18 @@ void HistoryModel::setPinned(const QString &id, bool pinned) {
     if (row + 1 < items_.size()) emit dataChanged(index(row + 1), index(items_.size() - 1), {QuickPasteRole});
 }
 
+void HistoryModel::setText(const QString &id, const QString &text, qint64 contentSize) {
+    const int row = rowForId(id);
+    if (row < 0 || items_[row].kind != 0) return;
+    auto &item = items_[row];
+    item.preview = text.left(160).replace(QLatin1Char('\r'), QLatin1Char(' ')).replace(QLatin1Char('\n'), QLatin1Char(' '));
+    if (text.size() > 160) item.preview.append(QChar(0x2026));
+    item.searchTextLength = text.size();
+    item.contentSize = contentSize;
+    // 只更新当前卡片，不重置列表或改变用户的选择、滚动位置。
+    emit dataChanged(index(row), index(row), {Qt::DisplayRole, PreviewRole, TextLengthRole, SizeRole});
+}
+
 void HistoryModel::remove(const QString &id) {
     const int row = rowForId(id);
     if (row < 0) return;
@@ -102,7 +159,7 @@ void HistoryModel::setVisibleRows(int first, int last) {
     QSet<QString> nowVisible;
     if (first >= 0 && last >= first) {
         for (int row = first; row <= last && row < items_.size(); ++row) {
-            if (items_.at(row).kind == 1) nowVisible.insert(items_.at(row).id);
+            if (items_.at(row).kind == 1 || items_.at(row).kind == 2) nowVisible.insert(items_.at(row).id);
         }
     }
     for (const auto &id : std::as_const(visibleIds_)) {
@@ -122,23 +179,29 @@ void HistoryModel::setVisibleRows(int first, int last) {
     for (const auto &id : std::as_const(visibleIds_)) {
         if (thumbnails_.contains(id) || loadingIds_.contains(id)) continue;
         loadingIds_.insert(id);
+        const bool file = items_.at(rowForId(id)).kind == 2;
         auto *watcher = new QFutureWatcher<ThumbnailResult>(this);
-        connect(watcher, &QFutureWatcher<ThumbnailResult>::finished, this, [this, watcher, generationState, generation] {
+        connect(watcher, &QFutureWatcher<ThumbnailResult>::finished, this, [this, watcher, generationState, generation, file] {
             const auto result = watcher->result();
             watcher->deleteLater();
             if (generationState->loadRelaxed() != generation) return;
             loadingIds_.remove(result.id);
-            if (!visibleIds_.contains(result.id) || result.bytes.isEmpty()) return;
-            QImage image = QImage::fromData(result.bytes);
-            if (!image.isNull()) {
-                thumbnails_.insert(result.id, image.scaled(300, 56, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            if (!visibleIds_.contains(result.id)) return;
+            QImage image = file ? result.fileIcon : QImage::fromData(result.bytes);
+            if (file || !image.isNull()) {
+                thumbnails_.insert(result.id, file ? image : image.scaled(300, 56, Qt::KeepAspectRatio, Qt::SmoothTransformation));
                 const int row = rowForId(result.id);
                 if (row >= 0) emit dataChanged(index(row), index(row), {ThumbnailRole});
             }
         });
         const QString path = databasePath_;
-        watcher->setFuture(QtConcurrent::run([path, id, generationState, generation] {
+        watcher->setFuture(QtConcurrent::run([path, id, generationState, generation, file] {
             if (generationState->loadRelaxed() != generation) return ThumbnailResult{id, {}};
+            if (file) {
+                const auto content = HistoryStore(path).content(id);
+                if (generationState->loadRelaxed() != generation) return ThumbnailResult{id, {}};
+                return ThumbnailResult{id, {}, fileTypeIcon(content)};
+            }
             return ThumbnailResult{id, HistoryStore(path).thumbnail(id)};
         }));
     }

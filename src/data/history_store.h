@@ -54,6 +54,8 @@ public:
     HistoryPage search(const QString &text, int kind, const std::optional<HistoryCursor> &cursor,
                        int pageSize = 30) const;
     QString save(const ClipboardCapture &capture, HistoryItem *saved = nullptr) const;
+    // 仅替换文本内容；记录标识、时间、来源和收藏状态保持不变。
+    QString replaceText(const QString &id, const QByteArray &content, const QString &text) const;
     QByteArray content(const QString &id, bool preferPreview = false) const;
     QByteArray thumbnail(const QString &id) const;
     QString setPinned(const QString &id, bool pinned) const;
