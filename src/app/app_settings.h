@@ -14,7 +14,6 @@ struct AppSettings {
     QString moreShortcut = QStringLiteral("Shift + F10");
     bool startWithWindows = false;
     bool runAsAdministrator = false;
-    bool autoHideOnDeactivate = true;
     bool monitorText = true;
     bool monitorImages = true;
     bool monitorFiles = true;

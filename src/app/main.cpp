@@ -93,7 +93,7 @@ int main(int argc, char *argv[]) {
     // Qlementine 统一绘制控件，主题色由主窗口根据用户设置切换。
     QApplication::setStyle(new PasteOrbitStyle(&application));
     application.setWindowIcon(QIcon(QStringLiteral(":/PasteOrbit.ico")));
-    QFont uiFont(QStringLiteral("Segoe UI"));
+    QFont uiFont(QStringLiteral("Microsoft YaHei UI"));
     uiFont.setPixelSize(14);
     application.setFont(uiFont);
     QApplication::setApplicationName(QStringLiteral("PasteOrbit"));
@@ -175,17 +175,13 @@ int main(int argc, char *argv[]) {
     QObject::connect(&window, &MainWindow::settingsRequested, &window,
                      [&window, &server, &application, &updateService, &settingsDialog] {
         if (settingsDialog) {
-            settingsDialog->raise();
-            settingsDialog->activateWindow();
+            window.showPanel(true);
             return;
         }
         const bool wasAdministrator = window.settings().runAsAdministrator;
-        // 独立顶层弹窗不继承历史面板的透明窗口样式表。
-        auto *dialog = new SettingsDialog(window.settings(), window.databasePath(), window.settingsPath());
+        auto *dialog = new SettingsDialog(window.settings(), window.databasePath(), window.settingsPath(), &window);
         settingsDialog = dialog;
-        dialog->setWindowModality(Qt::ApplicationModal);
-        dialog->setAttribute(Qt::WA_DeleteOnClose);
-        window.setSettingsWindowOpen(true);
+        QObject::connect(dialog, &SettingsDialog::hideRequested, &window, &MainWindow::hidePanel);
         QObject::connect(dialog, &SettingsDialog::settingsChanged, &window, &MainWindow::applySettings);
         QObject::connect(dialog, &SettingsDialog::checkUpdatesRequested, dialog, [&updateService, dialog, &window] {
             updateService.check(dialog, window.settingsPath());
@@ -195,9 +191,10 @@ int main(int argc, char *argv[]) {
         QObject::connect(dialog, &SettingsDialog::storageOperationFinished,
                          &window, &MainWindow::finishStorageOperation);
         QObject::connect(dialog, &QDialog::finished, &window,
-                         [&window, &server, &application, &settingsDialog, wasAdministrator] {
+                         [&window, &server, &application, &settingsDialog, dialog, wasAdministrator] {
             settingsDialog = nullptr;
-            window.setSettingsWindowOpen(false);
+            window.leaveSettings();
+            dialog->deleteLater();
             if (!wasAdministrator && window.settings().runAsAdministrator) {
                 server.close();
                 QLocalServer::removeServer(QString::fromLatin1(ServerName));
@@ -214,7 +211,7 @@ int main(int argc, char *argv[]) {
                 }
             }
         });
-        dialog->open();
+        window.showSettings(dialog);
     });
     QObject::connect(&window, &MainWindow::checkUpdatesRequested, &updateService, [&updateService, &window] {
         updateService.check(&window, window.settingsPath());

@@ -3,6 +3,7 @@
 #include "history_delegate.h"
 #include "history_model.h"
 #include "localization.h"
+#include "settings_dialog.h"
 
 #include <oclero/qlementine/style/QlementineStyle.hpp>
 #include <oclero/qlementine/style/Theme.hpp>
@@ -41,8 +42,10 @@
 #include <QMimeData>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPixmap>
 #include <QPointer>
+#include <QPropertyAnimation>
 #include <QPushButton>
 #include <QFontDatabase>
 #include <QRegularExpression>
@@ -736,7 +739,8 @@ MainWindow::~MainWindow() {
 
 void MainWindow::beginStorageOperation() {
     suppressClipboardCapture_ = true;
-    hidePanel();
+    // 嵌入设置页执行备份时保留宿主窗口，避免连同进度和错误提示一起隐藏。
+    if (!settingsPage_) hidePanel();
     restoreWasPaused_ = paused_;
     paused_ = true;
     captureTimer_.stop();
@@ -769,7 +773,12 @@ void MainWindow::buildUi() {
     setWindowTitle(QStringLiteral("PasteOrbit"));
     setWindowFlags(Qt::Tool | Qt::FramelessWindowHint);
     setFixedSize(360, 500);
-    auto *root = new QVBoxLayout(this);
+    auto *outer = new QVBoxLayout(this);
+    outer->setContentsMargins(1, 1, 1, 1);
+    historyPage_ = new QWidget(this);
+    historyPage_->setObjectName(QStringLiteral("HistoryPage"));
+    outer->addWidget(historyPage_);
+    auto *root = new QVBoxLayout(historyPage_);
     root->setContentsMargins(12, 0, 12, 6);
     root->setSpacing(0);
 
@@ -939,7 +948,6 @@ void MainWindow::buildUi() {
     statusLabel_->setObjectName(QStringLiteral("StatusText"));
     statusLabel_->setMaximumHeight(0);
     root->addWidget(listHost, 1);
-    applyTheme();
 }
 
 void MainWindow::buildTray() {
@@ -1021,12 +1029,10 @@ void MainWindow::applyTheme() {
         theme.fontRegular.setPixelSize(14);
         theme.fontBold.setPixelSize(14);
         theme.fontCaption.setPixelSize(12);
-        // 统一使用 Windows 中文界面字体，避免 Inter 与汉字回退字体混排造成字重不均。
-        const QString family = AppLocalization::activeLanguage() == QStringLiteral("zh-CN")
-            ? QStringLiteral("Microsoft YaHei UI") : QStringLiteral("Segoe UI");
+        // 中英文统一使用微软雅黑 UI，避免语言切换时字体更新不完整而回退到宋体。
         for (QFont *font : {&theme.fontRegular, &theme.fontBold, &theme.fontH1, &theme.fontH2,
                             &theme.fontH3, &theme.fontH4, &theme.fontH5, &theme.fontCaption}) {
-            font->setFamily(family);
+            font->setFamily(QStringLiteral("Microsoft YaHei UI"));
             font->setStyleStrategy(QFont::PreferAntialias);
         }
         style->setTheme(theme);
@@ -1039,8 +1045,9 @@ void MainWindow::applyTheme() {
     clearButton_->setIcon(headerGlyphIcon(QChar(0xE75C), text, clearButton_));
     pageColor_ = page;
     borderColor_ = stroke;
-    setStyleSheet(QStringLiteral(
-        "QWidget#PasteOrbitPanel{background:transparent;color:%1;border:0;}"
+    // 历史页样式不能成为设置页祖先样式，否则会覆盖 Qlementine Switch 的原生绘制。
+    historyPage_->setStyleSheet(QStringLiteral(
+        "QWidget#HistoryPage{background:transparent;color:%1;border:0;}"
         "QWidget#Header{background:transparent;border:0;} QLabel#AppTitle{color:%1;border:0;}"
         "QToolButton#HeaderButton{color:%1;background:%2;border:0;border-radius:6px;min-width:32px;max-width:32px;min-height:32px;max-height:32px;}"
         "QToolButton#HeaderButton:hover{background:%3;} QToolButton#FilterButton{color:%4;background:%2;border:0;border-radius:6px;min-width:36px;max-width:36px;min-height:32px;max-height:32px;margin-right:6px;}"
@@ -1061,8 +1068,13 @@ void MainWindow::applySettings(const AppSettings &settings) {
         || settings_.maxHistoryEntries != settings.maxHistoryEntries;
     settings_ = settings;
     moreShortcut_->setKey(QKeySequence(QString(settings_.moreShortcut).remove(QLatin1Char(' '))));
-    if (themeChanged || languageChanged) applyTheme();
+    if (themeChanged) applyTheme();
     if (languageChanged) {
+        // 字体不再随语言切换；仅关闭旧语言浮层并更新文案，不重复应用全局主题。
+        if (!themeChanged) {
+            closeHoverPreview();
+            QToolTip::hideText();
+        }
         searchBox_->setPlaceholderText(AppLocalization::get(QStringLiteral("MainSearchBoxPlaceholder")));
         emptyLabel_->setText(AppLocalization::get(QStringLiteral("MainEmptyHistoryText")));
         clearButton_->setToolTip(AppLocalization::get(QStringLiteral("ClearHistoryButtonTooltip")));
@@ -1232,6 +1244,13 @@ std::optional<RECT> MainWindow::capturePasteTarget(HWND window) {
 }
 
 void MainWindow::showPanel(bool fromTray, HWND requestedTarget) {
+    if (settingsPage_) {
+        // 托盘和全局快捷键只激活当前设置页，不重新定位或抢走设置控件的焦点。
+        show();
+        raise();
+        activateWindow();
+        return;
+    }
     if (suppressClipboardCapture_) return;
     pasteGeneration_->fetchAndAddRelaxed(1);
     const int generation = ++panelShowGeneration_;
@@ -1309,6 +1328,11 @@ void MainWindow::showPanel(bool fromTray, HWND requestedTarget) {
 }
 
 void MainWindow::hidePanel() {
+    if (settingsPage_) {
+        settingsPage_->reject();
+        if (settingsPage_) return; // 备份进行中，设置页会拒绝关闭。
+    }
+    animatePage(nullptr);
     ++panelShowGeneration_;
     pasteGeneration_->fetchAndAddRelaxed(1);
     if (!isVisible()) return;
@@ -1318,6 +1342,94 @@ void MainWindow::hidePanel() {
     model_->releaseThumbnails();
     targetWindow_ = nullptr;
     targetFocusWindow_ = nullptr;
+}
+
+void MainWindow::showSettings(SettingsDialog *page) {
+    if (settingsPage_) return;
+    animatePage(nullptr);
+    ++panelShowGeneration_;
+    pasteGeneration_->fetchAndAddRelaxed(1);
+    closeHoverPreview();
+    if (!isVisible()) positionPanel(true);
+    historyFocus_ = historyPage_->isAncestorOf(QApplication::focusWidget()) ? QApplication::focusWidget() : nullptr;
+    settingsPage_ = page;
+    // 抽屉独立于历史布局，移动时既不改变宿主尺寸，也不反复排版下面的历史卡片。
+    drawerHost_ = new QWidget(this);
+    drawerHost_->setGeometry(rect().adjusted(1, 1, -1, -1));
+    QPainterPath clip;
+    clip.addRoundedRect(QRectF(drawerHost_->rect()), 9, 9);
+    drawerHost_->setMask(QRegion(clip.toFillPolygon().toPolygon()));
+    page->setParent(drawerHost_, Qt::Widget);
+    page->setFixedSize(drawerHost_->size());
+    page->move(-drawerHost_->width(), 0);
+    page->show();
+    drawerHost_->show();
+    drawerHost_->raise();
+    if (auto *header = page->findChild<QWidget *>(QStringLiteral("Header"))) header->installEventFilter(this);
+    show();
+    raise();
+    activateWindow();
+    page->setFocus(Qt::OtherFocusReason);
+    animatePage(page);
+}
+
+void MainWindow::leaveSettings() {
+    if (!settingsPage_) return;
+    ++panelShowGeneration_;
+    // 设置页返回后即销毁；只保留一张短暂快照滑出，不延迟备份、提权等原有收尾流程。
+    auto *outgoing = new QLabel(drawerHost_);
+    outgoing->setPixmap(settingsPage_->grab());
+    outgoing->setFixedSize(settingsPage_->size());
+    outgoing->move(settingsPage_->pos());
+    outgoing->show();
+    settingsPage_ = nullptr;
+    if (historyFocus_) historyFocus_->setFocus(Qt::OtherFocusReason);
+    else historyStack_->currentWidget()->setFocus(Qt::OtherFocusReason);
+    historyFocus_.clear();
+    updateVisibleThumbnails();
+    animatePage(outgoing, false);
+    scheduleAutoHide();
+}
+
+void MainWindow::animatePage(QWidget *page, bool opening) {
+    // 快速往返先停止旧动画；关闭宿主时立即释放抽屉及返回快照。
+    if (pageAnimation_) {
+        pageAnimation_->stop();
+        pageAnimation_->deleteLater();
+        pageAnimation_.clear();
+    }
+    if (!page) {
+        delete drawerHost_;
+        drawerHost_ = nullptr;
+        return;
+    }
+    BOOL enabled = TRUE;
+    SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &enabled, 0);
+    if (!enabled || !isVisible()) {
+        if (opening) page->move(0, 0);
+        else {
+            delete drawerHost_;
+            drawerHost_ = nullptr;
+        }
+        return;
+    }
+    // 仅移动固定尺寸的抽屉，不做整页透明合成或窗口尺寸动画。
+    auto *animation = new QPropertyAnimation(page, "pos", this);
+    pageAnimation_ = animation;
+    animation->setDuration(opening ? 180 : 140);
+    animation->setStartValue(page->pos());
+    animation->setEndValue(opening ? QPoint(0, 0) : QPoint(-drawerHost_->width(), 0));
+    animation->setEasingCurve(QEasingCurve::OutCubic);
+    connect(animation, &QPropertyAnimation::finished, this, [this, opening, animation] {
+        if (pageAnimation_ != animation) return;
+        pageAnimation_.clear();
+        animation->deleteLater();
+        if (!opening) {
+            delete drawerHost_;
+            drawerHost_ = nullptr;
+        }
+    });
+    animation->start();
 }
 
 void MainWindow::refreshHistory() {
@@ -1356,7 +1468,7 @@ void MainWindow::refreshHistory() {
 }
 
 void MainWindow::loadMoreHistory() {
-    if (!isVisible() || loadingPage_ || loadingMore_ || !nextCursor_) return;
+    if (!isVisible() || settingsPage_ || loadingPage_ || loadingMore_ || !nextCursor_) return;
     loadingMore_ = true;
     const int generation = historyGeneration_->loadRelaxed();
     const QString query = searchBox_->text();
@@ -1382,7 +1494,7 @@ void MainWindow::loadMoreHistory() {
 }
 
 void MainWindow::updateVisibleThumbnails() {
-    if (!isVisible() || loadingPage_ || !historyList_ || !model_) return;
+    if (!isVisible() || settingsPage_ || loadingPage_ || !historyList_ || !model_) return;
     if (hoverPreview_) {
         const int row = model_->rowForId(hoverPreviewId_);
         if (row < 0) closeHoverPreview();
@@ -1452,9 +1564,9 @@ bool MainWindow::nativeEventFilter(const QByteArray &, void *message, qintptr *r
         && settings_.themeMode == QStringLiteral("System"))
         QTimer::singleShot(0, this, &MainWindow::applyTheme);
     // 鼠标激活置顶面板之前保存最新目标，此时外部输入控件尚未失去焦点。
-    if (isPinned_ && panel && native->hwnd == panel
+    if (isPinned_ && !settingsPage_ && panel && native->hwnd == panel
         && native->message == WM_MOUSEACTIVATE) capturePasteTarget(GetForegroundWindow());
-    if (isPinned_ && panel && native->hwnd == panel
+    if (isPinned_ && !settingsPage_ && panel && native->hwnd == panel
         && native->message == WM_ACTIVATE && LOWORD(native->wParam) != WA_INACTIVE) {
         const HWND previous = reinterpret_cast<HWND>(native->lParam);
         if (previous != targetWindow_) capturePasteTarget(previous);
@@ -1633,7 +1745,7 @@ bool MainWindow::event(QEvent *event) {
     const bool handled = QWidget::event(event);
     // 托盘唤出的顶层窗口失去激活时不会触发 QWidget::focusOutEvent。
     if (event->type() == QEvent::WindowDeactivate) {
-        if (isPinned_ && !settingsWindowOpen_) {
+        if (isPinned_ && !settingsPage_) {
             const HWND foreground = GetForegroundWindow();
             DWORD processId = 0;
             if (foreground) GetWindowThreadProcessId(foreground, &processId);
@@ -1657,12 +1769,13 @@ void MainWindow::paintEvent(QPaintEvent *) {
 }
 
 void MainWindow::scheduleAutoHide() {
+    // 历史面板只由置顶状态决定是否失焦隐藏；设置、查看和弹出菜单期间仍保留交互。
     const int generation = panelShowGeneration_;
     QTimer::singleShot(120, this, [this, generation] {
         if (generation != panelShowGeneration_) return;
-        if (isVisible() && !isActiveWindow() && !isPinned_ && !settingsWindowOpen_
+        if (isVisible() && !isActiveWindow() && !isPinned_ && !settingsPage_
             && (!hoverPreview_ || !hoverPreview_->isActiveWindow())
-            && settings_.autoHideOnDeactivate && !qApp->activePopupWidget() && !qApp->activeModalWidget()) {
+            && !qApp->activePopupWidget() && !qApp->activeModalWidget()) {
             hidePanel();
         }
     });
@@ -2233,9 +2346,8 @@ void MainWindow::scheduleCapture() {
     if (sequence && sequence != lastClipboardSequence_) captureTimer_.start();
 }
 
-bool MainWindow::sourceIsExcluded() const {
-    const QString source = processName(GetClipboardOwner());
-    if (source.isEmpty()) return false;
+bool MainWindow::sourceIsExcluded(const QString &source) const {
+    if (source.isEmpty() || settings_.excludedApplications.isEmpty()) return false;
     QString configured = settings_.excludedApplications;
     configured.replace(QLatin1Char(','), QLatin1Char(';'));
     configured.replace(QLatin1Char('\r'), QLatin1Char(';'));
@@ -2253,10 +2365,11 @@ void MainWindow::captureClipboard() {
     if (paused_ || suppressClipboardCapture_ || captureSaving_) return;
     const DWORD sequence = GetClipboardSequenceNumber();
     if (!sequence || sequence == lastClipboardSequence_ || sequence == ownClipboardSequence_) return;
-    if (sourceIsExcluded()) { lastClipboardSequence_ = sequence; return; }
+    // 忽略规则与历史来源共用一次进程查询，避免重复打开源进程句柄。
+    const QString source = processName(GetClipboardOwner());
+    if (sourceIsExcluded(source)) { lastClipboardSequence_ = sequence; return; }
     const QMimeData *mime = QApplication::clipboard()->mimeData();
     if (!mime) return;
-    const QString source = processName(GetClipboardOwner());
     ClipboardCapture capture;
     capture.sourceApplication = source;
     QImage fallback;

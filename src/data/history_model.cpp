@@ -1,9 +1,11 @@
 #include "history_model.h"
 
 #include <QCache>
+#include <QBuffer>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QImageReader>
 #include <QMutex>
 #include <QMutexLocker>
 #include <QScopeGuard>
@@ -121,15 +123,15 @@ int HistoryModel::quickPasteRow(int number) const {
 void HistoryModel::setQuickPasteEnabled(bool enabled) {
     if (quickPasteEnabled_ == enabled) return;
     quickPasteEnabled_ = enabled;
-    if (!items_.isEmpty()) emit dataChanged(index(0), index(items_.size() - 1), {QuickPasteRole});
+    if (!items_.isEmpty()) emit dataChanged(index(0), index(qMin(8, int(items_.size()) - 1)), {QuickPasteRole});
 }
 
 void HistoryModel::setPinned(const QString &id, bool pinned) {
     const int row = rowForId(id);
     if (row < 0 || items_[row].pinned == pinned) return;
     items_[row].pinned = pinned;
-    emit dataChanged(index(row), index(row), {PinnedRole, QuickPasteRole});
-    if (row + 1 < items_.size()) emit dataChanged(index(row + 1), index(items_.size() - 1), {QuickPasteRole});
+    // 收藏不再改变排序或数字编号，仅刷新当前卡片。
+    emit dataChanged(index(row), index(row), {PinnedRole});
 }
 
 void HistoryModel::setText(const QString &id, const QString &text, qint64 contentSize) {
@@ -187,9 +189,8 @@ void HistoryModel::setVisibleRows(int first, int last) {
             if (generationState->loadRelaxed() != generation) return;
             loadingIds_.remove(result.id);
             if (!visibleIds_.contains(result.id)) return;
-            QImage image = file ? result.fileIcon : QImage::fromData(result.bytes);
-            if (file || !image.isNull()) {
-                thumbnails_.insert(result.id, file ? image : image.scaled(300, 56, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+            if (file || !result.image.isNull()) {
+                thumbnails_.insert(result.id, result.image);
                 const int row = rowForId(result.id);
                 if (row >= 0) emit dataChanged(index(row), index(row), {ThumbnailRole});
             }
@@ -200,9 +201,17 @@ void HistoryModel::setVisibleRows(int first, int last) {
             if (file) {
                 const auto content = HistoryStore(path).content(id);
                 if (generationState->loadRelaxed() != generation) return ThumbnailResult{id, {}};
-                return ThumbnailResult{id, {}, fileTypeIcon(content)};
+                return ThumbnailResult{id, fileTypeIcon(content)};
             }
-            return ThumbnailResult{id, HistoryStore(path).thumbnail(id)};
+            const auto bytes = HistoryStore(path).thumbnail(id);
+            if (generationState->loadRelaxed() != generation) return ThumbnailResult{id, {}};
+            // 解码与缩放均在工作线程执行，GUI 只接收卡片所需尺寸的图像。
+            QBuffer buffer;
+            buffer.setData(bytes);
+            if (!buffer.open(QIODevice::ReadOnly)) return ThumbnailResult{id, {}};
+            QImageReader reader(&buffer);
+            if (reader.size().isValid()) reader.setScaledSize(reader.size().scaled(300, 56, Qt::KeepAspectRatio));
+            return ThumbnailResult{id, reader.read()};
         }));
     }
 }

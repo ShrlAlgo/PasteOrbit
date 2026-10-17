@@ -53,8 +53,6 @@
   <data name="SettingsStartupSection.Text" xml:space="preserve"><value>启动与窗口</value></data>
   <data name="SettingsStartupCard.Header" xml:space="preserve"><value>开机自动启动</value></data>
   <data name="SettingsStartupCard.Description" xml:space="preserve"><value>登录 Windows 后自动运行 PasteOrbit</value></data>
-  <data name="SettingsAutoHideCard.Header" xml:space="preserve"><value>失去焦点时自动隐藏</value></data>
-  <data name="SettingsAutoHideCard.Description" xml:space="preserve"><value>窗口失去焦点后自动收起历史面板</value></data>
   <data name="SettingsMonitoringSection.Text" xml:space="preserve"><value>剪贴板监听</value></data>
   <data name="SettingsMonitorTextCard.Header" xml:space="preserve"><value>监听文本</value></data>
   <data name="SettingsMonitorTextCard.Description" xml:space="preserve"><value>记录复制到剪贴板的文本内容</value></data>
@@ -83,7 +81,7 @@
   <data name="SettingsPinnedRetentionHint.Text" xml:space="preserve"><value>收藏记录不参与自动过期和数量清理。</value></data>
   <data name="SettingsPrivacySection.Text" xml:space="preserve"><value>隐私与安全</value></data>
   <data name="SettingsAboutSection.Text" xml:space="preserve"><value>关于</value></data>
-  <data name="SettingsExcludedAppsCard.Header" xml:space="preserve"><value>不记录指定应用</value></data>
+  <data name="SettingsExcludedAppsCard.Header" xml:space="preserve"><value>忽略应用</value></data>
   <data name="SettingsExcludedAppsCard.Description" xml:space="preserve"><value>填写进程名或从当前运行进程中选择，多个进程用分号分隔</value></data>
   <data name="ExcludedApplicationsTextBox.PlaceholderText" xml:space="preserve"><value>进程名，用分号分隔</value></data>
   <data name="SelectProcessButton.Content" xml:space="preserve"><value>选择进程</value></data>
@@ -163,7 +161,7 @@
   <data name="ProcessReadFailed" xml:space="preserve"><value>无法读取进程</value></data>
   <data name="NoProcessesTitle" xml:space="preserve"><value>没有可选进程</value></data>
   <data name="NoProcessesMessage" xml:space="preserve"><value>当前没有读取到正在运行的进程。</value></data>
-  <data name="ProcessSearchPlaceholder" xml:space="preserve"><value>搜索进程名或窗口标题</value></data>
+  <data name="ProcessSearchPlaceholder" xml:space="preserve"><value>搜索进程</value></data>
   <data name="NoMatchingProcesses" xml:space="preserve"><value>没有匹配的进程</value></data>
   <data name="SelectExcludedAppsTitle" xml:space="preserve"><value>选择不记录的应用</value></data>
   <data name="Add" xml:space="preserve"><value>添加</value></data>
@@ -238,8 +236,8 @@
   <data name="SettingsTitleBarAutomationName" xml:space="preserve"><value>PasteOrbit 设置标题栏</value></data>
   <data name="SettingsGeneralNavigationContent" xml:space="preserve"><value>常规</value></data>
   <data name="SettingsHotKeyNavigationContent" xml:space="preserve"><value>快捷键</value></data>
-  <data name="SettingsHistoryNavigationContent" xml:space="preserve"><value>历史记录</value></data>
-  <data name="SettingsPrivacyNavigationContent" xml:space="preserve"><value>隐私与安全</value></data>
+  <data name="SettingsHistoryNavigationContent" xml:space="preserve"><value>历史</value></data>
+  <data name="SettingsPrivacyNavigationContent" xml:space="preserve"><value>隐私</value></data>
   <data name="SettingsAboutNavigationContent" xml:space="preserve"><value>关于</value></data>
   <data name="SettingsStartupSectionText" xml:space="preserve"><value>启动与窗口</value></data>
   <data name="SettingsMonitoringSectionText" xml:space="preserve"><value>剪切板监听</value></data>
@@ -258,9 +256,7 @@
   <data name="SettingsStartupCardHeader" xml:space="preserve"><value>开机自动启动</value></data>
   <data name="SettingsStartupCardDescription" xml:space="preserve"><value>登录 Windows 后自动运行 PasteOrbit</value></data>
   <data name="SettingsRunAsAdministratorCardHeader" xml:space="preserve"><value>默认以管理员身份运行</value></data>
-  <data name="SettingsRunAsAdministratorCardDescription" xml:space="preserve"><value>启动时请求管理员权限，以便在高权限窗口中接管快捷键</value></data>
-  <data name="SettingsAutoHideCardHeader" xml:space="preserve"><value>失去焦点时自动隐藏</value></data>
-  <data name="SettingsAutoHideCardDescription" xml:space="preserve"><value>窗口失去焦点后自动收起历史面板</value></data>
+  <data name="SettingsRunAsAdministratorCardDescription" xml:space="preserve"><value>用于高权限窗口</value></data>
   <data name="SettingsMonitorTextCardHeader" xml:space="preserve"><value>监听文本</value></data>
   <data name="SettingsMonitorTextCardDescription" xml:space="preserve"><value>记录复制到剪贴板的文本内容</value></data>
   <data name="SettingsMonitorImagesCardHeader" xml:space="preserve"><value>监听图片</value></data>
@@ -277,7 +273,7 @@
   <data name="SettingsGlobalHotKeyCardHeader" xml:space="preserve"><value>打开剪切板历史</value></data>
   <data name="SettingsGlobalHotKeyCardDescription" xml:space="preserve"><value>全局快捷键，必须包含修饰键</value></data>
   <data name="SettingsInterceptWinVCardHeader" xml:space="preserve"><value>接管 Win + V</value></data>
-  <data name="SettingsInterceptWinVCardDescription" xml:space="preserve"><value>使用 Win + V 打开 PasteOrbit，并阻止系统剪切板历史弹出</value></data>
+  <data name="SettingsInterceptWinVCardDescription" xml:space="preserve"><value>替代系统剪贴板历史</value></data>
   <data name="SettingsPasteShortcutCardHeader" xml:space="preserve"><value>粘贴选中记录</value></data>
   <data name="SettingsPlainTextShortcutCardHeader" xml:space="preserve"><value>粘贴为纯文本</value></data>
   <data name="SettingsPreviewShortcutCardHeader" xml:space="preserve"><value>打开或关闭查看窗口</value></data>
@@ -285,13 +281,13 @@
   <data name="SettingsDeleteShortcutCardHeader" xml:space="preserve"><value>删除选中记录</value></data>
   <data name="SettingsPasteAsFileShortcutCardHeader" xml:space="preserve"><value>粘贴为文件</value></data>
   <data name="SettingsRetentionCardHeader" xml:space="preserve"><value>保留天数</value></data>
-  <data name="SettingsRetentionCardDescription" xml:space="preserve"><value>自动清理超过该天数的未收藏记录</value></data>
+  <data name="SettingsRetentionCardDescription" xml:space="preserve"><value>过期后清理未收藏记录</value></data>
   <data name="SettingsMaxEntriesCardHeader" xml:space="preserve"><value>最多记录数</value></data>
-  <data name="SettingsMaxEntriesCardDescription" xml:space="preserve"><value>达到上限时优先清理未收藏记录</value></data>
-  <data name="SettingsExcludedAppsCardHeader" xml:space="preserve"><value>不记录指定应用</value></data>
-  <data name="SettingsExcludedAppsCardDescription" xml:space="preserve"><value>填写进程名或从当前运行进程中选择，多个进程用分号分隔</value></data>
+  <data name="SettingsMaxEntriesCardDescription" xml:space="preserve"><value>超出时清理未收藏记录</value></data>
+  <data name="SettingsExcludedAppsCardHeader" xml:space="preserve"><value>忽略应用</value></data>
+  <data name="SettingsExcludedAppsCardDescription" xml:space="preserve"><value>进程名用分号分隔</value></data>
   <data name="SettingsBackupCardHeader" xml:space="preserve"><value>本地加密备份</value></data>
-  <data name="SettingsBackupCardDescription" xml:space="preserve"><value>导出或恢复由当前 Windows 用户凭据保护的备份文件</value></data>
+  <data name="SettingsBackupCardDescription" xml:space="preserve"><value>仅当前账户可恢复</value></data>
   <data name="ThemeSystemOptionContent" xml:space="preserve"><value>跟随系统</value></data>
   <data name="ThemeLightOptionContent" xml:space="preserve"><value>浅色</value></data>
   <data name="ThemeDarkOptionContent" xml:space="preserve"><value>深色</value></data>
@@ -301,8 +297,8 @@
   <data name="ToggleOnContent" xml:space="preserve"><value>开启</value></data>
   <data name="ToggleOffContent" xml:space="preserve"><value>关闭</value></data>
   <data name="SettingsShortcutHintText" xml:space="preserve"><value>Esc 隐藏面板，方向键用于列表导航，这些系统操作保持固定。</value></data>
-  <data name="SettingsPinnedRetentionHintText" xml:space="preserve"><value>收藏记录不参与自动过期和数量清理。</value></data>
-  <data name="ExcludedApplicationsTextBoxPlaceholder" xml:space="preserve"><value>进程名，用分号分隔</value></data>
+  <data name="SettingsPinnedRetentionHintText" xml:space="preserve"><value>收藏不自动清理</value></data>
+  <data name="ExcludedApplicationsTextBoxPlaceholder" xml:space="preserve"><value>进程名，回车添加</value></data>
   <data name="SelectProcessButtonContent" xml:space="preserve"><value>选择进程</value></data>
   <data name="ExportBackupButtonContent" xml:space="preserve"><value>导出备份</value></data>
   <data name="RestoreBackupButtonContent" xml:space="preserve"><value>恢复备份</value></data>
@@ -343,4 +339,8 @@
   <data name="DoNotRemindUpdateButton" xml:space="preserve"><value>不再提示</value></data>
   <data name="ShowUpdateDetails" xml:space="preserve"><value>显示详情</value></data>
   <data name="HideUpdateDetails" xml:space="preserve"><value>隐藏详情</value></data>
+  <data name="SettingsBackToHistory" xml:space="preserve"><value>返回历史</value></data>
+  <data name="SettingsClosePanel" xml:space="preserve"><value>关闭面板</value></data>
+  <data name="AddExcludedProcess" xml:space="preserve"><value>添加</value></data>
+  <data name="RemoveExcludedProcess" xml:space="preserve"><value>移除 {0}</value></data>
 </root>

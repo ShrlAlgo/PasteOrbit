@@ -8,8 +8,9 @@
 class QAbstractButton;
 class QComboBox;
 class QLineEdit;
-class QPushButton;
 class QListWidget;
+class QPushButton;
+class QTabBar;
 class QStackedWidget;
 
 class SettingsDialog final : public QDialog {
@@ -18,6 +19,7 @@ public:
     SettingsDialog(AppSettings settings, QString databasePath, QString settingsPath, QWidget *parent = nullptr);
 
 signals:
+    void hideRequested();
     void settingsChanged(const AppSettings &settings);
     void checkUpdatesRequested();
     void storageOperationStarted();
@@ -25,7 +27,7 @@ signals:
 
 protected:
     void done(int result) override;
-    void resizeEvent(QResizeEvent *event) override;
+    void paintEvent(QPaintEvent *event) override;
 
 private:
     void applyTheme();
@@ -35,6 +37,9 @@ private:
     void saveControls();
     void persist(bool preserveSkippedVersion = true);
     void chooseProcesses();
+    void syncProcessSelection();
+    void syncProcessTags();
+    void addExcludedProcesses();
     void restoreDefaults();
     void exportBackup();
     void restoreBackup();
@@ -45,7 +50,6 @@ private:
     QString settingsPath_;
     QAbstractButton *startup_ = nullptr;
     QAbstractButton *administrator_ = nullptr;
-    QAbstractButton *autoHide_ = nullptr;
     QAbstractButton *monitorText_ = nullptr;
     QAbstractButton *monitorImages_ = nullptr;
     QAbstractButton *monitorFiles_ = nullptr;
@@ -55,7 +59,10 @@ private:
     QComboBox *retention_ = nullptr;
     QComboBox *maximumEntries_ = nullptr;
     QLineEdit *excludedApplications_ = nullptr;
-    QListWidget *navigation_ = nullptr;
+    QWidget *processTags_ = nullptr;
+    QWidget *processPicker_ = nullptr;
+    QListWidget *processList_ = nullptr;
+    QTabBar *navigation_ = nullptr;
     QStackedWidget *tabs_ = nullptr;
     QHash<QString, QPushButton *> shortcuts_;
     bool loading_ = false;

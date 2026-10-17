@@ -14,10 +14,11 @@ bool AppSettings::applyWindowsStartup() const {
     const QString command = startWithWindows
         ? QStringLiteral("\"%1\"").arg(QDir::toNativeSeparators(QCoreApplication::applicationFilePath()))
         : QString{};
-    if (startup.value(QStringLiteral("PasteOrbit")).toString() != command) {
-        if (command.isEmpty()) startup.remove(QStringLiteral("PasteOrbit"));
-        else startup.setValue(QStringLiteral("PasteOrbit"), command);
-    }
+    // 启动项一致时不再强制同步注册表，避免每次调整普通设置都触发落盘。
+    if (startup.value(QStringLiteral("PasteOrbit")).toString() == command)
+        return startup.status() == QSettings::NoError;
+    if (command.isEmpty()) startup.remove(QStringLiteral("PasteOrbit"));
+    else startup.setValue(QStringLiteral("PasteOrbit"), command);
     // 立即落盘并核实结果，避免界面已开启但 Windows 启动项没有生效。
     startup.sync();
     return startup.status() == QSettings::NoError
@@ -43,7 +44,6 @@ AppSettings AppSettings::load(const QString &path) {
     settings.moreShortcut = json.value(QStringLiteral("MoreShortcut")).toString(settings.moreShortcut);
     settings.startWithWindows = json.value(QStringLiteral("StartWithWindows")).toBool();
     settings.runAsAdministrator = json.value(QStringLiteral("RunAsAdministrator")).toBool();
-    settings.autoHideOnDeactivate = json.value(QStringLiteral("AutoHideOnDeactivate")).toBool(true);
     settings.monitorText = json.value(QStringLiteral("MonitorText")).toBool(true);
     settings.monitorImages = json.value(QStringLiteral("MonitorImages")).toBool(true);
     settings.monitorFiles = json.value(QStringLiteral("MonitorFiles")).toBool(true);
@@ -78,7 +78,6 @@ bool AppSettings::save(const QString &path) const {
     json.insert(QStringLiteral("MoreShortcut"), moreShortcut);
     json.insert(QStringLiteral("StartWithWindows"), startWithWindows);
     json.insert(QStringLiteral("RunAsAdministrator"), runAsAdministrator);
-    json.insert(QStringLiteral("AutoHideOnDeactivate"), autoHideOnDeactivate);
     json.insert(QStringLiteral("MonitorText"), monitorText);
     json.insert(QStringLiteral("MonitorImages"), monitorImages);
     json.insert(QStringLiteral("MonitorFiles"), monitorFiles);

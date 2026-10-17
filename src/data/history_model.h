@@ -12,8 +12,7 @@
 
 struct ThumbnailResult {
     QString id;
-    QByteArray bytes;
-    QImage fileIcon;
+    QImage image;
 };
 
 class HistoryModel final : public QAbstractListModel {

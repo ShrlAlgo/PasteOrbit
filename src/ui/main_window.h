@@ -10,6 +10,7 @@
 #include <QColor>
 #include <QImage>
 #include <QPoint>
+#include <QPointer>
 #include <QRect>
 #include <QSize>
 #include <QSystemTrayIcon>
@@ -32,6 +33,8 @@ class QToolButton;
 class QMenu;
 class QShortcut;
 class QStackedLayout;
+class QPropertyAnimation;
+class SettingsDialog;
 
 class MainWindow final : public QWidget, public QAbstractNativeEventFilter {
     Q_OBJECT
@@ -42,7 +45,8 @@ public:
     void showPanel(bool fromTray = false, HWND requestedTarget = nullptr);
     void hidePanel();
     void applySettings(const AppSettings &settings);
-    void setSettingsWindowOpen(bool open) { settingsWindowOpen_ = open; }
+    void showSettings(SettingsDialog *page);
+    void leaveSettings();
     void beginStorageOperation();
     void finishStorageOperation(bool restored);
     const AppSettings &settings() const { return settings_; }
@@ -64,6 +68,7 @@ protected:
 
 private:
     void buildUi();
+    void animatePage(QWidget *page, bool opening = true);
     void buildTray();
     void applyTheme();
     void registerHotkey();
@@ -93,7 +98,7 @@ private:
     void updateEmptyState();
     void showStatus(const QString &message);
     void setTrayPaused(bool paused);
-    bool sourceIsExcluded() const;
+    bool sourceIsExcluded(const QString &source) const;
     void updateTrayTooltip();
 
     QString dataDirectory_;
@@ -109,6 +114,11 @@ private:
     QLabel *emptyLabel_ = nullptr;
     QLabel *statusLabel_ = nullptr;
     QStackedLayout *historyStack_ = nullptr;
+    QWidget *historyPage_ = nullptr;
+    SettingsDialog *settingsPage_ = nullptr;
+    QWidget *drawerHost_ = nullptr;
+    QPointer<QWidget> historyFocus_;
+    QPointer<QPropertyAnimation> pageAnimation_;
     QWidget *hoverPreview_ = nullptr;
     QLabel *hoverImageLabel_ = nullptr;
     QScrollArea *hoverImageScroll_ = nullptr;
@@ -139,7 +149,6 @@ private:
     bool loadingMore_ = false;
     int unpinnedCount_ = 0;
     bool paused_ = false;
-    bool settingsWindowOpen_ = false;
     bool isPinned_ = false;
     bool closingForExit_ = false;
     bool suppressClipboardCapture_ = false;
