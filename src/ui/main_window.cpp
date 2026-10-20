@@ -88,6 +88,7 @@
 
 namespace {
 constexpr int HotkeyId = 0x504F;
+constexpr ULONG_PTR PasteInputMarker = 0x504F5041;
 constexpr int HistoryPageSize = 30;
 constexpr UINT TrayResumeMilliseconds = 10 * 60 * 1000;
 constexpr auto TextPayloadPrefix = "PasteOrbit.Text/1\n";
@@ -497,6 +498,41 @@ QString normalizedShortcut(const QString &value) {
 }
 
 MainWindow *winVHookTarget = nullptr;
+MainWindow *passivePanelTarget = nullptr;
+
+Qt::KeyboardModifiers panelKeyModifiers() {
+    Qt::KeyboardModifiers modifiers;
+    if (GetAsyncKeyState(VK_CONTROL) & 0x8000) modifiers |= Qt::ControlModifier;
+    if (GetAsyncKeyState(VK_SHIFT) & 0x8000) modifiers |= Qt::ShiftModifier;
+    if (GetAsyncKeyState(VK_MENU) & 0x8000) modifiers |= Qt::AltModifier;
+    if ((GetAsyncKeyState(VK_LWIN) | GetAsyncKeyState(VK_RWIN)) & 0x8000) modifiers |= Qt::MetaModifier;
+    return modifiers;
+}
+
+int panelQtKey(DWORD key) {
+    if (key >= '0' && key <= '9') return Qt::Key_0 + int(key - '0');
+    if (key >= 'A' && key <= 'Z') return Qt::Key_A + int(key - 'A');
+    if (key >= VK_F1 && key <= VK_F24) return Qt::Key_F1 + int(key - VK_F1);
+    switch (key) {
+    case VK_LEFT: return Qt::Key_Left;
+    case VK_RIGHT: return Qt::Key_Right;
+    case VK_UP: return Qt::Key_Up;
+    case VK_DOWN: return Qt::Key_Down;
+    case VK_HOME: return Qt::Key_Home;
+    case VK_END: return Qt::Key_End;
+    case VK_PRIOR: return Qt::Key_PageUp;
+    case VK_NEXT: return Qt::Key_PageDown;
+    case VK_RETURN: return Qt::Key_Return;
+    case VK_ESCAPE: return Qt::Key_Escape;
+    case VK_SPACE: return Qt::Key_Space;
+    case VK_TAB: return Qt::Key_Tab;
+    case VK_DELETE: return Qt::Key_Delete;
+    case VK_INSERT: return Qt::Key_Insert;
+    case VK_BACK: return Qt::Key_Backspace;
+    case VK_APPS: return Qt::Key_Menu;
+    default: return int(MapVirtualKeyW(key, MAPVK_VK_TO_CHAR) & 0x7fffffff);
+    }
+}
 
 LRESULT CALLBACK interceptWinV(int code, WPARAM message, LPARAM data) {
     static bool intercepted = false;
@@ -668,6 +704,179 @@ bool revealFile(const QString &path) {
 }
 }
 
+// 不激活浏览时只接管面板操作键，普通输入仍交给原应用；吞掉的按键成对释放。
+LRESULT CALLBACK MainWindow::panelKeyboardProc(int code, WPARAM message, LPARAM data) {
+    auto *panel = passivePanelTarget;
+    const auto *input = reinterpret_cast<const KBDLLHOOKSTRUCT *>(data);
+    if (code < 0 || !panel || !input || input->vkCode >= 256 || input->dwExtraInfo == PasteInputMarker)
+        return CallNextHookEx(nullptr, code, message, data);
+    const auto vk = input->vkCode;
+    if (message == WM_KEYUP || message == WM_SYSKEYUP) {
+        if (!panel->swallowedPanelKeys_.test(vk)) return CallNextHookEx(nullptr, code, message, data);
+        panel->swallowedPanelKeys_.reset(vk);
+        QMetaObject::invokeMethod(panel, [panel] { panel->updatePanelInputHooks(); }, Qt::QueuedConnection);
+        return 1;
+    }
+    if ((message == WM_KEYDOWN || message == WM_SYSKEYDOWN)
+        && panel->swallowedPanelKeys_.test(vk) && !panel->passiveBrowsing_) return 1;
+    if (panel->passiveBrowsing_ && !panel->targetWindow_) panel->capturePasteTarget(GetForegroundWindow());
+    auto *popup = QApplication::activePopupWidget();
+    if ((message != WM_KEYDOWN && message != WM_SYSKEYDOWN) || !panel->passiveBrowsing_
+        || !panel->isVisible() || panel->settingsPage_ || QApplication::activeModalWidget()
+        || (popup && !panel->isPanelWindow(reinterpret_cast<HWND>(popup->internalWinId())))
+        || GetForegroundWindow() != panel->targetWindow_)
+        return CallNextHookEx(nullptr, code, message, data);
+    const auto modifiers = panelKeyModifiers();
+    if (modifiers.testFlag(Qt::MetaModifier)) return CallNextHookEx(nullptr, code, message, data);
+    const int key = panelQtKey(vk);
+    const bool search = (key == Qt::Key_F && modifiers == Qt::ControlModifier)
+        || (key == Qt::Key_Tab && (modifiers == Qt::NoModifier || modifiers == Qt::ShiftModifier));
+    bool handled = search || (modifiers == Qt::NoModifier
+        && ((key >= Qt::Key_1 && key <= Qt::Key_9) || key == Qt::Key_Escape || key == Qt::Key_Menu
+            || key == Qt::Key_Left || key == Qt::Key_Right || key == Qt::Key_Up || key == Qt::Key_Down
+            || key == Qt::Key_Home || key == Qt::Key_End || key == Qt::Key_PageUp || key == Qt::Key_PageDown));
+    if (popup && modifiers == Qt::NoModifier && (key == Qt::Key_Return || key == Qt::Key_Space)) handled = true;
+    if (!handled && key) {
+        QString pressed = QKeySequence(modifiers | key).toString(QKeySequence::PortableText);
+        pressed.replace(QStringLiteral("Return"), QStringLiteral("Enter"), Qt::CaseInsensitive);
+        const auto normalized = normalizedShortcut(pressed);
+        for (const auto *shortcut : {&panel->settings_.pasteShortcut, &panel->settings_.plainTextPasteShortcut,
+                                    &panel->settings_.previewShortcut, &panel->settings_.pinShortcut,
+                                    &panel->settings_.pasteAsFileShortcut, &panel->settings_.moreShortcut})
+            handled = handled || normalized == normalizedShortcut(*shortcut);
+    }
+    if (!handled) return CallNextHookEx(nullptr, code, message, data);
+    const bool repeat = panel->swallowedPanelKeys_.test(vk);
+    panel->swallowedPanelKeys_.set(vk);
+    const int generation = panel->panelShowGeneration_;
+    QMetaObject::invokeMethod(panel, [panel, key, modifiers, repeat, search, generation,
+                                    menu = QPointer<QWidget>(popup), hadMenu = popup != nullptr] {
+        if (!panel->isVisible() || !panel->passiveBrowsing_ || generation != panel->panelShowGeneration_
+            || GetForegroundWindow() != panel->targetWindow_) return;
+        if (hadMenu && (!menu || !menu->isVisible())) return;
+        if (search) {
+            if (menu) menu->close();
+            panel->activatePanel(panel->searchBox_);
+            return;
+        }
+        QKeyEvent event(QEvent::KeyPress, key, modifiers, {}, repeat);
+        QApplication::sendEvent(menu ? menu.data() : panel->historyStack_->currentWidget(), &event);
+    }, Qt::QueuedConnection);
+    return 1;
+}
+
+// 未激活窗口收不到完整的外部点击和滚轮消息，仅在浏览期间补齐这两类交互。
+LRESULT CALLBACK MainWindow::panelMouseProc(int code, WPARAM message, LPARAM data) {
+    auto *panel = passivePanelTarget;
+    const auto *input = reinterpret_cast<const MSLLHOOKSTRUCT *>(data);
+    if (code < 0 || !panel || !input || !panel->passiveBrowsing_ || !panel->isVisible()
+        || QApplication::activeModalWidget())
+        return CallNextHookEx(nullptr, code, message, data);
+    auto *popup = QApplication::activePopupWidget();
+    if (popup && !panel->isPanelWindow(reinterpret_cast<HWND>(popup->internalWinId())))
+        return CallNextHookEx(nullptr, code, message, data);
+    const bool inside = panel->isPanelWindow(WindowFromPoint(input->pt));
+    const bool pressed = message == WM_LBUTTONDOWN || message == WM_RBUTTONDOWN
+        || message == WM_MBUTTONDOWN || message == WM_XBUTTONDOWN;
+    if (pressed) {
+        if (inside) panel->capturePasteTarget(GetForegroundWindow());
+        else if (!panel->isPinned_) {
+            const int generation = panel->panelShowGeneration_;
+            QMetaObject::invokeMethod(panel, [panel, generation] {
+                if (panel->passiveBrowsing_ && generation == panel->panelShowGeneration_) panel->hidePanel();
+            }, Qt::QueuedConnection);
+        }
+    }
+    if (inside && (message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL)) {
+        // Qt 使用逻辑坐标，不能直接把钩子的物理像素坐标用于高 DPI 屏幕。
+        const QPoint position = QCursor::pos();
+        const int delta = static_cast<short>(HIWORD(input->mouseData));
+        const QPoint angle = message == WM_MOUSEWHEEL ? QPoint(0, delta) : QPoint(delta, 0);
+        const auto modifiers = panelKeyModifiers();
+        const int generation = panel->panelShowGeneration_;
+        QMetaObject::invokeMethod(panel, [panel, position, angle, modifiers, generation] {
+            if (!panel->passiveBrowsing_ || !panel->isVisible() || generation != panel->panelShowGeneration_) return;
+            auto *widget = QApplication::widgetAt(position);
+            if (!widget || !panel->isPanelWindow(reinterpret_cast<HWND>(widget->window()->internalWinId()))) return;
+            QWheelEvent event(QPointF(widget->mapFromGlobal(position)), QPointF(position), {}, angle,
+                              QApplication::mouseButtons(), modifiers, Qt::NoScrollPhase, false);
+            QApplication::sendEvent(widget, &event);
+        }, Qt::QueuedConnection);
+        return 1;
+    }
+    return CallNextHookEx(nullptr, code, message, data);
+}
+
+bool MainWindow::isPanelWindow(HWND window) const {
+    const HWND root = window ? GetAncestor(window, GA_ROOT) : nullptr;
+    auto *widget = root ? QWidget::find(reinterpret_cast<WId>(root)) : nullptr;
+    return root && (root == reinterpret_cast<HWND>(internalWinId())
+        || (hoverPreview_ && root == reinterpret_cast<HWND>(hoverPreview_->internalWinId()))
+        || (widget && widget->property("passivePanelMenu").toBool()));
+}
+
+// 菜单也属于浏览操作，保持不激活；键盘事件由浏览钩子交给当前弹出菜单。
+void MainWindow::preparePanelMenu(QMenu *menu) {
+    if (!passiveBrowsing_) return;
+    auto menus = menu->findChildren<QMenu *>();
+    menus.prepend(menu);
+    for (auto *item : menus) {
+        item->setProperty("passivePanelMenu", true);
+        item->setAttribute(Qt::WA_ShowWithoutActivating);
+        item->setWindowFlag(Qt::WindowDoesNotAcceptFocus);
+        const HWND handle = reinterpret_cast<HWND>(item->winId());
+        SetWindowLongPtrW(handle, GWL_EXSTYLE, GetWindowLongPtrW(handle, GWL_EXSTYLE) | WS_EX_NOACTIVATE);
+    }
+}
+
+void MainWindow::updatePanelInputHooks() {
+    if (passiveBrowsing_) {
+        passivePanelTarget = this;
+        if (!panelKeyboardHook_) panelKeyboardHook_ = SetWindowsHookExW(WH_KEYBOARD_LL, panelKeyboardProc, GetModuleHandleW(nullptr), 0);
+        if (!panelMouseHook_) panelMouseHook_ = SetWindowsHookExW(WH_MOUSE_LL, panelMouseProc, GetModuleHandleW(nullptr), 0);
+    } else {
+        if (panelMouseHook_) { UnhookWindowsHookEx(panelMouseHook_); panelMouseHook_ = nullptr; }
+        // 关闭面板或进入搜索后，仍吞掉已接管按键的抬起，避免泄漏给原输入框。
+        if (panelKeyboardHook_ && swallowedPanelKeys_.none()) { UnhookWindowsHookEx(panelKeyboardHook_); panelKeyboardHook_ = nullptr; }
+        if (!panelKeyboardHook_) passivePanelTarget = nullptr;
+    }
+}
+
+// 保持原窗口句柄不变，分别控制首次显示和后续鼠标点击是否激活。
+bool MainWindow::setPassiveBrowsing(bool passive) {
+    passiveBrowsing_ = passive;
+    updatePanelInputHooks();
+    if (passive && (!panelKeyboardHook_ || !panelMouseHook_)) {
+        passiveBrowsing_ = false;
+        updatePanelInputHooks();
+        return false;
+    }
+    for (auto *window : {static_cast<QWidget *>(this), hoverPreview_}) {
+        if (!window) continue;
+        window->setAttribute(Qt::WA_ShowWithoutActivating, passive);
+        const HWND handle = reinterpret_cast<HWND>(window->winId());
+        const LONG_PTR style = GetWindowLongPtrW(handle, GWL_EXSTYLE);
+        SetWindowLongPtrW(handle, GWL_EXSTYLE, passive ? style | WS_EX_NOACTIVATE : style & ~WS_EX_NOACTIVATE);
+        SetWindowPos(handle, passive || isPinned_ ? HWND_TOPMOST : HWND_NOTOPMOST,
+                     0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    }
+    return true;
+}
+
+// 只有用户明确进入搜索、设置或编辑等交互时，才把输入焦点交给本应用。
+void MainWindow::activatePanel(QWidget *focus) {
+    while (auto *popup = QApplication::activePopupWidget()) {
+        if (!popup->property("passivePanelMenu").toBool()) break;
+        popup->close();
+    }
+    setPassiveBrowsing(false);
+    QWidget *window = focus ? focus->window() : this;
+    window->raise();
+    window->activateWindow();
+    SetForegroundWindow(reinterpret_cast<HWND>(window->winId()));
+    if (focus) focus->setFocus(Qt::ShortcutFocusReason);
+}
+
 MainWindow::MainWindow(QString dataDirectory, AppSettings settings)
     : dataDirectory_(std::move(dataDirectory)),
       databasePath_(dataDirectory_ + QStringLiteral("/history.db")),
@@ -689,6 +898,13 @@ MainWindow::MainWindow(QString dataDirectory, AppSettings settings)
     connect(QApplication::clipboard(), &QClipboard::dataChanged, this, &MainWindow::scheduleCapture);
     clipboardPollTimer_.setInterval(250);
     connect(&clipboardPollTimer_, &QTimer::timeout, this, [this] {
+        if (passiveBrowsing_ && isVisible()) {
+            const HWND foreground = GetForegroundWindow();
+            if (foreground && !isPanelWindow(foreground) && foreground != targetWindow_) {
+                if (isPinned_ || !targetWindow_) capturePasteTarget(foreground);
+                else hidePanel();
+            }
+        }
         const DWORD sequence = GetClipboardSequenceNumber();
         if (sequence && sequence != lastClipboardSequence_) scheduleCapture();
     });
@@ -720,6 +936,9 @@ MainWindow::MainWindow(QString dataDirectory, AppSettings settings)
 }
 
 MainWindow::~MainWindow() {
+    if (panelKeyboardHook_) UnhookWindowsHookEx(panelKeyboardHook_);
+    if (panelMouseHook_) UnhookWindowsHookEx(panelMouseHook_);
+    if (passivePanelTarget == this) passivePanelTarget = nullptr;
     closeHoverPreview();
     closingForExit_ = true;
     qApp->removeNativeEventFilter(this);
@@ -827,7 +1046,7 @@ void MainWindow::buildUi() {
         pinButton_->setText(pinned ? QChar(0xE77A) : QChar(0xE718));
         pinButton_->setIcon(headerGlyphIcon(pinned ? QChar(0xE77A) : QChar(0xE718),
                                             qApp->palette().color(QPalette::Text), pinButton_));
-        if (isVisible()) SetWindowPos(reinterpret_cast<HWND>(winId()), pinned ? HWND_TOPMOST : HWND_NOTOPMOST,
+        if (isVisible()) SetWindowPos(reinterpret_cast<HWND>(winId()), pinned || passiveBrowsing_ ? HWND_TOPMOST : HWND_NOTOPMOST,
                                       0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     });
     headerLayout->addWidget(settingsButton_);
@@ -1244,11 +1463,16 @@ std::optional<RECT> MainWindow::capturePasteTarget(HWND window) {
 }
 
 void MainWindow::showPanel(bool fromTray, HWND requestedTarget) {
+    if (auto *modal = QApplication::activeModalWidget()) { activatePanel(modal); return; }
+    if (auto *popup = QApplication::activePopupWidget()) {
+        if (!passiveBrowsing_ || !isPanelWindow(reinterpret_cast<HWND>(popup->internalWinId()))) activatePanel(popup);
+        return;
+    }
     if (settingsPage_) {
         // 托盘和全局快捷键只激活当前设置页，不重新定位或抢走设置控件的焦点。
         show();
         raise();
-        activateWindow();
+        activatePanel();
         return;
     }
     if (suppressClipboardCapture_) return;
@@ -1277,11 +1501,17 @@ void MainWindow::showPanel(bool fromTray, HWND requestedTarget) {
         *shown = true;
         // 等待定位期间用户已切换窗口时，丢弃这次唤出，避免抢回焦点。
         if (!fromTray && GetForegroundWindow() != foreground) return;
+        // 默认只展示历史；明确进入搜索等输入操作后，才激活窗口。
+        if (!setPassiveBrowsing(!isVisible() || passiveBrowsing_ || !isPanelWindow(foreground))) {
+            showStatus(AppLocalization::get(QStringLiteral("PassiveBrowsingUnavailable")));
+            return;
+        }
         positionPanel(fromTray, bounds, control);
         if (!isVisible()) show();
-        raise();
-        activateWindow();
-        SetForegroundWindow(reinterpret_cast<HWND>(winId()));
+        if (passiveBrowsing_)
+            SetWindowPos(reinterpret_cast<HWND>(winId()), HWND_TOPMOST, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        else activatePanel();
         if (!startupUpdateCheckRequested_) {
             startupUpdateCheckRequested_ = true;
             emit firstPanelShown();
@@ -1299,7 +1529,7 @@ void MainWindow::showPanel(bool fromTray, HWND requestedTarget) {
             historyDirty_ = true;
         }
         if (historyDirty_) refreshHistory();
-        historyStack_->currentWidget()->setFocus(Qt::ShortcutFocusReason);
+        if (!passiveBrowsing_) historyStack_->currentWidget()->setFocus(Qt::ShortcutFocusReason);
         updateVisibleThumbnails();
     };
     if (fromTray || !hasTarget || (inputBounds && controlBounds)) {
@@ -1335,6 +1565,11 @@ void MainWindow::hidePanel() {
     animatePage(nullptr);
     ++panelShowGeneration_;
     pasteGeneration_->fetchAndAddRelaxed(1);
+    while (auto *popup = QApplication::activePopupWidget()) {
+        if (!isPanelWindow(reinterpret_cast<HWND>(popup->internalWinId()))) break;
+        popup->close();
+    }
+    setPassiveBrowsing(false);
     if (!isVisible()) return;
     hide();
     // 保留分页、筛选和选择，仅释放可重新加载的图片资源。
@@ -1368,7 +1603,7 @@ void MainWindow::showSettings(SettingsDialog *page) {
     if (auto *header = page->findChild<QWidget *>(QStringLiteral("Header"))) header->installEventFilter(this);
     show();
     raise();
-    activateWindow();
+    activatePanel();
     page->setFocus(Qt::OtherFocusReason);
     animatePage(page);
 }
@@ -1456,7 +1691,7 @@ void MainWindow::refreshHistory() {
         nextCursor_ = page.next;
         unpinnedCount_ = page.unpinnedCount;
         updateEmptyState();
-        if (restoreFocus) historyStack_->currentWidget()->setFocus(Qt::ShortcutFocusReason);
+        if (restoreFocus && !passiveBrowsing_) historyStack_->currentWidget()->setFocus(Qt::ShortcutFocusReason);
         updateVisibleThumbnails();
     });
     const QString path = databasePath_;
@@ -1533,7 +1768,7 @@ void MainWindow::setFilter(int kind) {
     // 收藏受保留规则保护，不提供整批清空；单条删除仍需确认。
     clearButton_->setEnabled(kind != 3);
     refreshHistory();
-    historyStack_->currentWidget()->setFocus(Qt::ShortcutFocusReason);
+    if (!passiveBrowsing_) historyStack_->currentWidget()->setFocus(Qt::ShortcutFocusReason);
 }
 
 void MainWindow::switchFilter(int direction) {
@@ -1560,6 +1795,16 @@ bool MainWindow::nativeEventFilter(const QByteArray &, void *message, qintptr *r
     const auto *native = static_cast<MSG *>(message);
     // 消息过滤期间不能用 winId() 创建窗口，否则窗口创建消息会递归进入过滤器。
     const HWND panel = reinterpret_cast<HWND>(internalWinId());
+    if (passiveBrowsing_ && native->message == WM_MOUSEACTIVATE && isPanelWindow(native->hwnd)) {
+        auto *clicked = QApplication::widgetAt(QCursor::pos());
+        if (clicked && (clicked == searchBox_ || searchBox_->isAncestorOf(clicked))) {
+            activatePanel(searchBox_);
+            if (result) *result = MA_ACTIVATE;
+        } else {
+            if (result) *result = MA_NOACTIVATE;
+        }
+        return true;
+    }
     if (panel && native->hwnd == panel && native->message == WM_SETTINGCHANGE
         && settings_.themeMode == QStringLiteral("System"))
         QTimer::singleShot(0, this, &MainWindow::applyTheme);
@@ -1586,6 +1831,8 @@ bool MainWindow::nativeEventFilter(const QByteArray &, void *message, qintptr *r
 }
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
+    if (watched == searchBox_ && passiveBrowsing_ && event->type() == QEvent::MouseButtonPress)
+        activatePanel(searchBox_);
     if (watched == hoverPreview_ && event->type() == QEvent::WindowDeactivate) scheduleAutoHide();
     if (historyList_ && watched == historyList_->viewport()) {
         // 新分类加载完成前，拦截旧卡片的点击和预览提示。
@@ -1685,6 +1932,10 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
         && event->type() == QEvent::KeyPress) {
         auto *key = static_cast<QKeyEvent *>(event);
         if (key->key() == Qt::Key_Escape) { hidePanel(); return true; }
+        if (key->key() == Qt::Key_F && key->modifiers() == Qt::ControlModifier) {
+            activatePanel(searchBox_);
+            return true;
+        }
         if (watched != searchBox_ && key->modifiers() == Qt::NoModifier
             && (key->key() == Qt::Key_Left || key->key() == Qt::Key_Right)) {
             switchFilter(key->key() == Qt::Key_Right ? 1 : -1);
@@ -1700,7 +1951,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
         }
         if ((watched == historyList_ || watched == emptyLabel_)
             && key->key() == Qt::Key_Up && historyList_->currentIndex().row() <= 0) {
-            searchBox_->setFocus(Qt::ShortcutFocusReason);
+            activatePanel(searchBox_);
             return true;
         }
         if (watched == historyList_ && key->modifiers() == Qt::NoModifier
@@ -1710,14 +1961,14 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
         }
         if (watched == historyList_ && historyList_->currentIndex().isValid()) {
             const auto id = historyList_->currentIndex().data(HistoryModel::IdRole).toString();
-            if (key->key() == Qt::Key_Menu) {
+            QString pressed = QKeySequence(key->modifiers() | key->key()).toString(QKeySequence::PortableText);
+            pressed.replace(QStringLiteral("Return"), QStringLiteral("Enter"), Qt::CaseInsensitive);
+            const auto normalized = normalizedShortcut(pressed);
+            if (key->key() == Qt::Key_Menu || normalized == normalizedShortcut(settings_.moreShortcut)) {
                 const QRect card = historyList_->visualRect(historyList_->currentIndex());
                 openRowMenu(id, historyList_->viewport()->mapToGlobal(card.topRight()));
                 return true;
             }
-            QString pressed = QKeySequence(key->modifiers() | key->key()).toString(QKeySequence::PortableText);
-            pressed.replace(QStringLiteral("Return"), QStringLiteral("Enter"), Qt::CaseInsensitive);
-            const auto normalized = normalizedShortcut(pressed);
             if (normalized == normalizedShortcut(settings_.plainTextPasteShortcut)) {
                 pasteRecord(id, true); return true;
             }
@@ -1744,7 +1995,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
 bool MainWindow::event(QEvent *event) {
     const bool handled = QWidget::event(event);
     // 托盘唤出的顶层窗口失去激活时不会触发 QWidget::focusOutEvent。
-    if (event->type() == QEvent::WindowDeactivate) {
+    if (event->type() == QEvent::WindowDeactivate && !passiveBrowsing_) {
         if (isPinned_ && !settingsPage_) {
             const HWND foreground = GetForegroundWindow();
             DWORD processId = 0;
@@ -1773,7 +2024,7 @@ void MainWindow::scheduleAutoHide() {
     const int generation = panelShowGeneration_;
     QTimer::singleShot(120, this, [this, generation] {
         if (generation != panelShowGeneration_) return;
-        if (isVisible() && !isActiveWindow() && !isPinned_ && !settingsPage_
+        if (isVisible() && !passiveBrowsing_ && !isActiveWindow() && !isPinned_ && !settingsPage_
             && (!hoverPreview_ || !hoverPreview_->isActiveWindow())
             && !qApp->activePopupWidget() && !qApp->activeModalWidget()) {
             hidePanel();
@@ -1823,7 +2074,7 @@ void MainWindow::toggleHoverPreview(QString id) {
         auto *close = new QShortcut(QKeySequence(Qt::Key_Escape), popup);
         connect(close, &QShortcut::activated, this, [this] {
             closeHoverPreview();
-            if (isVisible()) { activateWindow(); historyList_->setFocus(Qt::ShortcutFocusReason); }
+            if (isVisible() && !passiveBrowsing_) activatePanel(historyList_);
         });
         auto *pages = new QStackedLayout(popup);
         pages->setContentsMargins(0, 0, 0, 0);
@@ -1892,6 +2143,7 @@ void MainWindow::toggleHoverPreview(QString id) {
     contentLayout->setContentsMargins(8, 8, 8, 8);
     layout->addWidget(content, 1);
     hoverPreview_ = popup;
+    if (passiveBrowsing_) setPassiveBrowsing(true);
     delegate_->setActivePreviewId(id);
 
     const QPoint anchor = historyList_->viewport()->mapToGlobal(QPoint(0, 0));
@@ -1972,6 +2224,13 @@ void MainWindow::toggleHoverPreview(QString id) {
             preview->setAcceptDrops(false);
             preview->setFocusPolicy(Qt::NoFocus);
             preview->setFrameShape(QFrame::NoFrame);
+            preview->setContextMenuPolicy(Qt::CustomContextMenu);
+            connect(preview, &QTextEdit::customContextMenuRequested, this, [this, preview](const QPoint &position) {
+                auto *menu = preview->createStandardContextMenu();
+                preparePanelMenu(menu);
+                connect(menu, &QMenu::aboutToHide, menu, &QObject::deleteLater);
+                menu->popup(preview->viewport()->mapToGlobal(position));
+            });
             preview->setLineWrapMode(QTextEdit::WidgetWidth);
             preview->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
             preview->verticalScrollBar()->setFixedWidth(historyList_->verticalScrollBar()->width());
@@ -2010,6 +2269,7 @@ void MainWindow::toggleHoverPreview(QString id) {
                 static_cast<QVBoxLayout *>(layout)->addLayout(actions);
                 const auto beginEdit = [this, generation, preview, edit, paste, replace, html] {
                     if (generation != hoverPreviewGeneration_->loadRelaxed()) return;
+                    activatePanel(preview);
                     preview->setAcceptRichText(false);
                     preview->setUndoRedoEnabled(true);
                     preview->document()->setModified(false);
@@ -2197,7 +2457,7 @@ void MainWindow::setPinned(const QString &id) {
             if (removingCurrent && model_->rowCount() > 0)
                 historyList_->setCurrentIndex(model_->index(qMin(row, model_->rowCount() - 1)));
             updateEmptyState();
-            if (restoreFocus) historyStack_->currentWidget()->setFocus(Qt::ShortcutFocusReason);
+            if (restoreFocus && !passiveBrowsing_) historyStack_->currentWidget()->setFocus(Qt::ShortcutFocusReason);
             updateVisibleThumbnails();
         }
     });
@@ -2210,6 +2470,7 @@ void MainWindow::deleteRecord(const QString &id) {
     if (loadingPage_) return;
     const auto *item = model_->itemAt(model_->rowForId(id));
     if (!item) return;
+    if (item->pinned) activatePanel();
     if (item->pinned && QMessageBox::question(this,
             AppLocalization::get(QStringLiteral("DeletePinnedItemTitle")),
             AppLocalization::get(QStringLiteral("DeletePinnedItemMessage")),
@@ -2227,6 +2488,7 @@ void MainWindow::deleteRecord(const QString &id) {
 
 void MainWindow::clearCurrentList() {
     if (unpinnedCount_ <= 0) return;
+    activatePanel();
     const QString message = AppLocalization::format(QStringLiteral("ClearCurrentListMessage"),
                                                      {QString::number(unpinnedCount_)});
     if (QMessageBox::question(this, AppLocalization::get(QStringLiteral("ClearCurrentListTitle")), message,
@@ -2235,18 +2497,28 @@ void MainWindow::clearCurrentList() {
     const QString query = searchBox_->text();
     const int kind = selectedKind_;
     auto *watcher = new QFutureWatcher<QPair<int, QString>>(this);
-    connect(watcher, &QFutureWatcher<QPair<int, QString>>::finished, this, [this, watcher] {
+    connect(watcher, &QFutureWatcher<QPair<int, QString>>::finished, this, [this, watcher, path] {
         const auto result = watcher->result();
         watcher->deleteLater();
         if (!result.second.isEmpty()) showStatus(result.second);
+        // 删除提交后立即刷新，压缩独立排队，避免筛选结果等待全库压缩。
         refreshHistory();
-        if (result.first > 0) showStatus(AppLocalization::format(QStringLiteral("CurrentListCleared"),
-                                                                 {QString::number(result.first)}));
+        if (result.first <= 0 || !result.second.isEmpty()) return;
+        showStatus(AppLocalization::format(QStringLiteral("CurrentListCleared"),
+                                           {QString::number(result.first)}));
+        auto *compactWatcher = new QFutureWatcher<QString>(this);
+        connect(compactWatcher, &QFutureWatcher<QString>::finished, this, [this, compactWatcher] {
+            const QString error = compactWatcher->result();
+            compactWatcher->deleteLater();
+            if (!error.isEmpty()) showStatus(error);
+        });
+        compactWatcher->setFuture(QtConcurrent::run(&writePool_, [path] {
+            return HistoryStore(path).compact(true);
+        }));
     });
     watcher->setFuture(QtConcurrent::run(&writePool_, [path, query, kind] {
         QString error;
         const int deleted = HistoryStore(path).removeMatching(query, kind, &error);
-        if (error.isEmpty()) error = HistoryStore(path).compact(true);
         return qMakePair(deleted, error);
     }));
 }
@@ -2308,12 +2580,12 @@ void MainWindow::openRowMenu(const QString &id, std::optional<QPoint> position) 
         if (asFile) connect(asFile, &QAction::triggered, this, [this, id] { pasteRecord(id, false, true); });
         connect(remove, &QAction::triggered, this, [this, id] {
             // 删除留在历史面板，菜单关闭后重新激活以免失焦回调误隐藏。
-            activateWindow();
-            SetForegroundWindow(reinterpret_cast<HWND>(winId()));
+            if (!passiveBrowsing_) activatePanel(historyList_);
             deleteRecord(id);
         });
         connect(menu, &QMenu::aboutToHide, this, &MainWindow::scheduleAutoHide);
         connect(menu, &QMenu::aboutToHide, menu, &QObject::deleteLater);
+        preparePanelMenu(menu);
         menu->popup(popupPosition);
     };
     if (kind == 1) { showMenu({}); return; }
@@ -2581,6 +2853,8 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile, std
         lastClipboardSequence_ = ownClipboardSequence_;
         const DWORD pasteSequence = ownClipboardSequence_;
         const bool keepPanel = isPinned_;
+        // 浏览期间目标一直持有焦点，粘贴时不再发送额外的激活或恢复焦点消息。
+        const bool targetKeptFocus = passiveBrowsing_ && GetForegroundWindow() == target;
         if (!keepPanel) hidePanel();
         if (!target || !IsWindow(target)) {
             showStatus(AppLocalization::get(QStringLiteral("ContentRestoredManualPaste")));
@@ -2588,11 +2862,11 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile, std
         }
         // 已最大化的窗口不能用 SW_RESTORE，否则粘贴时会意外退出最大化。
         if (IsIconic(target)) ShowWindow(target, SW_RESTORE);
-        SetForegroundWindow(target);
+        if (!targetKeptFocus) SetForegroundWindow(target);
         auto *timer = new QTimer(this);
         timer->setInterval(10);
         auto attempts = std::make_shared<int>(0);
-        connect(timer, &QTimer::timeout, this, [this, timer, attempts, target, targetFocus, id, keepPanel,
+        connect(timer, &QTimer::timeout, this, [this, timer, attempts, target, targetFocus, targetKeptFocus, id, keepPanel,
                                               directTextPaste = item.kind == 0 && !asFile,
                                               generation = pasteGeneration_->loadRelaxed(), pasteSequence] {
             if (generation != pasteGeneration_->loadRelaxed() || GetClipboardSequenceNumber() != pasteSequence) {
@@ -2613,7 +2887,7 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile, std
                 return;
             }
             // 激活目标窗口后恢复保存的原生输入窗口。
-            if (targetFocus) {
+            if (targetFocus && !targetKeptFocus) {
                 if (!IsWindow(targetFocus) || (targetFocus != target && !IsChild(target, targetFocus))) {
                     timer->stop(); timer->deleteLater();
                     showStatus(AppLocalization::get(QStringLiteral("ContentRestoredManualPaste")));
@@ -2651,6 +2925,8 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile, std
                     inputs[i].type = INPUT_KEYBOARD;
                     inputs[i].ki.wVk = keys[i];
                     inputs[i].ki.dwFlags = (i >= 2) ? KEYEVENTF_KEYUP : 0;
+                    // 只跳过本应用注入的粘贴，保留辅助输入工具的导航兼容性。
+                    inputs[i].ki.dwExtraInfo = PasteInputMarker;
                 }
                 pasted = SendInput(4, inputs, sizeof(INPUT)) == 4;
             }

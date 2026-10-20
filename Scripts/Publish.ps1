@@ -27,10 +27,10 @@ if ($useMsvc) {
     $cmakePath = Join-Path $vsDirectory 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
     $deployToolPath = Join-Path $toolchainDirectory 'windeployqt.exe'
 }
-$buildDirectory = Join-Path $env:TEMP "PasteOrbit-native-release-$PID"
-$deploymentDirectory = Join-Path $env:TEMP "PasteOrbit-native-deploy-$PID"
+$buildDirectory = Join-Path $repositoryRoot $(if ($useMsvc) { 'build\publish-msvc' } else { 'build\publish-ucrt64' })
 $artifactsDirectory = Join-Path $repositoryRoot 'dist'
 $publishDirectory = Join-Path $artifactsDirectory 'PasteOrbit-win-x64'
+$deploymentDirectory = $publishDirectory
 $executablePath = Join-Path $publishDirectory 'PasteOrbit.exe'
 $archiveName = if ([string]::IsNullOrWhiteSpace($Version)) {
     'PasteOrbit-win-x64.zip'
@@ -111,7 +111,7 @@ if ((-not (Test-Path -LiteralPath $cmakePath -PathType Leaf)) -or (-not (Test-Pa
 $env:PATH = "$toolchainDirectory;$env:PATH"
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
-    $Version = '2.5.4'
+    $Version = '2.5.8'
 }
 $configureArguments = @(
     '-S', $repositoryRoot,
@@ -136,10 +136,6 @@ $builtExecutable = Join-Path $buildDirectory 'bin\Release\PasteOrbit.exe'
 if (-not (Test-Path -LiteralPath $builtExecutable -PathType Leaf)) {
     throw "未找到 Qt 构建产物：$builtExecutable"
 }
-if (Test-Path -LiteralPath $deploymentDirectory) {
-    throw "部署临时目录已存在，拒绝覆盖：$deploymentDirectory"
-}
-New-Item -ItemType Directory -Path $deploymentDirectory | Out-Null
 $stagedExecutable = Join-Path $deploymentDirectory 'PasteOrbit.exe'
 Copy-Item -LiteralPath $builtExecutable -Destination $stagedExecutable
 # 使用 Windows 原生网络后端；不部署 TUIO、GLib 和应用未使用的数据库驱动。
@@ -176,7 +172,6 @@ if (-not $useMsvc) { Copy-ToolchainRuntimeDependencies -Directory $deploymentDir
 New-Item -ItemType Directory -Path (Join-Path $deploymentDirectory 'Assets') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $repositoryRoot 'src\resources\icons\PasteOrbit.ico') `
     -Destination (Join-Path $deploymentDirectory 'Assets\PasteOrbit.ico') -Force
-Copy-Item -Path (Join-Path $deploymentDirectory '*') -Destination $publishDirectory -Recurse -Force
 
 if (-not $NoArchive) {
     Compress-Archive -Path (Join-Path $publishDirectory '*') -DestinationPath $archivePath -CompressionLevel Optimal

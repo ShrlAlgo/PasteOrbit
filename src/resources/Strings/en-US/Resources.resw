@@ -343,4 +343,5 @@
   <data name="SettingsClosePanel" xml:space="preserve"><value>Close panel</value></data>
   <data name="AddExcludedProcess" xml:space="preserve"><value>Add</value></data>
   <data name="RemoveExcludedProcess" xml:space="preserve"><value>Remove {0}</value></data>
+  <data name="PassiveBrowsingUnavailable" xml:space="preserve"><value>Could not enable browsing without activation. Please try again.</value></data>
 </root>

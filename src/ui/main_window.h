@@ -20,6 +20,7 @@
 #include <windows.h>
 
 #include <optional>
+#include <bitset>
 
 class HistoryDelegate;
 class HistoryModel;
@@ -73,6 +74,13 @@ private:
     void applyTheme();
     void registerHotkey();
     void updateWinVHook();
+    bool setPassiveBrowsing(bool passive);
+    void updatePanelInputHooks();
+    void activatePanel(QWidget *focus = nullptr);
+    void preparePanelMenu(QMenu *menu);
+    bool isPanelWindow(HWND window) const;
+    static LRESULT CALLBACK panelKeyboardProc(int code, WPARAM message, LPARAM data);
+    static LRESULT CALLBACK panelMouseProc(int code, WPARAM message, LPARAM data);
     std::optional<RECT> capturePasteTarget(HWND window);
     void positionPanel(bool preferCursor, std::optional<RECT> resolvedBounds = std::nullopt,
                        std::optional<RECT> controlBounds = std::nullopt);
@@ -163,6 +171,10 @@ private:
     QPoint dragWindowStart_;
     bool dragging_ = false;
     HHOOK winVHook_ = nullptr;
+    HHOOK panelKeyboardHook_ = nullptr;
+    HHOOK panelMouseHook_ = nullptr;
+    std::bitset<256> swallowedPanelKeys_;
+    bool passiveBrowsing_ = false;
     QRect hoveredHistoryRow_;
     bool restoreWasPaused_ = false;
     int panelShowGeneration_ = 0;

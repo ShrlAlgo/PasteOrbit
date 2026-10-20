@@ -343,4 +343,5 @@
   <data name="SettingsClosePanel" xml:space="preserve"><value>关闭面板</value></data>
   <data name="AddExcludedProcess" xml:space="preserve"><value>添加</value></data>
   <data name="RemoveExcludedProcess" xml:space="preserve"><value>移除 {0}</value></data>
+  <data name="PassiveBrowsingUnavailable" xml:space="preserve"><value>无法启用不抢焦点浏览，请稍后重试。</value></data>
 </root>
