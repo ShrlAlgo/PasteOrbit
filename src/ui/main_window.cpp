@@ -70,6 +70,8 @@
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWheelEvent>
+#include <QWindow>
+#include <QXmlStreamReader>
 #include <QtConcurrent>
 
 #include <climits>
@@ -595,12 +597,14 @@ struct PasteResult {
     QByteArray content;
     ImageContent image;
     QImage decoded;
+    QPair<QString, QByteArray> file;
 };
 
 struct PreviewResult {
     QString text;
     QString html;
     bool markdown = false;
+    bool sourceMarkdown = false;
     QString formatLabel;
     QImage image;
     int kind = 0;
@@ -648,6 +652,59 @@ TextContent decodeTextContent(const QByteArray &content) {
         : json.value(QStringLiteral("Rtf")).toString().toUtf8();
     result.markdown = json.value(QStringLiteral("Markdown")).toBool();
     return result;
+}
+
+// 编辑器常附带 HTML 而不提供 Markdown MIME；导出和预览共用正文识别结果。
+bool isMarkdownContent(const TextContent &content) {
+    if (content.markdown) return true;
+    // 自动链接和 HTML 注释也可出现在 Markdown 开头，仅排除完整标记文档。
+    if (content.text.trimmed().startsWith(QLatin1Char('<'))) {
+        static const QRegularExpression htmlDocument(QStringLiteral(
+            R"(^\s*(?:<!--[\s\S]*?-->\s*)*(?:<!DOCTYPE\s+html\b|<html(?:\s|>)))"),
+            QRegularExpression::CaseInsensitiveOption);
+        if (htmlDocument.match(content.text).hasMatch()) return false;
+        QXmlStreamReader xml(content.text);
+        bool hasRoot = false;
+        while (!xml.atEnd()) {
+            if (xml.readNext() == QXmlStreamReader::StartElement) hasRoot = true;
+        }
+        if (!xml.hasError() && hasRoot) return false;
+    }
+    static const QRegularExpression structure(QStringLiteral(
+        R"(^ {0,3}(?:#{1,6}[\t ]+\S|`{3,}|~{3,}|[-+*][\t ]+\[[ xX]\][\t ]+\S)|!?\[[^\]\r\n]+\]\([^\s)\r\n]+\)|(\*\*|__)\S(?:[^\r\n]*?\S)?\1)"),
+        QRegularExpression::MultilineOption);
+    static const QRegularExpression underline(QStringLiteral(
+        R"(^[^\r\n]+\r?\n {0,3}(?:={3,}|-{3,})[\t ]*\r?$|^[^\r\n]*\|[^\r\n]+\r?\n[\t ]*\|?[\t ]*:?-{3,}:?[\t ]*(?:\|[\t ]*:?-{3,}:?[\t ]*)+\|?[\t ]*\r?$)"),
+        QRegularExpression::MultilineOption);
+    static const QRegularExpression list(QStringLiteral(R"(^ {0,3}(?:[-+*]|\d+[.)]|>)[\t ]+\S)"),
+                                         QRegularExpression::MultilineOption);
+    bool marked = structure.match(content.text).hasMatch() || underline.match(content.text).hasMatch();
+    if (!marked) {
+        auto matches = list.globalMatch(content.text);
+        if (matches.hasNext()) { matches.next(); marked = matches.hasNext(); }
+    }
+    // JSON 字符串中的强调或链接语法不改变其文件类型。
+    return marked && QJsonDocument::fromJson(content.text.toUtf8()).isNull();
+}
+
+// 先识别正文格式，再使用附带的富文本；内容与扩展名一并确定。
+QPair<QString, QByteArray> textFileContent(const TextContent &content) {
+    if (isMarkdownContent(content)) return {QStringLiteral("md"), content.text.toUtf8()};
+    const QByteArray bytes = content.text.toUtf8();
+    if (!QJsonDocument::fromJson(bytes).isNull()) return {QStringLiteral("json"), bytes};
+    if (content.text.trimmed().startsWith(QLatin1Char('<'))) {
+        QXmlStreamReader xml(bytes);
+        QString suffix;
+        while (!xml.atEnd()) {
+            if (xml.readNext() == QXmlStreamReader::StartElement && suffix.isEmpty())
+                suffix = xml.name().compare(QLatin1String("html"), Qt::CaseInsensitive) == 0
+                    ? QStringLiteral("html") : QStringLiteral("xml");
+        }
+        if (!xml.hasError() && !suffix.isEmpty()) return {suffix, bytes};
+    }
+    if (!content.html.isEmpty()) return {QStringLiteral("html"), content.html.toUtf8()};
+    if (!content.rtf.isEmpty()) return {QStringLiteral("rtf"), content.rtf};
+    return {QStringLiteral("txt"), bytes};
 }
 
 QStringList webLinks(const QByteArray &content) {
@@ -824,7 +881,12 @@ void MainWindow::preparePanelMenu(QMenu *menu) {
         item->setProperty("passivePanelMenu", true);
         item->setAttribute(Qt::WA_ShowWithoutActivating);
         item->setWindowFlag(Qt::WindowDoesNotAcceptFocus);
-        const HWND handle = reinterpret_cast<HWND>(item->winId());
+        item->winId();
+        // QWidget 保留 Popup 交互；原生 Tool 避免强制激活，并显式置顶以覆盖历史面板。
+        auto *window = item->windowHandle();
+        window->setFlags((window->flags() & ~Qt::WindowType_Mask) | Qt::Tool | Qt::FramelessWindowHint
+                         | Qt::WindowStaysOnTopHint);
+        const HWND handle = reinterpret_cast<HWND>(window->winId());
         SetWindowLongPtrW(handle, GWL_EXSTYLE, GetWindowLongPtrW(handle, GWL_EXSTYLE) | WS_EX_NOACTIVATE);
     }
 }
@@ -1746,7 +1808,8 @@ void MainWindow::updateVisibleThumbnails() {
     model_->setVisibleRows(first, last);
 }
 
-QString textFormatLabel(const TextContent &content) {
+QString textFormatLabel(const TextContent &content, bool markdown) {
+    if (markdown) return QStringLiteral("Markdown");
     const char *richMarkers[]{"<a ", "<b>", "<b ", "<strong", "<i>", "<i ", "<em", "<u>",
                               "<u ", "<s>", "<s ", "<table", "<img", "<ul", "<ol", "<li",
                               "<h1", "<h2", "<h3", " style=", " class="};
@@ -1759,7 +1822,6 @@ QString textFormatLabel(const TextContent &content) {
     }
     if (formattedHtml && !content.rtf.isEmpty()) return QStringLiteral("HTML · RTF");
     if (formattedHtml) return QStringLiteral("HTML");
-    if (content.markdown) return QStringLiteral("Markdown");
     return content.rtf.isEmpty() ? QString{} : QStringLiteral("RTF");
 }
 
@@ -2239,14 +2301,15 @@ void MainWindow::toggleHoverPreview(QString id) {
             preview->setStyleSheet(QStringLiteral("QTextEdit{background:transparent;border:0;color:%1;}")
                 .arg(previewText.name()));
             preview->viewport()->setAutoFillBackground(false);
-            // 优先使用剪贴板提供的富文本格式；普通文本保持原样。
-            if (!result.html.isEmpty()) preview->setHtml(result.html);
-            else if (result.markdown) preview->setMarkdown(result.text);
+            // Markdown 正文优先，避免编辑器附带的 HTML 覆盖源码和渲染方式。
+            if (result.markdown) preview->setMarkdown(result.text);
+            else if (!result.html.isEmpty()) preview->setHtml(result.html);
             else preview->setPlainText(result.text);
             if (richText) adaptPreviewContrast(preview->document(), previewBackground, previewText);
             layout->addWidget(preview);
             if (result.kind == 0) {
-                const bool markdown = result.markdown;
+                // 推测格式只影响展示，编辑和保存沿用原始格式。
+                const bool markdown = result.sourceMarkdown;
                 const bool html = !markdown && !result.html.isEmpty();
                 const bool plainRtf = !markdown && !html && result.formatLabel == QStringLiteral("RTF");
                 auto *actions = new QHBoxLayout;
@@ -2285,9 +2348,16 @@ void MainWindow::toggleHoverPreview(QString id) {
                     replace->setEnabled(false);
                     preview->setFocus(Qt::MouseFocusReason);
                 };
-                connect(edit, &QPushButton::clicked, this, [this, id, generation, markdown, preview, edit, beginEdit] {
+                connect(edit, &QPushButton::clicked, this,
+                        [this, id, generation, renderedMarkdown = result.markdown, html,
+                         sourceHtml = result.html, preview, edit, beginEdit] {
                     if (generation != hoverPreviewGeneration_->loadRelaxed()) return;
-                    if (!markdown) { beginEdit(); return; }
+                    if (!renderedMarkdown) { beginEdit(); return; }
+                    if (html) {
+                        preview->setHtml(sourceHtml);
+                        beginEdit();
+                        return;
+                    }
                     // Markdown 编辑源文本，按需重读，不让查看窗口额外常驻一份源码。
                     edit->setEnabled(false);
                     auto *watcher = new QFutureWatcher<QString>(this);
@@ -2408,8 +2478,9 @@ void MainWindow::toggleHoverPreview(QString id) {
             const auto text = decodeTextContent(content);
             result.text = text.text;
             result.html = text.html;
-            result.markdown = text.markdown;
-            result.formatLabel = textFormatLabel(text);
+            result.sourceMarkdown = text.markdown;
+            result.markdown = isMarkdownContent(text);
+            result.formatLabel = textFormatLabel(text, result.markdown);
         } else {
             const auto paths = QJsonDocument::fromJson(content).array();
             QStringList values;
@@ -2524,79 +2595,76 @@ void MainWindow::clearCurrentList() {
 }
 
 void MainWindow::openRowMenu(const QString &id, std::optional<QPoint> position) {
-    if (loadingPage_) return;
+    if (loadingPage_ || QApplication::activePopupWidget()) return;
     const auto *item = model_->itemAt(model_->rowForId(id));
     if (!item) return;
     const int kind = item->kind;
     const int generation = panelShowGeneration_;
     const QPoint popupPosition = position.value_or(QCursor::pos());
-    const auto showMenu = [this, id, kind, generation, popupPosition](const QStringList &targets) {
-        // 异步识别完成时面板可能已关闭，不能再弹出过期菜单。
-        if (!isVisible() || generation != panelShowGeneration_ || loadingPage_
-            || model_->rowForId(id) < 0 || QApplication::activePopupWidget()) return;
-        // 菜单作为独立弹窗，避免继承透明历史面板的样式表。
-        auto *menu = new QMenu();
-        stylePopupMenu(menu, qApp->palette());
-        connect(this, &QObject::destroyed, menu, &QObject::deleteLater);
-        if (!targets.isEmpty()) {
-            const QString title = AppLocalization::get(kind == 0
-                ? QStringLiteral("OpenLinkMenuItemText") : QStringLiteral("RevealFileMenuItemText"));
-            QMenu *choices = menu;
-            if (targets.size() > 1) {
-                choices = menu->addMenu(title);
-                stylePopupMenu(choices, qApp->palette());
-            }
-            choices->setToolTipsVisible(true);
-            for (const auto &target : targets) {
-                const QString label = kind == 0 ? QUrl(target).toDisplayString() : QDir::toNativeSeparators(target);
-                auto *action = choices->addAction(targets.size() == 1 ? title
-                    : choices->fontMetrics().elidedText(label, Qt::ElideMiddle, 360).replace(QLatin1Char('&'), QStringLiteral("&&")));
-                action->setToolTip(label);
-                connect(action, &QAction::triggered, this, [this, kind, target] {
-                    if (kind == 0) {
-                        if (!QDesktopServices::openUrl(QUrl(target)))
-                            showStatus(AppLocalization::get(QStringLiteral("OpenLinkFailed")));
-                        return;
-                    }
-                    auto *watcher = new QFutureWatcher<bool>(this);
-                    connect(watcher, &QFutureWatcher<bool>::finished, this, [this, watcher] {
-                        const bool opened = watcher->result();
-                        watcher->deleteLater();
-                        if (!opened) showStatus(AppLocalization::get(QStringLiteral("RevealFileFailed")));
-                    });
-                    // 网络路径、Shell 扩展可能很慢，只在用户选择后由后台访问。
-                    watcher->setFuture(QtConcurrent::run(&readPool_, [target] { return revealFile(target); }));
-                });
-            }
-            menu->addSeparator();
-        }
-        QAction *plain = nullptr;
-        QAction *asFile = nullptr;
-        if (kind == 0) plain = menu->addAction(AppLocalization::get(QStringLiteral("PastePlainTextMenuItem.Text")));
-        if (kind == 0 || kind == 1) asFile = menu->addAction(AppLocalization::get(QStringLiteral("PasteAsFileMenuItem.Text")));
-        if (plain || asFile) menu->addSeparator();
-        auto *remove = menu->addAction(AppLocalization::get(QStringLiteral("DeleteRecordMenuItem.Text")));
-        if (plain) connect(plain, &QAction::triggered, this, [this, id] { pasteRecord(id, true); });
-        if (asFile) connect(asFile, &QAction::triggered, this, [this, id] { pasteRecord(id, false, true); });
-        connect(remove, &QAction::triggered, this, [this, id] {
-            // 删除留在历史面板，菜单关闭后重新激活以免失焦回调误隐藏。
-            if (!passiveBrowsing_) activatePanel(historyList_);
-            deleteRecord(id);
-        });
-        connect(menu, &QMenu::aboutToHide, this, &MainWindow::scheduleAutoHide);
-        connect(menu, &QMenu::aboutToHide, menu, &QObject::deleteLater);
-        preparePanelMenu(menu);
-        menu->popup(popupPosition);
-    };
-    if (kind == 1) { showMenu({}); return; }
+    // 常用操作立即显示，不等待数据库读取和富文本链接解析。
+    auto *menu = new QMenu();
+    stylePopupMenu(menu, qApp->palette());
+    connect(this, &QObject::destroyed, menu, &QObject::deleteLater);
+    QAction *plain = nullptr;
+    QAction *asFile = nullptr;
+    if (kind == 0) plain = menu->addAction(AppLocalization::get(QStringLiteral("PastePlainTextMenuItem.Text")));
+    if (kind == 0 || kind == 1) asFile = menu->addAction(AppLocalization::get(QStringLiteral("PasteAsFileMenuItem.Text")));
+    if (plain || asFile) menu->addSeparator();
+    auto *remove = menu->addAction(AppLocalization::get(QStringLiteral("DeleteRecordMenuItem.Text")));
+    if (plain) connect(plain, &QAction::triggered, this, [this, id] { pasteRecord(id, true); });
+    if (asFile) connect(asFile, &QAction::triggered, this, [this, id] { pasteRecord(id, false, true); });
+    connect(remove, &QAction::triggered, this, [this, id] {
+        // 删除留在历史面板，菜单关闭后重新激活以免失焦回调误隐藏。
+        if (!passiveBrowsing_) activatePanel(historyList_);
+        deleteRecord(id);
+    });
+    connect(menu, &QMenu::aboutToHide, this, &MainWindow::scheduleAutoHide);
+    connect(menu, &QMenu::aboutToHide, menu, &QObject::deleteLater);
+    preparePanelMenu(menu);
+    menu->popup(popupPosition);
+    if (kind == 1) return;
     const QString path = databasePath_;
     auto *watcher = new QFutureWatcher<QStringList>(this);
-    connect(watcher, &QFutureWatcher<QStringList>::finished, this, [watcher, showMenu] {
+    connect(watcher, &QFutureWatcher<QStringList>::finished, this,
+            [this, watcher, menu = QPointer<QMenu>(menu), kind, generation] {
         const auto targets = watcher->result();
         watcher->deleteLater();
-        showMenu(targets);
+        if (!menu || !menu->isVisible() || generation != panelShowGeneration_ || targets.isEmpty()) return;
+        // 可选操作追加到底部，不移动用户正在选择的常用操作。
+        menu->addSeparator();
+        const QString title = AppLocalization::get(kind == 0
+            ? QStringLiteral("OpenLinkMenuItemText") : QStringLiteral("RevealFileMenuItemText"));
+        QMenu *choices = menu;
+        if (targets.size() > 1) {
+            choices = menu->addMenu(title);
+            stylePopupMenu(choices, qApp->palette());
+            preparePanelMenu(choices);
+        }
+        choices->setToolTipsVisible(true);
+        for (const auto &target : targets) {
+            const QString label = kind == 0 ? QUrl(target).toDisplayString() : QDir::toNativeSeparators(target);
+            auto *action = choices->addAction(targets.size() == 1 ? title
+                : choices->fontMetrics().elidedText(label, Qt::ElideMiddle, 360).replace(QLatin1Char('&'), QStringLiteral("&&")));
+            action->setToolTip(label);
+            connect(action, &QAction::triggered, this, [this, kind, target] {
+                if (kind == 0) {
+                    if (!QDesktopServices::openUrl(QUrl(target)))
+                        showStatus(AppLocalization::get(QStringLiteral("OpenLinkFailed")));
+                    return;
+                }
+                auto *watcher = new QFutureWatcher<bool>(this);
+                connect(watcher, &QFutureWatcher<bool>::finished, this, [this, watcher] {
+                    const bool opened = watcher->result();
+                    watcher->deleteLater();
+                    if (!opened) showStatus(AppLocalization::get(QStringLiteral("RevealFileFailed")));
+                });
+                // 网络路径、Shell 扩展可能很慢，只在用户选择后由后台访问。
+                watcher->setFuture(QtConcurrent::run(&readPool_, [target] { return revealFile(target); }));
+            });
+        }
     });
-    watcher->setFuture(QtConcurrent::run(&readPool_, [path, id, kind] {
+    // 链接解析不占用预览读取队列，关闭菜单后的结果由 QPointer 丢弃。
+    watcher->setFuture(QtConcurrent::run([path, id, kind] {
         const QByteArray content = HistoryStore(path).content(id);
         if (kind == 0) return webLinks(content);
         QStringList paths;
@@ -2793,14 +2861,8 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile, std
         auto *mime = new QMimeData();
         if (asFile) {
             cleanupPasteFiles();
-            QString suffix = QStringLiteral("txt");
-            QByteArray fileBytes;
-            if (item.kind == 0) fileBytes = decodeTextContent(content).text.toUtf8();
-            else {
-                const QString type = imageMimeType(image.bytes);
-                suffix = type == QStringLiteral("image/jpeg") ? QStringLiteral("jpg") : type.mid(6);
-                fileBytes = image.bytes;
-            }
+            const QString &suffix = result.file.first;
+            const QByteArray &fileBytes = result.file.second;
             const QString directory = QStandardPaths::writableLocation(QStandardPaths::CacheLocation)
                 + QStringLiteral("/PasteOrbit/PasteFiles");
             if (!QDir().mkpath(directory)) { delete mime; showStatus(AppLocalization::get(QStringLiteral("SaveAsFileFailed"))); return; }
@@ -2954,8 +3016,15 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile, std
         if (generationState->loadRelaxed() != generation) return result;
         result.content = editedContent ? *editedContent : HistoryStore(path).content(item.id);
         if (generationState->loadRelaxed() != generation) return result;
+        // 格式识别在读取线程完成，避免大段 JSON/XML 阻塞面板响应。
+        if (asFile && item.kind == 0) result.file = textFileContent(decodeTextContent(result.content));
         if (item.kind == 1) {
             result.image = decodeImageContent(result.content);
+            if (asFile) {
+                const QString type = imageMimeType(result.image.bytes);
+                result.file = {type == QStringLiteral("image/jpeg") ? QStringLiteral("jpg") : type.mid(6),
+                               result.image.bytes};
+            }
             // 恢复位图需要原图；存为文件或已有纯文本时无需解码。
             if (!asFile && !(plainText && !result.image.text.isEmpty())
                 && generationState->loadRelaxed() == generation)
