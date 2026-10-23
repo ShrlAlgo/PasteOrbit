@@ -1,4 +1,5 @@
 #include "history_model.h"
+#include "clipboard_content.h"
 
 #include <QCache>
 #include <QBuffer>
@@ -54,6 +55,15 @@ QImage fileTypeIcon(const QByteArray &content) {
 HistoryModel::HistoryModel(QString databasePath, QObject *parent)
     : QAbstractListModel(parent), databasePath_(std::move(databasePath)) {}
 
+HistoryModel::~HistoryModel() {
+    cancelThumbnailLoads();
+}
+
+void HistoryModel::cancelThumbnailLoads() {
+    for (const auto &cancelled : std::as_const(thumbnailLoads_)) cancelled->storeRelaxed(true);
+    thumbnailLoads_.clear();
+}
+
 int HistoryModel::rowCount(const QModelIndex &parent) const {
     return parent.isValid() ? 0 : items_.size();
 }
@@ -72,6 +82,7 @@ QVariant HistoryModel::data(const QModelIndex &index, int role) const {
     case SizeRole: return item.contentSize;
     case TextLengthRole: return item.searchTextLength;
     case ThumbnailRole: return thumbnails_.value(item.id);
+    case FormatRole: return formats_.value(item.id);
     case QuickPasteRole: {
         // 收藏分类同样支持数字粘贴，编号与当前列表的可见顺序一致。
         if (!quickPasteEnabled_ || index.row() >= 9) return {};
@@ -83,12 +94,12 @@ QVariant HistoryModel::data(const QModelIndex &index, int role) const {
 }
 
 void HistoryModel::setFirstPage(const HistoryPage &page) {
-    thumbnailGeneration_->fetchAndAddRelaxed(1);
+    cancelThumbnailLoads();
     beginResetModel();
     items_ = page.items;
     thumbnails_.clear();
+    formats_.clear();
     visibleIds_.clear();
-    loadingIds_.clear();
     endResetModel();
 }
 
@@ -134,7 +145,7 @@ void HistoryModel::setPinned(const QString &id, bool pinned) {
     emit dataChanged(index(row), index(row), {PinnedRole});
 }
 
-void HistoryModel::setText(const QString &id, const QString &text, qint64 contentSize) {
+void HistoryModel::setText(const QString &id, const QString &text, qint64 contentSize, const QString &format) {
     const int row = rowForId(id);
     if (row < 0 || items_[row].kind != 0) return;
     auto &item = items_[row];
@@ -142,8 +153,10 @@ void HistoryModel::setText(const QString &id, const QString &text, qint64 conten
     if (text.size() > 160) item.preview.append(QChar(0x2026));
     item.searchTextLength = text.size();
     item.contentSize = contentSize;
+    if (const auto cancelled = thumbnailLoads_.take(id)) cancelled->storeRelaxed(true);
+    formats_.insert(id, format);
     // 只更新当前卡片，不重置列表或改变用户的选择、滚动位置。
-    emit dataChanged(index(row), index(row), {Qt::DisplayRole, PreviewRole, TextLengthRole, SizeRole});
+    emit dataChanged(index(row), index(row), {Qt::DisplayRole, PreviewRole, TextLengthRole, SizeRole, FormatRole});
 }
 
 void HistoryModel::remove(const QString &id) {
@@ -151,8 +164,9 @@ void HistoryModel::remove(const QString &id) {
     if (row < 0) return;
     beginRemoveRows({}, row, row);
     thumbnails_.remove(id);
+    formats_.remove(id);
     visibleIds_.remove(id);
-    loadingIds_.remove(id);
+    if (const auto cancelled = thumbnailLoads_.take(id)) cancelled->storeRelaxed(true);
     items_.removeAt(row);
     endRemoveRows();
 }
@@ -161,50 +175,56 @@ void HistoryModel::setVisibleRows(int first, int last) {
     QSet<QString> nowVisible;
     if (first >= 0 && last >= first) {
         for (int row = first; row <= last && row < items_.size(); ++row) {
-            if (items_.at(row).kind == 1 || items_.at(row).kind == 2) nowVisible.insert(items_.at(row).id);
+            nowVisible.insert(items_.at(row).id);
         }
     }
     for (const auto &id : std::as_const(visibleIds_)) {
         if (!nowVisible.contains(id)) {
             thumbnails_.remove(id);
+            formats_.remove(id);
+            if (const auto cancelled = thumbnailLoads_.take(id)) cancelled->storeRelaxed(true);
             const int row = rowForId(id);
-            if (row >= 0) emit dataChanged(index(row), index(row), {ThumbnailRole});
+            if (row >= 0) emit dataChanged(index(row), index(row), {ThumbnailRole, FormatRole});
         }
     }
-    if (nowVisible != visibleIds_) {
-        thumbnailGeneration_->fetchAndAddRelaxed(1);
-        loadingIds_.clear();
-    }
     visibleIds_ = std::move(nowVisible);
-    const int generation = thumbnailGeneration_->loadRelaxed();
-    const auto generationState = thumbnailGeneration_;
+    // 只取消移出视口的请求，仍可见卡片继续复用正在读取的任务。
     for (const auto &id : std::as_const(visibleIds_)) {
-        if (thumbnails_.contains(id) || loadingIds_.contains(id)) continue;
-        loadingIds_.insert(id);
-        const bool file = items_.at(rowForId(id)).kind == 2;
+        if (thumbnails_.contains(id) || thumbnailLoads_.contains(id)) continue;
+        const auto cancelled = QSharedPointer<QAtomicInteger<bool>>::create(false);
+        thumbnailLoads_.insert(id, cancelled);
+        const int kind = items_.at(rowForId(id)).kind;
         auto *watcher = new QFutureWatcher<ThumbnailResult>(this);
-        connect(watcher, &QFutureWatcher<ThumbnailResult>::finished, this, [this, watcher, generationState, generation, file] {
+        connect(watcher, &QFutureWatcher<ThumbnailResult>::finished, this, [this, watcher, cancelled] {
             const auto result = watcher->result();
             watcher->deleteLater();
-            if (generationState->loadRelaxed() != generation) return;
-            loadingIds_.remove(result.id);
+            if (cancelled->loadRelaxed()) return;
+            thumbnailLoads_.remove(result.id);
             if (!visibleIds_.contains(result.id)) return;
-            if (file || !result.image.isNull()) {
-                thumbnails_.insert(result.id, result.image);
-                const int row = rowForId(result.id);
-                if (row >= 0) emit dataChanged(index(row), index(row), {ThumbnailRole});
-            }
+            // 空图像也记为已尝试，避免可见范围内反复读取和解码失败记录。
+            // 离开可见范围或重新打开面板后会清除，允许下次重试。
+            thumbnails_.insert(result.id, result.image);
+            if (!result.format.isEmpty()) formats_.insert(result.id, result.format);
+            const int row = rowForId(result.id);
+            if (row >= 0) emit dataChanged(index(row), index(row), {ThumbnailRole, FormatRole});
         });
         const QString path = databasePath_;
-        watcher->setFuture(QtConcurrent::run([path, id, generationState, generation, file] {
-            if (generationState->loadRelaxed() != generation) return ThumbnailResult{id, {}};
-            if (file) {
+        watcher->setFuture(QtConcurrent::run([path, id, cancelled, kind] {
+            if (cancelled->loadRelaxed()) return ThumbnailResult{id, {}};
+            if (kind == 0) {
                 const auto content = HistoryStore(path).content(id);
-                if (generationState->loadRelaxed() != generation) return ThumbnailResult{id, {}};
+                if (cancelled->loadRelaxed() || content.isEmpty()) return ThumbnailResult{id, {}};
+                const auto text = ClipboardContent::decodeTextContent(content);
+                const QString format = ClipboardContent::textFormatLabel(text);
+                return ThumbnailResult{id, {}, format.isEmpty() ? QStringLiteral("PlainTextFormat") : format};
+            }
+            if (kind == 2) {
+                const auto content = HistoryStore(path).content(id);
+                if (cancelled->loadRelaxed()) return ThumbnailResult{id, {}};
                 return ThumbnailResult{id, fileTypeIcon(content)};
             }
             const auto bytes = HistoryStore(path).thumbnail(id);
-            if (generationState->loadRelaxed() != generation) return ThumbnailResult{id, {}};
+            if (cancelled->loadRelaxed()) return ThumbnailResult{id, {}};
             // 解码与缩放均在工作线程执行，GUI 只接收卡片所需尺寸的图像。
             QBuffer buffer;
             buffer.setData(bytes);
@@ -218,10 +238,10 @@ void HistoryModel::setVisibleRows(int first, int last) {
 
 void HistoryModel::releaseThumbnails() {
     // 面板隐藏或开始恢复备份时，让尚未执行的缩略图任务直接退出。
-    thumbnailGeneration_->fetchAndAddRelaxed(1);
+    cancelThumbnailLoads();
     visibleIds_.clear();
-    loadingIds_.clear();
-    if (thumbnails_.isEmpty()) return;
+    if (thumbnails_.isEmpty() && formats_.isEmpty()) return;
     thumbnails_.clear();
-    if (!items_.isEmpty()) emit dataChanged(index(0), index(items_.size() - 1), {ThumbnailRole});
+    formats_.clear();
+    if (!items_.isEmpty()) emit dataChanged(index(0), index(items_.size() - 1), {ThumbnailRole, FormatRole});
 }

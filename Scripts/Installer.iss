@@ -1,6 +1,6 @@
 ; 安装包版本。发布新版本时应与 Publish.ps1 的 -Version 参数保持一致。
 #ifndef AppVersion
-#define AppVersion "2.5.9"
+#define AppVersion "2.5.10"
 #endif
 ; 安装文件来源于 Publish.ps1 生成的完整 win-x64 发布目录。
 #define ReleaseDir "..\dist\PasteOrbit-win-x64"
@@ -8,9 +8,9 @@
 [Setup]
 ; AppId 必须在后续版本中保持不变，Inno Setup 才能识别升级安装。
 AppId={{D6C9A5F7-5C7E-4C1D-9F2A-7C9D8B3E4A11}
-AppName=PasteOrbit
+AppName={cm:ProductName}
 AppVersion={#AppVersion}
-AppVerName=PasteOrbit {#AppVersion}
+AppVerName={cm:ProductName} {#AppVersion}
 AppPublisher=PasteOrbit
 ; 使用当前用户目录安装，无需管理员权限，也不会影响其他 Windows 用户。
 DefaultDirName={localappdata}\Programs\PasteOrbit
@@ -33,7 +33,7 @@ CloseApplications=yes
 RestartApplications=no
 VersionInfoVersion={#AppVersion}.0
 VersionInfoProductVersion={#AppVersion}
-VersionInfoDescription=PasteOrbit 安装程序
+VersionInfoDescription=贴环 / PasteOrbit 安装程序
 VersionInfoProductName=PasteOrbit
 
 [Languages]
@@ -41,10 +41,18 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 ; 中文语言文件随安装脚本提供，不依赖 Inno Setup 安装目录中的可选翻译。
 Name: "chinesesimp"; MessagesFile: "Languages\ChineseSimplified.isl"
 
+[CustomMessages]
+english.ProductName=PasteOrbit
+chinesesimp.ProductName=贴环
+english.AutoStart=Start PasteOrbit with Windows
+chinesesimp.AutoStart=随 Windows 启动贴环
+english.LaunchProduct=Launch PasteOrbit
+chinesesimp.LaunchProduct=启动贴环
+
 [Tasks]
 ; 两个选项均默认不勾选，由用户在安装时决定。
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加快捷方式："; Flags: unchecked
-Name: "autostart"; Description: "随 Windows 启动 PasteOrbit"; GroupDescription: "附加选项："; Flags: unchecked
+Name: "autostart"; Description: "{cm:AutoStart}"; GroupDescription: "附加选项："; Flags: unchecked
 
 [Files]
 ; 保留发布目录中的 Assets、Themes、XBF、PRI 和所有运行依赖的相对路径。
@@ -61,4 +69,4 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 ; 非静默安装完成后显示“启动 PasteOrbit”选项，并且不等待应用退出。
-Filename: "{app}\PasteOrbit.exe"; Description: "启动 PasteOrbit"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\PasteOrbit.exe"; Description: "{cm:LaunchProduct}"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent

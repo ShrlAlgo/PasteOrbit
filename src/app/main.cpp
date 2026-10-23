@@ -112,6 +112,7 @@ int main(int argc, char *argv[]) {
     if (language.isEmpty()) language = QLocale().name().startsWith(QStringLiteral("en"))
         ? QStringLiteral("en-US") : QStringLiteral("zh-CN");
     AppLocalization::load(language);
+    application.setApplicationDisplayName(AppLocalization::get(QStringLiteral("ApplicationDisplayName")));
 
     const bool elevatedRestart = application.arguments().contains(QStringLiteral("--elevated-restart"), Qt::CaseInsensitive);
     // 互斥锁负责跨权限级别的单实例约束；本地消息通道只用于唤起已有窗口。
@@ -123,7 +124,7 @@ int main(int argc, char *argv[]) {
         if (singletonMutex) CloseHandle(singletonMutex);
     });
     if (!singletonMutex && mutexError != ERROR_ACCESS_DENIED) {
-        QMessageBox::critical(nullptr, QStringLiteral("PasteOrbit"),
+        QMessageBox::critical(nullptr, QApplication::applicationDisplayName(),
                               QStringLiteral("无法检查运行中的实例（%1）。").arg(mutexError));
         return 1;
     }
@@ -151,7 +152,7 @@ int main(int argc, char *argv[]) {
     QLocalServer::removeServer(QString::fromLatin1(ServerName));
     QLocalServer server;
     if (!server.listen(QString::fromLatin1(ServerName))) {
-        QMessageBox::critical(nullptr, QStringLiteral("PasteOrbit"), server.errorString());
+        QMessageBox::critical(nullptr, QApplication::applicationDisplayName(), server.errorString());
         return 1;
     }
 
@@ -207,7 +208,7 @@ int main(int argc, char *argv[]) {
                 reverted.save(window.settingsPath());
                 window.applySettings(reverted);
                 if (!server.listen(QString::fromLatin1(ServerName))) {
-                    QMessageBox::critical(&window, QStringLiteral("PasteOrbit"), server.errorString());
+                    QMessageBox::critical(&window, QApplication::applicationDisplayName(), server.errorString());
                 }
             }
         });

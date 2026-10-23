@@ -100,8 +100,9 @@ QString escapeLike(QString value) {
 }
 
 QString searchClause(const QString &text, int kind, const std::optional<HistoryCursor> &cursor,
-                     bool includeUnpinnedOnly = false) {
+                     bool includeUnpinnedOnly = false, const std::optional<QString> &source = std::nullopt) {
     QString sql = QStringLiteral(" WHERE 1=1");
+    if (source) sql += QStringLiteral(" AND COALESCE(fts.source_application,'')=:source COLLATE NOCASE");
     if (includeUnpinnedOnly) sql += QStringLiteral(" AND item.is_pinned=0");
     // 收藏复用旧置顶标记，不改变记录的文本、图片或文件类型。
     if (kind == 3) sql += QStringLiteral(" AND item.is_pinned=1");
@@ -123,7 +124,8 @@ QString searchClause(const QString &text, int kind, const std::optional<HistoryC
 }
 
 void bindSearch(QSqlQuery &query, const QString &text, int kind,
-                const std::optional<HistoryCursor> &cursor) {
+                const std::optional<HistoryCursor> &cursor, const std::optional<QString> &source = std::nullopt) {
+    if (source) query.bindValue(QStringLiteral(":source"), source->isEmpty() ? QStringLiteral("") : *source);
     if (kind >= 0 && kind < 3) query.bindValue(QStringLiteral(":kind"), kind);
     const auto term = text.trimmed();
     if (!term.isEmpty()) {
@@ -184,7 +186,7 @@ QString HistoryStore::initialize() const {
         QStringLiteral("CREATE INDEX IF NOT EXISTS ix_clipboard_items_kind_order ON clipboard_items(kind,is_pinned DESC,updated_at DESC,storage_id DESC)"),
         QStringLiteral("CREATE INDEX IF NOT EXISTS ix_clipboard_items_recent ON clipboard_items(updated_at DESC,storage_id DESC)"),
         QStringLiteral("CREATE INDEX IF NOT EXISTS ix_clipboard_items_kind_recent ON clipboard_items(kind,updated_at DESC,storage_id DESC)"),
-        QStringLiteral("CREATE VIRTUAL TABLE IF NOT EXISTS clipboard_items_fts USING fts5(search_text,source_application,full_pinyin,pinyin_initials,tokenize='trigram')"),
+        QStringLiteral("CREATE VIRTUAL TABLE IF NOT EXISTS clipboard_items_fts USING fts5(search_text,source_application,tokenize='trigram')"),
         QStringLiteral("CREATE TABLE IF NOT EXISTS clipboard_image_previews(storage_id INTEGER PRIMARY KEY,content BLOB NOT NULL)"),
         QStringLiteral("CREATE TRIGGER IF NOT EXISTS delete_clipboard_image_preview AFTER DELETE ON clipboard_items BEGIN DELETE FROM clipboard_image_previews WHERE storage_id=OLD.storage_id; END")};
     for (const auto &statement : statements) {
@@ -212,20 +214,20 @@ bool HistoryStore::isCurrentSchema(const QString &path) {
 }
 
 HistoryPage HistoryStore::search(const QString &text, int kind, const std::optional<HistoryCursor> &cursor,
-                                int pageSize) const {
+                                int pageSize, const std::optional<QString> &source) const {
     HistoryPage page;
     Connection connection(path_);
     if (!connection.isOpen()) { page.error = connection.error(); return page; }
 
-    const bool hasSearch = !text.trimmed().isEmpty();
+    const bool hasSearch = !text.trimmed().isEmpty() || source.has_value();
     const QString from = hasSearch
         ? QStringLiteral(" FROM clipboard_items AS item JOIN clipboard_items_fts AS fts ON fts.rowid=item.storage_id")
         : QStringLiteral(" FROM clipboard_items AS item");
     // 清空按钮只在第一页刷新时需要数量，翻页不重复统计。
     if (!cursor) {
         QSqlQuery unpinnedQuery(connection.database());
-        unpinnedQuery.prepare(QStringLiteral("SELECT COUNT(*)") + from + searchClause(text, kind, std::nullopt, true));
-        bindSearch(unpinnedQuery, text, kind, std::nullopt);
+        unpinnedQuery.prepare(QStringLiteral("SELECT COUNT(*)") + from + searchClause(text, kind, std::nullopt, true, source));
+        bindSearch(unpinnedQuery, text, kind, std::nullopt, source);
         if (!unpinnedQuery.exec() || !unpinnedQuery.next()) { page.error = unpinnedQuery.lastError().text(); return page; }
         page.unpinnedCount = unpinnedQuery.value(0).toInt();
     }
@@ -233,10 +235,10 @@ HistoryPage HistoryStore::search(const QString &text, int kind, const std::optio
     QSqlQuery query(connection.database());
     const QString sql = QStringLiteral("SELECT item.storage_id,item.id,item.kind,item.preview_text,"
         "item.search_text_length,item.source_application,item.created_at,item.updated_at,item.is_pinned,item.content_size")
-        + from + searchClause(text, kind, cursor)
+        + from + searchClause(text, kind, cursor, false, source)
         + QStringLiteral(" ORDER BY item.updated_at DESC,item.storage_id DESC LIMIT :limit");
     query.prepare(sql);
-    bindSearch(query, text, kind, cursor);
+    bindSearch(query, text, kind, cursor, source);
     query.bindValue(QStringLiteral(":limit"), pageSize + 1);
     if (!query.exec()) { page.error = query.lastError().text(); return page; }
     while (query.next()) {
@@ -264,6 +266,20 @@ HistoryPage HistoryStore::search(const QString &text, int kind, const std::optio
         page.next = HistoryCursor{last.storageId, last.updatedAt, last.pinned};
     }
     return page;
+}
+
+QPair<QStringList, QString> HistoryStore::sourceApplications() const {
+    Connection connection(path_);
+    if (!connection.isOpen()) return {{}, connection.error()};
+    QSqlQuery query(connection.database());
+    // 复用搜索索引中的来源，不逐条解密内容；按最近记录排序，进程名忽略大小写去重。
+    if (!query.exec(QStringLiteral("SELECT COALESCE(fts.source_application,'') AS source"
+        " FROM clipboard_items AS item JOIN clipboard_items_fts AS fts ON fts.rowid=item.storage_id"
+        " GROUP BY source COLLATE NOCASE ORDER BY MAX(item.updated_at) DESC,source COLLATE NOCASE")))
+        return {{}, query.lastError().text()};
+    QStringList sources;
+    while (query.next()) sources.append(query.value(0).toString());
+    return {sources, {}};
 }
 
 QString HistoryStore::save(const ClipboardCapture &capture, HistoryItem *saved) const {
@@ -497,19 +513,20 @@ QString HistoryStore::remove(const QString &id) const {
     return {};
 }
 
-int HistoryStore::removeMatching(const QString &text, int kind, QString *error) const {
+int HistoryStore::removeMatching(const QString &text, int kind, QString *error,
+                                 const std::optional<QString> &source) const {
     if (error) error->clear();
     Connection connection(path_);
     if (!connection.isOpen()) { if (error) *error = connection.error(); return 0; }
     auto &database = connection.database();
     if (!database.transaction()) { if (error) *error = connection.error(); return 0; }
-    const bool hasSearch = !text.trimmed().isEmpty();
+    const bool hasSearch = !text.trimmed().isEmpty() || source.has_value();
     const QString from = hasSearch
         ? QStringLiteral(" FROM clipboard_items AS item JOIN clipboard_items_fts AS fts ON fts.rowid=item.storage_id")
         : QStringLiteral(" FROM clipboard_items AS item");
     QSqlQuery select(database);
-    select.prepare(QStringLiteral("SELECT item.storage_id") + from + searchClause(text, kind, std::nullopt, true));
-    bindSearch(select, text, kind, std::nullopt);
+    select.prepare(QStringLiteral("SELECT item.storage_id") + from + searchClause(text, kind, std::nullopt, true, source));
+    bindSearch(select, text, kind, std::nullopt, source);
     if (!select.exec()) { if (error) *error = select.lastError().text(); database.rollback(); return 0; }
     QVector<qint64> ids;
     while (select.next()) ids.push_back(select.value(0).toLongLong());
@@ -584,15 +601,34 @@ QString HistoryStore::compact(bool full) const {
     if (!connection.isOpen()) return connection.error();
     QString error;
     QSqlQuery checkpoint(connection.database());
-    if (!checkpoint.exec(QStringLiteral("PRAGMA wal_checkpoint(TRUNCATE)")) || !checkpoint.next())
+    // 日常维护不等待读事务结束；完整压缩才要求截断 WAL。
+    if (!checkpoint.exec(full ? QStringLiteral("PRAGMA wal_checkpoint(TRUNCATE)")
+                              : QStringLiteral("PRAGMA wal_checkpoint(PASSIVE)")) || !checkpoint.next())
         return checkpoint.lastError().isValid() ? checkpoint.lastError().text() : QStringLiteral("无法确认数据库检查点状态");
     // SQLite 的 busy 通过结果行返回，exec 成功不代表 WAL 已全部写回主数据库。
-    if (checkpoint.value(0).toInt() != 0) return QStringLiteral("数据库正在使用中，请稍后重试");
+    if (full && checkpoint.value(0).toInt() != 0) return QStringLiteral("数据库正在使用中，请稍后重试");
     checkpoint.finish();
     if (full) {
         if (!execute(connection.database(), QStringLiteral("VACUUM"), &error)) return error;
-    } else if (!execute(connection.database(), QStringLiteral("PRAGMA incremental_vacuum(200)"), &error)) {
-        return error;
+    } else {
+        auto &database = connection.database();
+        if (!database.transaction()) return connection.error();
+        QSqlQuery freePages(database);
+        if (!freePages.exec(QStringLiteral("PRAGMA freelist_count")) || !freePages.next()) {
+            const QString message = freePages.lastError().text();
+            database.rollback();
+            return message;
+        }
+        const int pages = qMin(200, freePages.value(0).toInt());
+        freePages.finish();
+        // Qt 驱动不会完整遍历该 PRAGMA 的无列结果，逐页执行并合并为一个限量事务。
+        for (int i = 0; i < pages; ++i) {
+            if (!execute(database, QStringLiteral("PRAGMA incremental_vacuum(1)"), &error)) {
+                database.rollback();
+                return error;
+            }
+        }
+        if (!database.commit()) return connection.error();
     }
     return execute(connection.database(), QStringLiteral("PRAGMA optimize"), &error) ? QString{} : error;
 }

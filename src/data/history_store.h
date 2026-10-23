@@ -3,6 +3,8 @@
 #include <QByteArray>
 #include <QDateTime>
 #include <QString>
+#include <QStringList>
+#include <QPair>
 #include <QVector>
 
 #include <optional>
@@ -52,7 +54,8 @@ public:
     QString initialize() const;
     static bool isCurrentSchema(const QString &path);
     HistoryPage search(const QString &text, int kind, const std::optional<HistoryCursor> &cursor,
-                       int pageSize = 30) const;
+                       int pageSize = 30, const std::optional<QString> &source = std::nullopt) const;
+    QPair<QStringList, QString> sourceApplications() const;
     QString save(const ClipboardCapture &capture, HistoryItem *saved = nullptr) const;
     // 仅替换文本内容；记录标识、时间、来源和收藏状态保持不变。
     QString replaceText(const QString &id, const QByteArray &content, const QString &text) const;
@@ -61,7 +64,8 @@ public:
     QString setPinned(const QString &id, bool pinned) const;
     QString touch(const QString &id) const;
     QString remove(const QString &id) const;
-    int removeMatching(const QString &text, int kind, QString *error = nullptr) const;
+    int removeMatching(const QString &text, int kind, QString *error = nullptr,
+                       const std::optional<QString> &source = std::nullopt) const;
     int count() const;
     QString cleanup(int retentionDays, int maxEntries) const;
     QString compact(bool full = false) const;

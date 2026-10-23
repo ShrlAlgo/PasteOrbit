@@ -506,7 +506,7 @@ SettingsDialog::SettingsDialog(AppSettings settings, QString databasePath, QStri
     aboutIcon->setAlignment(Qt::AlignCenter);
     aboutIcon->setPixmap(QIcon(QStringLiteral(":/PasteOrbit.png")).pixmap(48, 48));
     pageLayout(about)->addWidget(aboutIcon);
-    auto *brand = new QLabel(QStringLiteral("PasteOrbit\n%1").arg(QCoreApplication::applicationVersion()), about);
+    auto *brand = new QLabel(QStringLiteral("%1\n%2").arg(AppLocalization::get(QStringLiteral("ApplicationDisplayName")), QCoreApplication::applicationVersion()), about);
     brand->setAlignment(Qt::AlignCenter);
     brand->setObjectName(QStringLiteral("AboutBrand"));
     pageLayout(about)->addWidget(brand);

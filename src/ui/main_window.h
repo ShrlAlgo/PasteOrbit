@@ -8,6 +8,7 @@
 #include <QSharedPointer>
 #include <QFutureWatcher>
 #include <QColor>
+#include <QDate>
 #include <QImage>
 #include <QPoint>
 #include <QPointer>
@@ -87,6 +88,7 @@ private:
     void refreshHistory();
     void loadMoreHistory();
     void updateVisibleThumbnails();
+    void updateDateIndicator();
     void scheduleCapture();
     void captureClipboard();
     void saveCapture(ClipboardCapture capture, QImage fallbackImage, DWORD sequence);
@@ -102,6 +104,8 @@ private:
     void clearCurrentList();
     void switchFilter(int direction);
     void setFilter(int kind);
+    void openSourceMenu();
+    void setSourceFilter(std::optional<QString> source);
     void scheduleAutoHide();
     void updateEmptyState();
     void showStatus(const QString &message);
@@ -119,8 +123,13 @@ private:
     QListView *historyList_ = nullptr;
     QShortcut *moreShortcut_ = nullptr;
     QLineEdit *searchBox_ = nullptr;
+    QToolButton *sourceButton_ = nullptr;
+    QToolButton *sourceFilterChip_ = nullptr;
+    std::optional<QString> selectedSource_;
     QLabel *emptyLabel_ = nullptr;
     QLabel *statusLabel_ = nullptr;
+    QLabel *dateLabel_ = nullptr;
+    QDate dateIndicatorDay_;
     QStackedLayout *historyStack_ = nullptr;
     QWidget *historyPage_ = nullptr;
     SettingsDialog *settingsPage_ = nullptr;

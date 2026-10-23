@@ -117,11 +117,13 @@
   <data name="StorageInitializationFailed" xml:space="preserve"><value>Local storage could not be initialized. Clipboard monitoring did not start.</value></data>
   <data name="ListeningStatus" xml:space="preserve"><value>Monitoring · {0} items</value></data>
   <data name="DatabaseRecovered" xml:space="preserve"><value>The damaged database was preserved and a new database was created</value></data>
-  <data name="InitializationFailed" xml:space="preserve"><value>Initialization failed: {0}</value></data>
+  <data name="InitializationFailed" xml:space="preserve"><value>Initialization failed:
+{0}</value></data>
   <data name="MonitoringPaused" xml:space="preserve"><value>Monitoring paused for 10 minutes</value></data>
   <data name="SavedItemCount" xml:space="preserve"><value>Saved {0} items</value></data>
   <data name="StorageFailureStoppedMonitoring" xml:space="preserve"><value>Monitoring stopped due to a local storage error</value></data>
-  <data name="ClipboardReadFailed" xml:space="preserve"><value>Could not read the clipboard: {0}</value></data>
+  <data name="ClipboardReadFailed" xml:space="preserve"><value>Could not read the clipboard:
+{0}</value></data>
   <data name="ItemCount" xml:space="preserve"><value>{0} items</value></data>
   <data name="ContentRestoredManualPaste" xml:space="preserve"><value>Content restored. Paste it manually in the target window.</value></data>
   <data name="ContentRestoreFailed" xml:space="preserve"><value>This clipboard item could not be restored</value></data>
@@ -208,8 +210,10 @@
   <data name="UnsupportedClipboardContentType" xml:space="preserve"><value>The clipboard content type is not supported.</value></data>
   <data name="GlobalHotKeyAlreadyRegistered" xml:space="preserve"><value>The global shortcut is already registered.</value></data>
   <data name="GlobalHotKeyWrongMessageBridge" xml:space="preserve"><value>The shortcut can only be reconfigured on its registered window message bridge.</value></data>
-  <data name="GlobalHotKeyRegistrationFailedWithReason" xml:space="preserve"><value>Shortcut {0} could not be registered: {1}</value></data>
-  <data name="WindowsClipboardShortcutUnavailable" xml:space="preserve"><value>Win + V could not be taken over: {0}</value></data>
+  <data name="GlobalHotKeyRegistrationFailedWithReason" xml:space="preserve"><value>Shortcut {0} could not be registered:
+{1}</value></data>
+  <data name="WindowsClipboardShortcutUnavailable" xml:space="preserve"><value>Win + V could not be taken over:
+{0}</value></data>
   <data name="GlobalHotKeyEmpty" xml:space="preserve"><value>The shortcut cannot be empty.</value></data>
   <data name="GlobalHotKeyNeedsModifierAndKey" xml:space="preserve"><value>The shortcut requires at least one modifier and one key.</value></data>
   <data name="UnsupportedModifier" xml:space="preserve"><value>Unsupported modifier: {0}.</value></data>
@@ -344,4 +348,25 @@
   <data name="AddExcludedProcess" xml:space="preserve"><value>Add</value></data>
   <data name="RemoveExcludedProcess" xml:space="preserve"><value>Remove {0}</value></data>
   <data name="PassiveBrowsingUnavailable" xml:space="preserve"><value>Could not enable browsing without activation. Please try again.</value></data>
+  <data name="ExportTable" xml:space="preserve"><value>Export table…</value></data>
+  <data name="TableExportExtension" xml:space="preserve"><value>Choose a .csv or .tsv extension</value></data>
+  <data name="TableExportFailed" xml:space="preserve"><value>Table export failed</value></data>
+  <data name="TableExported" xml:space="preserve"><value>Table exported</value></data>
+  <data name="FormatStructuredText" xml:space="preserve"><value>Format JSON/XML</value></data>
+  <data name="StructuredFormatUnavailable" xml:space="preserve"><value>Enter valid JSON or simple XML. XML with mixed content, DTDs, or preserved whitespace is left unchanged.</value></data>
+  <data name="FilePreviewUnavailable" xml:space="preserve"><value>The file is missing, unreadable, or not a regular file.</value></data>
+  <data name="TextFilePreviewTooLarge" xml:space="preserve"><value>This text file exceeds 2 MiB. Open it in an external editor.</value></data>
+  <data name="TextFileEncodingUnsupported" xml:space="preserve"><value>Cannot read this file as UTF-8 or BOM-marked Unicode text.</value></data>
+  <data name="FilePreviewUnsupported" xml:space="preserve"><value>Content preview is not available for this file type. Open it in an external application.</value></data>
+  <data name="ApplicationDisplayName" xml:space="preserve"><value>PasteOrbit</value></data>
+  <data name="FilterSource" xml:space="preserve"><value>Filter by source application</value></data>
+  <data name="AllSources" xml:space="preserve"><value>All sources</value></data>
+  <data name="LoadingSources" xml:space="preserve"><value>Loading sources…</value></data>
+  <data name="NoSources" xml:space="preserve"><value>No source applications</value></data>
+  <data name="ActiveSourceFilter" xml:space="preserve"><value>Source: {0}  ×</value></data>
+  <data name="FilePathUnavailable" xml:space="preserve"><value>Path unavailable. The file may have been moved or deleted, or the drive may be inaccessible:
+{0}</value></data>
+  <data name="PlainTextFormat" xml:space="preserve"><value>Plain text</value></data>
+  <data name="HistoryToday" xml:space="preserve"><value>Today</value></data>
+  <data name="HistoryYesterday" xml:space="preserve"><value>Yesterday</value></data>
 </root>

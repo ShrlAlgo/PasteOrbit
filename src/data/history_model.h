@@ -13,15 +13,17 @@
 struct ThumbnailResult {
     QString id;
     QImage image;
+    QString format;
 };
 
 class HistoryModel final : public QAbstractListModel {
     Q_OBJECT
 public:
     enum Role { IdRole = Qt::UserRole + 1, KindRole, PreviewRole, SourceRole, UpdatedRole,
-                PinnedRole, SizeRole, TextLengthRole, ThumbnailRole, QuickPasteRole };
+                PinnedRole, SizeRole, TextLengthRole, ThumbnailRole, QuickPasteRole, FormatRole };
 
     explicit HistoryModel(QString databasePath, QObject *parent = nullptr);
+    ~HistoryModel() override;
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
     void setFirstPage(const HistoryPage &page);
@@ -31,17 +33,18 @@ public:
     int quickPasteRow(int number) const;
     void setQuickPasteEnabled(bool enabled);
     void setPinned(const QString &id, bool pinned);
-    void setText(const QString &id, const QString &text, qint64 contentSize);
+    void setText(const QString &id, const QString &text, qint64 contentSize, const QString &format);
     void remove(const QString &id);
     void setVisibleRows(int first, int last);
     void releaseThumbnails();
 
 private:
+    void cancelThumbnailLoads();
     QString databasePath_;
     QVector<HistoryItem> items_;
     QHash<QString, QImage> thumbnails_;
+    QHash<QString, QString> formats_;
     QSet<QString> visibleIds_;
-    QSet<QString> loadingIds_;
-    QSharedPointer<QAtomicInteger<int>> thumbnailGeneration_ = QSharedPointer<QAtomicInteger<int>>::create(0);
+    QHash<QString, QSharedPointer<QAtomicInteger<bool>>> thumbnailLoads_;
     bool quickPasteEnabled_ = true;
 };

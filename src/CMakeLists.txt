@@ -4,10 +4,14 @@ add_executable(PasteOrbitNative WIN32
     app/localization.cpp
     data/history_store.cpp
     data/history_model.cpp
+    data/clipboard_content.cpp
+    data/text_formats.cpp
     services/backup_service.cpp
     services/update_service.cpp
     ui/history_delegate.cpp
     ui/main_window.cpp
+    ui/main_window_position.cpp
+    ui/main_window_preview.cpp
     ui/settings_dialog.cpp
     app/app.rc
     resources/resources.qrc

@@ -4,6 +4,8 @@
 #include "history_model.h"
 #include "localization.h"
 #include "settings_dialog.h"
+#include "clipboard_content.h"
+
 
 #include <oclero/qlementine/style/QlementineStyle.hpp>
 #include <oclero/qlementine/style/Theme.hpp>
@@ -54,15 +56,14 @@
 #include <QSet>
 #include <QScrollBar>
 #include <QScopeGuard>
-#include <QScreen>
 #include <QScrollArea>
 #include <QStyle>
 #include <QStyleFactory>
 #include <QStackedLayout>
-#include <QTextEdit>
-#include <QTextBlock>
-#include <QTextCursor>
 #include <QTextDocument>
+#include <QTextLayout>
+#include <QScreen>
+#include <QTextBlock>
 #include <QSignalBlocker>
 #include <QStandardPaths>
 #include <QToolButton>
@@ -71,122 +72,23 @@
 #include <QVBoxLayout>
 #include <QWheelEvent>
 #include <QWindow>
-#include <QXmlStreamReader>
 #include <QtConcurrent>
 
-#include <climits>
 #include <algorithm>
-#include <atomic>
 #include <cmath>
 #include <functional>
 #include <memory>
-#include <thread>
-#include <system_error>
-#include <UIAutomation.h>
-#include <oleacc.h>
 #include <shlobj.h>
-#include <wrl/client.h>
 #include <windows.h>
+
+using namespace ClipboardContent;
 
 namespace {
 constexpr int HotkeyId = 0x504F;
 constexpr ULONG_PTR PasteInputMarker = 0x504F5041;
 constexpr int HistoryPageSize = 30;
 constexpr UINT TrayResumeMilliseconds = 10 * 60 * 1000;
-constexpr auto TextPayloadPrefix = "PasteOrbit.Text/1\n";
-constexpr char MixedImagePayloadPrefix[] = "PasteOrbit.Image/2\n";
 const QString WindowsRtfMime = QStringLiteral("application/x-qt-windows-mime;value=\"Rich Text Format\"");
-constexpr int OriginalForegroundProperty = QTextFormat::UserProperty + 1;
-
-void adaptPreviewContrast(QTextDocument *document, const QColor &background, const QColor &defaultText) {
-    const auto luminance = [](const QColor &color) {
-        const auto linear = [](double value) {
-            return value <= 0.04045 ? value / 12.92 : std::pow((value + 0.055) / 1.055, 2.4);
-        };
-        return 0.2126 * linear(color.redF()) + 0.7152 * linear(color.greenF()) + 0.0722 * linear(color.blueF());
-    };
-    struct Span { int position; int length; QColor color; QBrush original; };
-    QList<Span> changes;
-    QHash<quint64, QColor> colors;
-    // 仅调整预览文档的低对比文字，同色系适配明暗底色；原始 HTML 与剪贴板内容不变。
-    for (auto block = document->begin(); block.isValid(); block = block.next()) {
-        for (auto it = block.begin(); !it.atEnd(); ++it) {
-            const auto fragment = it.fragment();
-            if (!fragment.isValid()) continue;
-            const auto format = fragment.charFormat();
-            const QColor ink = format.foreground().style() == Qt::NoBrush ? defaultText : format.foreground().color();
-            const QColor paper = format.background().style() != Qt::NoBrush ? format.background().color()
-                : block.blockFormat().background().style() != Qt::NoBrush ? block.blockFormat().background().color() : background;
-            const quint64 key = (quint64(ink.rgba()) << 32) | paper.rgba();
-            if (!colors.contains(key)) {
-                const double paperLuminance = luminance(paper);
-                const auto contrast = [&](const QColor &color) {
-                    const double alpha = color.alphaF();
-                    const QColor visible = QColor::fromRgbF(color.redF() * alpha + paper.redF() * (1 - alpha),
-                        color.greenF() * alpha + paper.greenF() * (1 - alpha), color.blueF() * alpha + paper.blueF() * (1 - alpha));
-                    const double inkLuminance = luminance(visible);
-                    return (qMax(inkLuminance, paperLuminance) + 0.05) / (qMin(inkLuminance, paperLuminance) + 0.05);
-                };
-                QColor adjusted = ink;
-                if (contrast(ink) < 4.5) {
-                    const double target = paperLuminance < 0.179 ? 1.0 : 0.0;
-                    double low = 0, high = 1;
-                    for (int step = 0; step < 12; ++step) {
-                        const double amount = (low + high) / 2;
-                        const QColor candidate = QColor::fromHslF(ink.hslHueF(), ink.hslSaturationF(),
-                            ink.lightnessF() + (target - ink.lightnessF()) * amount);
-                        if (contrast(candidate) >= 4.5) high = amount;
-                        else low = amount;
-                    }
-                    adjusted = QColor::fromHslF(ink.hslHueF(), ink.hslSaturationF(),
-                        ink.lightnessF() + (target - ink.lightnessF()) * high);
-                    // 低对比的黑白灰直接采用正文色，避免适配后显得发虚；彩色仍保留色相。
-                    if (ink.hslSaturationF() < 0.05 && contrast(defaultText) >= 4.5) adjusted = defaultText;
-                }
-                colors.insert(key, adjusted);
-            }
-            if (colors[key] != ink) changes.append({fragment.position(), fragment.length(), colors[key], format.foreground()});
-        }
-    }
-    // 收集后再应用，避免修改格式时使文档片段迭代器失效；不创建文档副本。
-    QTextCursor cursor(document);
-    cursor.beginEditBlock();
-    for (const auto &span : changes) {
-        cursor.setPosition(span.position);
-        cursor.setPosition(span.position + span.length, QTextCursor::KeepAnchor);
-        QTextCharFormat format;
-        format.setForeground(span.color);
-        format.setProperty(OriginalForegroundProperty, span.original);
-        cursor.mergeCharFormat(format);
-    }
-    cursor.endEditBlock();
-}
-
-QString editedHtml(const QTextDocument *document) {
-    // 对比度适配仅用于显示，输出时在临时文档中恢复原文字色，不污染粘贴样式。
-    std::unique_ptr<QTextDocument> output(document->clone());
-    struct Span { int position; int length; QTextCharFormat format; };
-    QList<Span> changes;
-    for (auto block = output->begin(); block.isValid(); block = block.next()) {
-        for (auto it = block.begin(); !it.atEnd(); ++it) {
-            const auto fragment = it.fragment();
-            auto format = fragment.charFormat();
-            if (!format.hasProperty(OriginalForegroundProperty)) continue;
-            const auto original = qvariant_cast<QBrush>(format.property(OriginalForegroundProperty));
-            if (original.style() == Qt::NoBrush) format.clearProperty(QTextFormat::ForegroundBrush);
-            else format.setForeground(original);
-            format.clearProperty(OriginalForegroundProperty);
-            changes.append({fragment.position(), fragment.length(), format});
-        }
-    }
-    QTextCursor cursor(output.get());
-    for (const auto &span : changes) {
-        cursor.setPosition(span.position);
-        cursor.setPosition(span.position + span.length, QTextCursor::KeepAnchor);
-        cursor.setCharFormat(span.format);
-    }
-    return output->toHtml();
-}
 
 QByteArray clipboardRtf(const QMimeData *mime) {
     for (const auto &format : {WindowsRtfMime, QStringLiteral("text/rtf"), QStringLiteral("application/rtf")}) {
@@ -237,142 +139,6 @@ QIcon headerGlyphIcon(QChar glyph, const QColor &color, const QWidget *widget) {
     return QIcon(pixmap);
 }
 
-std::optional<RECT> firstAutomationRect(SAFEARRAY *rectangles) {
-    if (!rectangles || SafeArrayGetDim(rectangles) != 1) return std::nullopt;
-    LONG lower = 0;
-    LONG upper = -1;
-    if (FAILED(SafeArrayGetLBound(rectangles, 1, &lower))
-        || FAILED(SafeArrayGetUBound(rectangles, 1, &upper))) return std::nullopt;
-    for (LONG index = lower; index <= upper - 3; index += 4) {
-        double values[4]{};
-        bool valid = true;
-        for (LONG offset = 0; offset < 4; ++offset) {
-            LONG element = index + offset;
-            if (FAILED(SafeArrayGetElement(rectangles, &element, &values[offset]))
-                || !std::isfinite(values[offset])) { valid = false; break; }
-        }
-        if (!valid || values[2] <= 0 || values[3] <= 0) continue;
-        const double rightValue = values[0] + values[2];
-        const double bottomValue = values[1] + values[3];
-        if (values[0] < LONG_MIN || values[0] > LONG_MAX
-            || values[1] < LONG_MIN || values[1] > LONG_MAX
-            || rightValue < LONG_MIN || rightValue > LONG_MAX
-            || bottomValue < LONG_MIN || bottomValue > LONG_MAX) continue;
-        return RECT{static_cast<LONG>(std::lround(values[0])), static_cast<LONG>(std::lround(values[1])),
-                    static_cast<LONG>(std::lround(rightValue)), static_cast<LONG>(std::lround(bottomValue))};
-    }
-    return std::nullopt;
-}
-
-struct InputBounds {
-    std::optional<RECT> caret;
-    std::optional<RECT> control;
-};
-
-struct InputBoundsQuery {
-    InputBounds bounds;
-    std::atomic_bool finished{false};
-};
-
-InputBounds automationInputBounds(HWND foreground) {
-    InputBounds bounds;
-    DWORD targetProcess = 0;
-    if (!foreground || !GetWindowThreadProcessId(foreground, &targetProcess)
-        || targetProcess == GetCurrentProcessId()) return bounds;
-
-    const HRESULT initialized = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    if (FAILED(initialized) && initialized != RPC_E_CHANGED_MODE) return bounds;
-    const auto cleanup = qScopeGuard([initialized] {
-        if (SUCCEEDED(initialized)) CoUninitialize();
-    });
-
-    using Microsoft::WRL::ComPtr;
-    // Chromium 等自绘输入框没有 Win32 caret，也未必支持 TextPattern2；查询其真实 MSAA 插入光标。
-    GUITHREADINFO info{};
-    info.cbSize = sizeof(info);
-    const DWORD thread = GetWindowThreadProcessId(foreground, nullptr);
-    if (thread && GetGUIThreadInfo(thread, &info) && info.hwndFocus
-        && (info.hwndFocus == foreground || IsChild(foreground, info.hwndFocus))) {
-        ComPtr<IAccessible> caret;
-        if (SUCCEEDED(AccessibleObjectFromWindow(info.hwndFocus, OBJID_CARET,
-                                               IID_PPV_ARGS(caret.GetAddressOf()))) && caret) {
-            VARIANT self{};
-            self.vt = VT_I4;
-            self.lVal = CHILDID_SELF;
-            VARIANT state{};
-            LONG x = 0, y = 0, width = 0, height = 0;
-            if (SUCCEEDED(caret->get_accState(self, &state)) && state.vt == VT_I4
-                && !(state.lVal & (STATE_SYSTEM_INVISIBLE | STATE_SYSTEM_OFFSCREEN))
-                && SUCCEEDED(caret->accLocation(&x, &y, &width, &height, self))
-                && width >= 0 && height > 0 && x <= LONG_MAX - qMax(1L, width)
-                && y <= LONG_MAX - height)
-                bounds.caret = RECT{x, y, x + qMax(1L, width), y + height};
-            VariantClear(&state);
-        }
-    }
-    ComPtr<IUIAutomation> automation;
-    ComPtr<IUIAutomationElement> focused;
-    if (FAILED(CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER,
-                                IID_PPV_ARGS(automation.GetAddressOf())))) return bounds;
-    if (FAILED(automation->GetFocusedElement(focused.GetAddressOf())) || !focused) return bounds;
-    BOOL hasFocus = FALSE;
-    int process = 0;
-    if (FAILED(focused->get_CurrentHasKeyboardFocus(&hasFocus)) || !hasFocus
-        || FAILED(focused->get_CurrentProcessId(&process))
-        || static_cast<DWORD>(process) != targetProcess) return bounds;
-
-    ComPtr<IUIAutomationTextPattern2> pattern;
-    if (!bounds.caret && SUCCEEDED(focused->GetCurrentPatternAs(UIA_TextPattern2Id,
-            __uuidof(IUIAutomationTextPattern2), reinterpret_cast<void **>(pattern.GetAddressOf()))) && pattern) {
-        BOOL active = FALSE;
-        ComPtr<IUIAutomationTextRange> range;
-        if (SUCCEEDED(pattern->GetCaretRange(&active, range.GetAddressOf())) && active && range) {
-            SAFEARRAY *rectangles = nullptr;
-            if (SUCCEEDED(range->GetBoundingRectangles(&rectangles)))
-                bounds.caret = firstAutomationRect(rectangles);
-            if (rectangles) SafeArrayDestroy(rectangles);
-        }
-    }
-
-    CONTROLTYPEID controlType = 0;
-    RECT controlRect{};
-    if (SUCCEEDED(focused->get_CurrentControlType(&controlType))
-        && (controlType == UIA_ComboBoxControlTypeId || controlType == UIA_EditControlTypeId
-            || controlType == UIA_TextControlTypeId || controlType == UIA_CustomControlTypeId
-            || controlType == UIA_PaneControlTypeId || controlType == UIA_DocumentControlTypeId
-            || (controlType == UIA_GroupControlTypeId && bounds.caret))
-        && SUCCEEDED(focused->get_CurrentBoundingRectangle(&controlRect))
-        && !IsRectEmpty(&controlRect)) bounds.control = controlRect;
-    return bounds;
-}
-
-std::shared_ptr<InputBoundsQuery> startInputBoundsQuery(HWND target) {
-    // 外部提供程序可能长期无响应；只允许一个查询，后台线程不持有窗口或 Qt 对象。
-    static std::weak_ptr<InputBoundsQuery> pending;
-    if (!pending.expired()) return {};
-    auto query = std::make_shared<InputBoundsQuery>();
-    pending = query;
-    try {
-        std::thread([query, target] {
-            query->bounds = automationInputBounds(target);
-            query->finished.store(true, std::memory_order_release);
-        }).detach();
-    } catch (const std::system_error &) {
-        return {};
-    }
-    return query;
-}
-
-QSize boundedSize(QSize size, int maxWidth, int maxHeight, qint64 maxPixels) {
-    if (!size.isValid()) return {};
-    double scale = 1.0;
-    if (maxWidth > 0) scale = qMin(scale, maxWidth / static_cast<double>(size.width()));
-    if (maxHeight > 0) scale = qMin(scale, maxHeight / static_cast<double>(size.height()));
-    const qint64 pixels = static_cast<qint64>(size.width()) * size.height();
-    if (pixels > maxPixels) scale = qMin(scale, qSqrt(maxPixels / static_cast<double>(pixels)));
-    return QSize(qMax(1, qRound(size.width() * scale)), qMax(1, qRound(size.height() * scale)));
-}
-
 QByteArray encodePng(const QImage &image) {
     QByteArray bytes;
     QBuffer output(&bytes);
@@ -401,26 +167,6 @@ QString imageMimeType(const QByteArray &content) {
     if (content.startsWith("GIF8")) return QStringLiteral("image/gif");
     if (content.size() >= 12 && content.mid(0, 4) == "RIFF" && content.mid(8, 4) == "WEBP") return QStringLiteral("image/webp");
     return QStringLiteral("image/png");
-}
-
-struct ImageContent {
-    QByteArray bytes;
-    QString text;
-    QString html;
-    QByteArray rtf;
-};
-
-// 旧图片记录直接存原图；新图文记录在原图之外保留剪贴板的其他格式。
-ImageContent decodeImageContent(const QByteArray &content) {
-    if (!content.startsWith(MixedImagePayloadPrefix)) return {content, {}, {}, {}};
-    QBuffer buffer;
-    buffer.setData(content);
-    if (!buffer.open(QIODevice::ReadOnly) || !buffer.seek(sizeof(MixedImagePayloadPrefix) - 1)) return {};
-    QDataStream stream(&buffer);
-    stream.setVersion(QDataStream::Qt_6_0);
-    ImageContent result;
-    stream >> result.bytes >> result.text >> result.html >> result.rtf;
-    return stream.status() == QDataStream::Ok && buffer.atEnd() ? result : ImageContent{};
 }
 
 void encodeMixedImage(ClipboardCapture &capture) {
@@ -585,127 +331,14 @@ QString processName(HWND window) {
     return fullPath.mid(fullPath.lastIndexOf(QLatin1Char('\\')) + 1, fullPath.size()).toCaseFolded();
 }
 
-struct TextContent {
-    QString text;
-    QString html;
-    QByteArray rtf;
-    bool markdown = false;
-};
-
 struct PasteResult {
+    QString unavailablePath;
     HistoryItem item;
     QByteArray content;
     ImageContent image;
     QImage decoded;
     QPair<QString, QByteArray> file;
 };
-
-struct PreviewResult {
-    QString text;
-    QString html;
-    bool markdown = false;
-    bool sourceMarkdown = false;
-    QString formatLabel;
-    QImage image;
-    int kind = 0;
-};
-
-class PreviewTextEdit final : public QTextEdit {
-public:
-    using QTextEdit::QTextEdit;
-
-protected:
-    QVariant loadResource(int, const QUrl &) override {
-        // 历史中的 HTML 不自动读取本地或远程资源，避免预览触发额外 I/O。
-        return {};
-    }
-};
-
-class HoverPreviewFrame final : public QFrame {
-public:
-    using QFrame::QFrame;
-
-protected:
-    void paintEvent(QPaintEvent *) override {
-        // 透明顶层窗口需自行绘制实体背景，否则浮层内容会透出桌面。
-        QPainter painter(this);
-        painter.setRenderHint(QPainter::Antialiasing);
-        painter.setPen(QPen(palette().color(QPalette::Mid), 1));
-        painter.setBrush(palette().color(QPalette::ToolTipBase));
-        painter.drawRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), 9, 9);
-    }
-};
-
-TextContent decodeTextContent(const QByteArray &content) {
-    TextContent result;
-    const QByteArray prefix(TextPayloadPrefix);
-    if (!content.startsWith(prefix)) {
-        result.text = QString::fromUtf8(content);
-        return result;
-    }
-    const auto json = QJsonDocument::fromJson(content.mid(prefix.size())).object();
-    result.text = json.value(QStringLiteral("Text")).toString();
-    result.html = json.value(QStringLiteral("Html")).toString();
-    // RTF 可包含非 UTF-8 字节；新记录使用 Base64，旧记录仍按原格式读取。
-    result.rtf = json.contains(QStringLiteral("RtfBase64"))
-        ? QByteArray::fromBase64(json.value(QStringLiteral("RtfBase64")).toString().toLatin1())
-        : json.value(QStringLiteral("Rtf")).toString().toUtf8();
-    result.markdown = json.value(QStringLiteral("Markdown")).toBool();
-    return result;
-}
-
-// 编辑器常附带 HTML 而不提供 Markdown MIME；导出和预览共用正文识别结果。
-bool isMarkdownContent(const TextContent &content) {
-    if (content.markdown) return true;
-    // 自动链接和 HTML 注释也可出现在 Markdown 开头，仅排除完整标记文档。
-    if (content.text.trimmed().startsWith(QLatin1Char('<'))) {
-        static const QRegularExpression htmlDocument(QStringLiteral(
-            R"(^\s*(?:<!--[\s\S]*?-->\s*)*(?:<!DOCTYPE\s+html\b|<html(?:\s|>)))"),
-            QRegularExpression::CaseInsensitiveOption);
-        if (htmlDocument.match(content.text).hasMatch()) return false;
-        QXmlStreamReader xml(content.text);
-        bool hasRoot = false;
-        while (!xml.atEnd()) {
-            if (xml.readNext() == QXmlStreamReader::StartElement) hasRoot = true;
-        }
-        if (!xml.hasError() && hasRoot) return false;
-    }
-    static const QRegularExpression structure(QStringLiteral(
-        R"(^ {0,3}(?:#{1,6}[\t ]+\S|`{3,}|~{3,}|[-+*][\t ]+\[[ xX]\][\t ]+\S)|!?\[[^\]\r\n]+\]\([^\s)\r\n]+\)|(\*\*|__)\S(?:[^\r\n]*?\S)?\1)"),
-        QRegularExpression::MultilineOption);
-    static const QRegularExpression underline(QStringLiteral(
-        R"(^[^\r\n]+\r?\n {0,3}(?:={3,}|-{3,})[\t ]*\r?$|^[^\r\n]*\|[^\r\n]+\r?\n[\t ]*\|?[\t ]*:?-{3,}:?[\t ]*(?:\|[\t ]*:?-{3,}:?[\t ]*)+\|?[\t ]*\r?$)"),
-        QRegularExpression::MultilineOption);
-    static const QRegularExpression list(QStringLiteral(R"(^ {0,3}(?:[-+*]|\d+[.)]|>)[\t ]+\S)"),
-                                         QRegularExpression::MultilineOption);
-    bool marked = structure.match(content.text).hasMatch() || underline.match(content.text).hasMatch();
-    if (!marked) {
-        auto matches = list.globalMatch(content.text);
-        if (matches.hasNext()) { matches.next(); marked = matches.hasNext(); }
-    }
-    // JSON 字符串中的强调或链接语法不改变其文件类型。
-    return marked && QJsonDocument::fromJson(content.text.toUtf8()).isNull();
-}
-
-// 先识别正文格式，再使用附带的富文本；内容与扩展名一并确定。
-QPair<QString, QByteArray> textFileContent(const TextContent &content) {
-    if (isMarkdownContent(content)) return {QStringLiteral("md"), content.text.toUtf8()};
-    const QByteArray bytes = content.text.toUtf8();
-    if (!QJsonDocument::fromJson(bytes).isNull()) return {QStringLiteral("json"), bytes};
-    if (content.text.trimmed().startsWith(QLatin1Char('<'))) {
-        QXmlStreamReader xml(bytes);
-        QString suffix;
-        while (!xml.atEnd()) {
-            if (xml.readNext() == QXmlStreamReader::StartElement && suffix.isEmpty())
-                suffix = xml.name().compare(QLatin1String("html"), Qt::CaseInsensitive) == 0
-                    ? QStringLiteral("html") : QStringLiteral("xml");
-        }
-        if (!xml.hasError() && !suffix.isEmpty()) return {suffix, bytes};
-    }
-    if (!content.html.isEmpty()) return {QStringLiteral("html"), content.html.toUtf8()};
-    if (!content.rtf.isEmpty()) return {QStringLiteral("rtf"), content.rtf};
-    return {QStringLiteral("txt"), bytes};
-}
 
 QStringList webLinks(const QByteArray &content) {
     const auto text = decodeTextContent(content);
@@ -960,6 +593,7 @@ MainWindow::MainWindow(QString dataDirectory, AppSettings settings)
     connect(QApplication::clipboard(), &QClipboard::dataChanged, this, &MainWindow::scheduleCapture);
     clipboardPollTimer_.setInterval(250);
     connect(&clipboardPollTimer_, &QTimer::timeout, this, [this] {
+        if (isVisible() && dateIndicatorDay_ != QDate::currentDate()) updateDateIndicator();
         if (passiveBrowsing_ && isVisible()) {
             const HWND foreground = GetForegroundWindow();
             if (foreground && !isPanelWindow(foreground) && foreground != targetWindow_) {
@@ -1051,7 +685,7 @@ void MainWindow::finishStorageOperation(bool restored) {
 void MainWindow::buildUi() {
     setObjectName(QStringLiteral("PasteOrbitPanel"));
     setAttribute(Qt::WA_TranslucentBackground);
-    setWindowTitle(QStringLiteral("PasteOrbit"));
+    setWindowTitle(AppLocalization::get(QStringLiteral("ApplicationDisplayName")));
     setWindowFlags(Qt::Tool | Qt::FramelessWindowHint);
     setFixedSize(360, 500);
     auto *outer = new QVBoxLayout(this);
@@ -1073,7 +707,7 @@ void MainWindow::buildUi() {
     auto *appIcon = new QLabel(header);
     appIcon->setFixedSize(20, 20);
     appIcon->setPixmap(QIcon(QStringLiteral(":/PasteOrbit.ico")).pixmap(20, 20));
-    auto *title = new QLabel(QStringLiteral("PasteOrbit"), header);
+    auto *title = new QLabel(AppLocalization::get(QStringLiteral("ApplicationDisplayName")), header);
     title->setObjectName(QStringLiteral("AppTitle"));
     QFont titleFont = title->font();
     titleFont.setPixelSize(17);
@@ -1124,10 +758,35 @@ void MainWindow::buildUi() {
     searchBox_->setClearButtonEnabled(true);
     searchBox_->installEventFilter(this);
     connect(searchBox_, &QLineEdit::textChanged, this, [this] {
+        // 防抖只延迟发起查询，旧结果与旧游标立即失效，避免混用新关键词。
+        historyGeneration_->fetchAndAddRelaxed(1);
+        historyDirty_ = true;
+        loadingPage_ = true;
+        updateDateIndicator();
+        loadingMore_ = false;
+        nextCursor_.reset();
         model_->setQuickPasteEnabled(false);
+        closeHoverPreview();
         searchTimer_.start();
     });
-    searchLayout->addWidget(searchBox_);
+    auto *searchRow = new QHBoxLayout;
+    searchRow->setContentsMargins(0, 0, 0, 0);
+    searchRow->addWidget(searchBox_, 1);
+    sourceButton_ = new QToolButton(searchFrame);
+    sourceButton_->setIconSize(QSize(18, 18));
+    sourceButton_->setObjectName(QStringLiteral("HeaderButton"));
+    sourceButton_->setToolTip(AppLocalization::get(QStringLiteral("FilterSource")));
+    sourceButton_->setAccessibleName(sourceButton_->toolTip());
+    sourceButton_->setCheckable(true);
+    sourceButton_->setFocusPolicy(Qt::NoFocus);
+    connect(sourceButton_, &QToolButton::clicked, this, &MainWindow::openSourceMenu);
+    searchRow->addWidget(sourceButton_);
+    searchLayout->addLayout(searchRow);
+    sourceFilterChip_ = new QToolButton(searchFrame);
+    sourceFilterChip_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    sourceFilterChip_->hide();
+    connect(sourceFilterChip_, &QToolButton::clicked, this, [this] { setSourceFilter(std::nullopt); });
+    searchLayout->addWidget(sourceFilterChip_);
     root->addWidget(searchFrame);
 
     auto *filterRow = new QWidget(this);
@@ -1171,6 +830,15 @@ void MainWindow::buildUi() {
     auto *listLayout = new QVBoxLayout(listHost);
     listLayout->setContentsMargins(0, 0, 0, 0);
     listLayout->setSpacing(0);
+    dateLabel_ = new QLabel(listHost);
+    dateLabel_->setObjectName(QStringLiteral("HistoryDate"));
+    dateLabel_->setFixedHeight(22);
+    dateLabel_->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    dateLabel_->setMargin(2);
+    QFont dateFont = font();
+    dateFont.setPixelSize(12);
+    dateLabel_->setFont(dateFont);
+    listLayout->addWidget(dateLabel_);
     historyList_ = new QListView(listHost);
     historyList_->setObjectName(QStringLiteral("HistoryList"));
     historyList_->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -1324,6 +992,8 @@ void MainWindow::applyTheme() {
     settingsButton_->setIcon(headerGlyphIcon(QChar(0xE713), text, settingsButton_));
     pinButton_->setIcon(headerGlyphIcon(isPinned_ ? QChar(0xE77A) : QChar(0xE718), text, pinButton_));
     clearButton_->setIcon(headerGlyphIcon(QChar(0xE75C), text, clearButton_));
+    sourceButton_->setIcon(headerGlyphIcon(QChar(0xE71C), text, sourceButton_));
+    dateLabel_->setStyleSheet(QStringLiteral("color:%1;background:transparent;").arg(muted.name()));
     pageColor_ = page;
     borderColor_ = stroke;
     // 历史页样式不能成为设置页祖先样式，否则会覆盖 Qlementine Switch 的原生绘制。
@@ -1429,194 +1099,6 @@ void MainWindow::setTrayPaused(bool paused) {
         lastClipboardSequence_ = GetClipboardSequenceNumber();
     }
     updateTrayTooltip();
-}
-
-void MainWindow::positionPanel(bool preferCursor, std::optional<RECT> resolvedBounds,
-                               std::optional<RECT> controlBounds) {
-    POINT point{};
-    bool hasPoint = false;
-    std::optional<RECT> inputBounds = resolvedBounds;
-    if (preferCursor) {
-        inputBounds.reset();
-        hasPoint = GetCursorPos(&point) != FALSE;
-    }
-    if (!hasPoint && !inputBounds && targetWindow_) {
-        GUITHREADINFO info{};
-        info.cbSize = sizeof(info);
-        const DWORD thread = GetWindowThreadProcessId(targetWindow_, nullptr);
-        if (!inputBounds && thread && GetGUIThreadInfo(thread, &info) && info.hwndCaret) {
-            RECT caret = info.rcCaret;
-            MapWindowPoints(info.hwndCaret, nullptr, reinterpret_cast<POINT *>(&caret), 2);
-            inputBounds = caret;
-        }
-    }
-    if (inputBounds) {
-        point = {inputBounds->left, inputBounds->bottom};
-        hasPoint = true;
-    }
-    if (!hasPoint) hasPoint = GetCursorPos(&point) != FALSE;
-    HMONITOR monitor = MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST);
-    MONITORINFO info{};
-    info.cbSize = sizeof(info);
-    if (!GetMonitorInfoW(monitor, &info)) return;
-    const RECT area = info.rcWork;
-    // Windows 下 Qt 保留各屏幕的原点坐标，只缩放屏幕内部的距离。
-    QScreen *screen = QGuiApplication::screenAt(QPoint(info.rcMonitor.left, info.rcMonitor.top));
-    const qreal scale = screen ? screen->devicePixelRatio() : devicePixelRatioF();
-    const int panelWidth = qRound(width() * scale);
-    const int panelHeight = qRound(height() * scale);
-    int x = preferCursor ? point.x - panelWidth / 2 : point.x;
-    int y = preferCursor ? point.y - panelHeight - 14 : point.y + 14;
-    if (inputBounds) {
-        if (x + panelWidth > area.right) x = inputBounds->right - panelWidth;
-        if (y + panelHeight > area.bottom) y = inputBounds->top - panelHeight - 14;
-    }
-    x = qBound(area.left, x, qMax(area.left, area.right - panelWidth));
-    y = qBound(area.top, y, qMax(area.top, area.bottom - panelHeight));
-    if (!preferCursor && inputBounds) {
-        // 先避开整个输入框；区域过大时退回避开插入光标，不能因边缘裁剪再次覆盖它。
-        bool positioned = false;
-        const RECT regions[]{controlBounds.value_or(*inputBounds), *inputBounds};
-        const int regionCount = EqualRect(&regions[0], &regions[1]) ? 1 : 2;
-        for (int region = 0; region < regionCount; ++region) {
-            const RECT &bounds = regions[region];
-            const QRect excluded(bounds.left - 8, bounds.top - 8,
-                                 qMax(1L, bounds.right - bounds.left) + 16,
-                                 qMax(1L, bounds.bottom - bounds.top) + 16);
-            const QPoint candidates[]{
-                {point.x, excluded.bottom() + 7},
-                {point.x, excluded.top() - panelHeight - 6},
-                {excluded.right() + 7, point.y},
-                {excluded.left() - panelWidth - 6, point.y}};
-            for (const QPoint &candidate : candidates) {
-                const int candidateX = qBound(area.left, candidate.x(), qMax(area.left, area.right - panelWidth));
-                const int candidateY = qBound(area.top, candidate.y(), qMax(area.top, area.bottom - panelHeight));
-                if (QRect(candidateX, candidateY, panelWidth, panelHeight).intersects(excluded)) continue;
-                x = candidateX;
-                y = candidateY;
-                positioned = true;
-                break;
-            }
-            if (positioned) break;
-        }
-    }
-    // 按目标屏幕转换物理坐标，并通过 Qt 更新缓存，避免 show() 恢复隐藏前的位置。
-    const QPoint origin = screen ? screen->geometry().topLeft()
-                                : QPoint(info.rcMonitor.left, info.rcMonitor.top);
-    move(origin + QPoint(qRound((x - info.rcMonitor.left) / scale),
-                         qRound((y - info.rcMonitor.top) / scale)));
-}
-
-std::optional<RECT> MainWindow::capturePasteTarget(HWND window) {
-    DWORD process = 0;
-    const DWORD thread = window ? GetWindowThreadProcessId(window, &process) : 0;
-    if (!thread || process == GetCurrentProcessId()) return {};
-    targetWindow_ = window;
-    targetFocusWindow_ = nullptr;
-    GUITHREADINFO info{};
-    info.cbSize = sizeof(info);
-    if (!GetGUIThreadInfo(thread, &info)) return {};
-    if (info.hwndFocus && (info.hwndFocus == window || IsChild(window, info.hwndFocus)))
-        targetFocusWindow_ = info.hwndFocus;
-    if (!info.hwndCaret) return {};
-    RECT caret = info.rcCaret;
-    MapWindowPoints(info.hwndCaret, nullptr, reinterpret_cast<POINT *>(&caret), 2);
-    return caret;
-}
-
-void MainWindow::showPanel(bool fromTray, HWND requestedTarget) {
-    if (auto *modal = QApplication::activeModalWidget()) { activatePanel(modal); return; }
-    if (auto *popup = QApplication::activePopupWidget()) {
-        if (!passiveBrowsing_ || !isPanelWindow(reinterpret_cast<HWND>(popup->internalWinId()))) activatePanel(popup);
-        return;
-    }
-    if (settingsPage_) {
-        // 托盘和全局快捷键只激活当前设置页，不重新定位或抢走设置控件的焦点。
-        show();
-        raise();
-        activatePanel();
-        return;
-    }
-    if (suppressClipboardCapture_) return;
-    pasteGeneration_->fetchAndAddRelaxed(1);
-    const int generation = ++panelShowGeneration_;
-    const HWND foreground = requestedTarget && IsWindow(requestedTarget) ? requestedTarget : GetForegroundWindow();
-    const bool hasTarget = foreground && foreground != reinterpret_cast<HWND>(winId());
-    const auto inputBounds = hasTarget ? capturePasteTarget(foreground) : std::nullopt;
-    std::optional<RECT> controlBounds;
-    RECT nativeControl{};
-    if (!fromTray && hasTarget && targetFocusWindow_ && targetFocusWindow_ != foreground) {
-        wchar_t className[128]{};
-        GetClassNameW(targetFocusWindow_, className, 128);
-        const QString controlClass = QString::fromWCharArray(className);
-        // 仅把原生输入控件当成输入框，浏览器视口等包装窗口应继续查询 UIA。
-        const bool nativeInput = controlClass.compare(QStringLiteral("Edit"), Qt::CaseInsensitive) == 0
-            || controlClass.compare(QStringLiteral("ComboBox"), Qt::CaseInsensitive) == 0
-            || controlClass.startsWith(QStringLiteral("RichEdit"), Qt::CaseInsensitive);
-        if (nativeInput && GetWindowRect(targetFocusWindow_, &nativeControl) && !IsRectEmpty(&nativeControl))
-            controlBounds = nativeControl;
-    }
-    const auto shown = std::make_shared<bool>(false);
-    const auto present = [this, fromTray, foreground, generation, shown](std::optional<RECT> bounds,
-                                                                       std::optional<RECT> control) {
-        if (*shown || generation != panelShowGeneration_) return;
-        *shown = true;
-        // 等待定位期间用户已切换窗口时，丢弃这次唤出，避免抢回焦点。
-        if (!fromTray && GetForegroundWindow() != foreground) return;
-        // 默认只展示历史；明确进入搜索等输入操作后，才激活窗口。
-        if (!setPassiveBrowsing(!isVisible() || passiveBrowsing_ || !isPanelWindow(foreground))) {
-            showStatus(AppLocalization::get(QStringLiteral("PassiveBrowsingUnavailable")));
-            return;
-        }
-        positionPanel(fromTray, bounds, control);
-        if (!isVisible()) show();
-        if (passiveBrowsing_)
-            SetWindowPos(reinterpret_cast<HWND>(winId()), HWND_TOPMOST, 0, 0, 0, 0,
-                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-        else activatePanel();
-        if (!startupUpdateCheckRequested_) {
-            startupUpdateCheckRequested_ = true;
-            emit firstPanelShown();
-        }
-        if (isPinned_) SetWindowPos(reinterpret_cast<HWND>(winId()), HWND_TOPMOST, 0, 0, 0, 0,
-                                    SWP_NOMOVE | SWP_NOSIZE);
-        // 无新记录时继续浏览原位置；隐藏期间有新记录才重新展示最新内容。
-        if (newHistoryAvailable_) {
-            searchTimer_.stop();
-            const QSignalBlocker blocker(searchBox_);
-            searchBox_->clear();
-            historyList_->verticalScrollBar()->setValue(0);
-            if (model_->rowCount() > 0) historyList_->setCurrentIndex(model_->index(0));
-            newHistoryAvailable_ = false;
-            historyDirty_ = true;
-        }
-        if (historyDirty_) refreshHistory();
-        if (!passiveBrowsing_) historyStack_->currentWidget()->setFocus(Qt::ShortcutFocusReason);
-        updateVisibleThumbnails();
-    };
-    if (fromTray || !hasTarget || (inputBounds && controlBounds)) {
-        present(inputBounds, controlBounds);
-        return;
-    }
-    // 无障碍接口查询限时等待，且只在显示前定位一次。
-    const auto query = startInputBoundsQuery(foreground);
-    if (!query) { present(inputBounds, controlBounds); return; }
-    auto *poll = new QTimer(this);
-    poll->setInterval(10);
-    connect(poll, &QTimer::timeout, this, [this, query, poll, present, inputBounds, controlBounds, generation, foreground] {
-        if (!query->finished.load(std::memory_order_acquire)) return;
-        poll->stop();
-        if (generation != panelShowGeneration_ || foreground != targetWindow_) return;
-        // 输入框范围只参与避让，不能替代已确认活跃的插入光标作为定位锚点。
-        const auto resolved = query->bounds.caret ? query->bounds.caret : inputBounds;
-        present(resolved, query->bounds.control ? query->bounds.control : controlBounds);
-    });
-    poll->start();
-    QTimer::singleShot(100, poll, [poll, present, inputBounds, controlBounds] {
-        poll->stop();
-        poll->deleteLater();
-        present(inputBounds, controlBounds);
-    });
 }
 
 void MainWindow::hidePanel() {
@@ -1730,15 +1212,18 @@ void MainWindow::animatePage(QWidget *page, bool opening) {
 }
 
 void MainWindow::refreshHistory() {
+    searchTimer_.stop();
     const int generation = historyGeneration_->fetchAndAddRelaxed(1) + 1;
     historyDirty_ = false;
     closeHoverPreview();
     model_->setQuickPasteEnabled(false);
     loadingPage_ = true;
+    updateDateIndicator();
     loadingMore_ = false;
     nextCursor_.reset();
     const QString query = searchBox_->text();
     const int kind = selectedKind_;
+    const auto source = selectedSource_;
     auto *watcher = new QFutureWatcher<HistoryPage>(this);
     connect(watcher, &QFutureWatcher<HistoryPage>::finished, this, [this, watcher, generation] {
         const auto page = watcher->result();
@@ -1752,15 +1237,18 @@ void MainWindow::refreshHistory() {
         model_->setQuickPasteEnabled(searchBox_->text().isEmpty());
         nextCursor_ = page.next;
         unpinnedCount_ = page.unpinnedCount;
+        // 查询失败持续显示具体错误，避免被当成正常的空筛选结果。
+        emptyLabel_->setText(page.error.isEmpty()
+            ? AppLocalization::get(QStringLiteral("MainEmptyHistoryText")) : page.error);
         updateEmptyState();
         if (restoreFocus && !passiveBrowsing_) historyStack_->currentWidget()->setFocus(Qt::ShortcutFocusReason);
         updateVisibleThumbnails();
     });
     const QString path = databasePath_;
     const auto generationState = historyGeneration_;
-    watcher->setFuture(QtConcurrent::run(&readPool_, [path, query, kind, generationState, generation] {
+    watcher->setFuture(QtConcurrent::run(&readPool_, [path, query, kind, source, generationState, generation] {
         if (generationState->loadRelaxed() != generation) return HistoryPage{};
-        return HistoryStore(path).search(query, kind, std::nullopt, HistoryPageSize);
+        return HistoryStore(path).search(query, kind, std::nullopt, HistoryPageSize, source);
     }));
 }
 
@@ -1770,6 +1258,7 @@ void MainWindow::loadMoreHistory() {
     const int generation = historyGeneration_->loadRelaxed();
     const QString query = searchBox_->text();
     const int kind = selectedKind_;
+    const auto source = selectedSource_;
     const auto cursor = nextCursor_;
     auto *watcher = new QFutureWatcher<HistoryPage>(this);
     connect(watcher, &QFutureWatcher<HistoryPage>::finished, this, [this, watcher, generation] {
@@ -1784,13 +1273,35 @@ void MainWindow::loadMoreHistory() {
     });
     const QString path = databasePath_;
     const auto generationState = historyGeneration_;
-    watcher->setFuture(QtConcurrent::run(&readPool_, [path, query, kind, cursor, generationState, generation] {
+    watcher->setFuture(QtConcurrent::run(&readPool_, [path, query, kind, source, cursor, generationState, generation] {
         if (generationState->loadRelaxed() != generation) return HistoryPage{};
-        return HistoryStore(path).search(query, kind, cursor, HistoryPageSize);
+        return HistoryStore(path).search(query, kind, cursor, HistoryPageSize, source);
     }));
 }
 
+void MainWindow::updateDateIndicator() {
+    dateIndicatorDay_ = QDate::currentDate();
+    if (!dateLabel_) return;
+    if (loadingPage_ || !model_ || model_->rowCount() == 0) {
+        dateLabel_->clear();
+        dateLabel_->setToolTip({});
+        return;
+    }
+    // 使用视口最上方可见卡片；卡片间隙处再向下探测，不跟随键盘选中项跳动。
+    QModelIndex top;
+    for (int y = 0; y < historyList_->viewport()->height() && !top.isValid(); ++y)
+        top = historyList_->indexAt(QPoint(2, y));
+    if (!top.isValid()) top = model_->index(0);
+    const QDate date = QDateTime::fromMSecsSinceEpoch(top.data(HistoryModel::UpdatedRole).toLongLong()).date();
+    const QString label = date == dateIndicatorDay_ ? AppLocalization::get(QStringLiteral("HistoryToday"))
+        : date == dateIndicatorDay_.addDays(-1) ? AppLocalization::get(QStringLiteral("HistoryYesterday"))
+        : date.toString(QStringLiteral("yyyy-MM-dd"));
+    if (dateLabel_->text() != label) dateLabel_->setText(label);
+    dateLabel_->setToolTip(date.toString(QStringLiteral("yyyy-MM-dd")));
+}
+
 void MainWindow::updateVisibleThumbnails() {
+    updateDateIndicator();
     if (!isVisible() || settingsPage_ || loadingPage_ || !historyList_ || !model_) return;
     if (hoverPreview_) {
         const int row = model_->rowForId(hoverPreviewId_);
@@ -1808,21 +1319,69 @@ void MainWindow::updateVisibleThumbnails() {
     model_->setVisibleRows(first, last);
 }
 
-QString textFormatLabel(const TextContent &content, bool markdown) {
-    if (markdown) return QStringLiteral("Markdown");
-    const char *richMarkers[]{"<a ", "<b>", "<b ", "<strong", "<i>", "<i ", "<em", "<u>",
-                              "<u ", "<s>", "<s ", "<table", "<img", "<ul", "<ol", "<li",
-                              "<h1", "<h2", "<h3", " style=", " class="};
-    bool formattedHtml = false;
-    for (const char *marker : richMarkers) {
-        if (content.html.contains(QLatin1String(marker), Qt::CaseInsensitive)) {
-            formattedHtml = true;
-            break;
-        }
+void MainWindow::setSourceFilter(std::optional<QString> source) {
+    selectedSource_ = std::move(source);
+    sourceButton_->setChecked(selectedSource_.has_value());
+    sourceFilterChip_->setVisible(selectedSource_.has_value());
+    if (selectedSource_) {
+        const QString name = selectedSource_->isEmpty()
+            ? AppLocalization::get(QStringLiteral("UnknownApplication")) : *selectedSource_;
+        const QString label = AppLocalization::format(QStringLiteral("ActiveSourceFilter"), {name});
+        sourceFilterChip_->setText(AppLocalization::format(QStringLiteral("ActiveSourceFilter"),
+            {sourceFilterChip_->fontMetrics().elidedText(name, Qt::ElideMiddle, 200)}));
+        sourceFilterChip_->setToolTip(label);
+        sourceFilterChip_->setAccessibleName(label);
     }
-    if (formattedHtml && !content.rtf.isEmpty()) return QStringLiteral("HTML · RTF");
-    if (formattedHtml) return QStringLiteral("HTML");
-    return content.rtf.isEmpty() ? QString{} : QStringLiteral("RTF");
+    searchTimer_.stop();
+    historyList_->verticalScrollBar()->setValue(0);
+    refreshHistory();
+    if (!passiveBrowsing_) historyStack_->currentWidget()->setFocus(Qt::ShortcutFocusReason);
+}
+
+void MainWindow::openSourceMenu() {
+    sourceButton_->setChecked(selectedSource_.has_value());
+    if (QApplication::activePopupWidget()) return;
+    auto *menu = new QMenu(this);
+    stylePopupMenu(menu, qApp->palette());
+    preparePanelMenu(menu);
+    connect(menu, &QMenu::aboutToHide, menu, &QObject::deleteLater);
+    auto *all = menu->addAction(AppLocalization::get(QStringLiteral("AllSources")));
+    all->setCheckable(true);
+    all->setChecked(!selectedSource_);
+    connect(all, &QAction::triggered, this, [this] { setSourceFilter(std::nullopt); });
+    menu->addSeparator();
+    auto *loading = menu->addAction(AppLocalization::get(QStringLiteral("LoadingSources")));
+    loading->setEnabled(false);
+    const auto cancelled = QSharedPointer<QAtomicInteger<bool>>::create(false);
+    connect(menu, &QMenu::aboutToHide, this, [cancelled] { cancelled->storeRelaxed(true); });
+    connect(menu, &QObject::destroyed, this, [cancelled] { cancelled->storeRelaxed(true); });
+    auto *watcher = new QFutureWatcher<QPair<QStringList, QString>>(this);
+    connect(watcher, &QFutureWatcher<QPair<QStringList, QString>>::finished, this,
+            [this, watcher, guard = QPointer<QMenu>(menu), loading] {
+        const auto result = watcher->result();
+        watcher->deleteLater();
+        if (!guard || !guard->isVisible()) return;
+        if (!result.second.isEmpty()) { loading->setText(result.second); return; }
+        if (result.first.isEmpty()) { loading->setText(AppLocalization::get(QStringLiteral("NoSources"))); return; }
+        guard->removeAction(loading);
+        delete loading;
+        for (const auto &source : result.first) {
+            const QString label = source.isEmpty() ? AppLocalization::get(QStringLiteral("UnknownApplication")) : source;
+            auto *action = guard->addAction(guard->fontMetrics().elidedText(label, Qt::ElideMiddle, 240)
+                                               .replace(QLatin1Char('&'), QStringLiteral("&&")));
+            action->setToolTip(label);
+            action->setCheckable(true);
+            action->setChecked(selectedSource_ && selectedSource_->compare(source, Qt::CaseInsensitive) == 0);
+            connect(action, &QAction::triggered, this, [this, source] { setSourceFilter(source); });
+        }
+        guard->setToolTipsVisible(true);
+    });
+    const QString path = databasePath_;
+    watcher->setFuture(QtConcurrent::run(&readPool_, [path, cancelled] {
+        if (cancelled->loadRelaxed()) return QPair<QStringList, QString>{};
+        return HistoryStore(path).sourceApplications();
+    }));
+    menu->popup(sourceButton_->mapToGlobal(QPoint(0, sourceButton_->height())));
 }
 
 void MainWindow::setFilter(int kind) {
@@ -1850,7 +1409,28 @@ void MainWindow::updateEmptyState() {
 
 void MainWindow::showStatus(const QString &message) {
     if (message.isEmpty()) return;
-    QToolTip::showText(QCursor::pos(), message, this, rect(), 2800);
+    // Qt 的纯文本提示不会主动限制长路径宽度，按屏幕宽度布局后保留显式换行。
+    const int maxWidth = qMax(1, qMin(360, screen()->availableGeometry().width() - 24));
+    QStringList lines;
+    for (const auto &paragraph : message.split(QLatin1Char('\n'))) {
+        if (paragraph.isEmpty()) { lines.append(QString{}); continue; }
+        QTextLayout layout(paragraph, QToolTip::font());
+        QTextOption option;
+        option.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+        layout.setTextOption(option);
+        layout.beginLayout();
+        while (true) {
+            auto line = layout.createLine();
+            if (!line.isValid()) break;
+            line.setLineWidth(maxWidth);
+            lines.append(paragraph.mid(line.textStart(), line.textLength()));
+        }
+        layout.endLayout();
+    }
+    // 转义外部错误详情，避免路径或错误文本被当成 HTML 解析。
+    const QString text = lines.join(QLatin1Char('\n')).toHtmlEscaped()
+        .replace(QLatin1Char('\n'), QStringLiteral("<br>"));
+    QToolTip::showText(QCursor::pos(), QStringLiteral("<qt>%1</qt>").arg(text), this, rect(), 2800);
 }
 
 bool MainWindow::nativeEventFilter(const QByteArray &, void *message, qintptr *result) {
@@ -1932,6 +1512,9 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
         }
     }
     if (hoverImageScroll_ && (watched == hoverImageLabel_ || watched == hoverImageScroll_->viewport())) {
+        // 预览切换及 DPI 变化会重新布局，使用最终视口尺寸更新图片缩放。
+        if (watched == hoverImageScroll_->viewport() && event->type() == QEvent::Resize)
+            updateHoverPreviewImage();
         if (event->type() == QEvent::Wheel && !hoverImageSize_.isEmpty()) {
             const auto *wheel = static_cast<QWheelEvent *>(event);
             const double factor = wheel->angleDelta().y() > 0 ? 1.25 : 0.8;
@@ -2099,407 +1682,6 @@ void MainWindow::closeEvent(QCloseEvent *event) {
     else { event->ignore(); hidePanel(); }
 }
 
-void MainWindow::closeHoverPreview() {
-    hoverPreviewGeneration_->fetchAndAddRelaxed(1);
-    hoverPreviewId_.clear();
-    hoverImageScroll_ = nullptr;
-    hoverImageLabel_ = nullptr;
-    hoverImageSize_ = {};
-    hoverImageZoom_ = 1.0;
-    hoverImageDragging_ = false;
-    delete hoverPreview_;
-    hoverPreview_ = nullptr;
-    if (delegate_) delegate_->setActivePreviewId({});
-}
-
-void MainWindow::toggleHoverPreview(QString id) {
-    // 按值保存 ID；关闭旧浮层会清空待预览成员，引用传参会导致首次加载空记录。
-    if (loadingPage_ || id.isEmpty()) return;
-    // 点击和快捷键共用状态：同一卡片关闭预览，另一卡片切换预览。
-    if (hoverPreview_ && hoverPreviewId_ == id) {
-        closeHoverPreview();
-        return;
-    }
-    const int row = model_->rowForId(id);
-    const auto *item = model_->itemAt(row);
-    if (!item) return;
-    const int kind = item->kind;
-    const int generation = hoverPreviewGeneration_->fetchAndAddRelaxed(1) + 1;
-    QToolTip::hideText();
-    hoverPreviewId_ = id;
-
-    // 复用顶层窗口，新页面准备好之前保留旧内容，避免先关闭再打开导致闪烁。
-    auto *popup = hoverPreview_;
-    if (!popup) {
-        popup = new HoverPreviewFrame(this, Qt::Tool | Qt::FramelessWindowHint);
-        popup->installEventFilter(this);
-        auto *close = new QShortcut(QKeySequence(Qt::Key_Escape), popup);
-        connect(close, &QShortcut::activated, this, [this] {
-            closeHoverPreview();
-            if (isVisible() && !passiveBrowsing_) activatePanel(historyList_);
-        });
-        auto *pages = new QStackedLayout(popup);
-        pages->setContentsMargins(0, 0, 0, 0);
-    }
-    popup->setObjectName(QStringLiteral("HoverPreview"));
-    popup->setWindowTitle(AppLocalization::get(QStringLiteral("PreviewContent")));
-    popup->setAttribute(Qt::WA_TranslucentBackground);
-    popup->setAttribute(Qt::WA_ShowWithoutActivating);
-    popup->setFocusPolicy(Qt::NoFocus);
-    popup->setPalette(qApp->palette());
-    const bool dark = popup->palette().color(QPalette::Window).lightness() < 128;
-    const QColor previewBackground(dark ? QStringLiteral("#272B30") : QStringLiteral("#EBEEF2"));
-    const QColor previewText(dark ? QStringLiteral("#DCE0E5") : QStringLiteral("#252A30"));
-    const QColor previewBorder(dark ? QStringLiteral("#454B52") : QStringLiteral("#CCD2DA"));
-    const QString previewStyle = QStringLiteral(
-        "QScrollArea{background:transparent;border:0;}"
-        "QLabel{background:transparent;color:%1;border:0;}"
-        "QLabel[previewBadge=\"true\"]{background:%2;border:1px solid %3;border-radius:5px;padding:3px 7px;}"
-        "QFrame#HoverPreviewContent{background:%4;border:1px solid %5;border-radius:7px;}"
-    ).arg(popup->palette().color(QPalette::ToolTipText).name(),
-          popup->palette().color(QPalette::AlternateBase).name(),
-          popup->palette().color(QPalette::Mid).name(),
-          previewBackground.name(), previewBorder.name());
-    if (popup->styleSheet() != previewStyle) popup->setStyleSheet(previewStyle);
-    auto *page = new QWidget(popup);
-    page->hide();
-    auto *layout = new QVBoxLayout(page);
-    layout->setContentsMargins(10, 10, 10, 10);
-    // 来源应用、格式与容量统计放在浮层页头，不再占用卡片内容宽度。
-    const QString source = item->sourceApplication.isEmpty()
-        ? AppLocalization::get(QStringLiteral("UnknownApplication")) : item->sourceApplication;
-    const QString format = kind == 0 ? AppLocalization::get(QStringLiteral("ContentTypeText")) : QString{};
-    const QString statistics = kind == 0
-        ? AppLocalization::format(QStringLiteral("CharacterCount"), {QString::number(item->searchTextLength)})
-        : kind == 1 ? QStringLiteral("%1 KB").arg(qMax(1.0, item->contentSize / 1024.0), 0, 'f', 1)
-                    : AppLocalization::get(QStringLiteral("ContentTypeFiles"));
-    auto *heading = new QHBoxLayout;
-    heading->setContentsMargins(0, 0, 0, 0);
-    heading->setSpacing(6);
-    const auto makeBadge = [popup](const QString &text) {
-        auto *label = new QLabel(text, popup);
-        label->setTextFormat(Qt::PlainText);
-        label->setProperty("previewBadge", true);
-        label->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
-        QFont font = label->font();
-        font.setPixelSize(12);
-        label->setFont(font);
-        return label;
-    };
-    auto *sourceBadge = makeBadge(source);
-    auto *statisticsBadge = makeBadge(statistics);
-    heading->addWidget(sourceBadge);
-    int detailsWidth = statisticsBadge->fontMetrics().horizontalAdvance(statistics) + 16;
-    auto *formatBadge = makeBadge(format);
-    heading->addWidget(formatBadge);
-    formatBadge->setVisible(!format.isEmpty());
-    if (!format.isEmpty())
-        detailsWidth += formatBadge->fontMetrics().horizontalAdvance(format) + 16 + heading->spacing();
-    heading->addStretch();
-    heading->addWidget(statisticsBadge);
-    layout->addLayout(heading);
-    // 内容背景独立于页头标签，保持文字与图片预览的内边距一致。
-    auto *content = new QFrame(popup);
-    content->setObjectName(QStringLiteral("HoverPreviewContent"));
-    auto *contentLayout = new QVBoxLayout(content);
-    contentLayout->setContentsMargins(8, 8, 8, 8);
-    layout->addWidget(content, 1);
-    hoverPreview_ = popup;
-    if (passiveBrowsing_) setPassiveBrowsing(true);
-    delegate_->setActivePreviewId(id);
-
-    const QPoint anchor = historyList_->viewport()->mapToGlobal(QPoint(0, 0));
-    QScreen *screen = QGuiApplication::screenAt(anchor);
-    if (!screen) screen = QGuiApplication::primaryScreen();
-    const QRect available = screen ? screen->availableGeometry() : QRect(anchor, QSize(800, 600));
-    const int width = qMin(kind == 1 ? 520 : 460, available.width() - 20);
-    const int height = qMin(kind == 1 ? 400 : 320, available.height() - 20);
-    const int sourceWidth = qMax(0, width - 20 - detailsWidth - heading->spacing() - 16);
-    sourceBadge->setText(sourceBadge->fontMetrics().elidedText(source, Qt::ElideRight, sourceWidth));
-    int x = frameGeometry().right() + 8;
-    if (x + width > available.right()) x = frameGeometry().left() - width - 8;
-    x = qBound(available.left(), x, available.right() - width + 1);
-    const int y = qBound(available.top(), anchor.y(), available.bottom() - height + 1);
-    const QString path = databasePath_;
-    auto *watcher = new QFutureWatcher<PreviewResult>(this);
-    connect(watcher, &QFutureWatcher<PreviewResult>::finished, this, [this, watcher, generation, id, page = QPointer<QWidget>(page), width, height, x, y,
-                                                                 content, previewBackground, previewText,
-                                                                 sourceBadge, statisticsBadge, formatBadge, heading, source] {
-        const PreviewResult result = watcher->result();
-        watcher->deleteLater();
-        if (generation != hoverPreviewGeneration_->loadRelaxed() || id != hoverPreviewId_ || !hoverPreview_) {
-            if (page) page->deleteLater();
-            return;
-        }
-        hoverPreview_->setUpdatesEnabled(false);
-        hoverImageScroll_ = nullptr;
-        hoverImageLabel_ = nullptr;
-        hoverImageSize_ = {};
-        hoverImageZoom_ = 1.0;
-        hoverImageDragging_ = false;
-        auto *pages = static_cast<QStackedLayout *>(hoverPreview_->layout());
-        while (auto *old = pages->takeAt(0)) {
-            delete old->widget();
-            delete old;
-        }
-        pages->addWidget(page);
-        hoverPreview_->setFixedSize(width, height);
-        hoverPreview_->move(x, y);
-        if (!result.formatLabel.isEmpty()) {
-            formatBadge->setText(result.formatLabel);
-            const int sourceWidth = qMax(0, hoverPreview_->width() - 20 - statisticsBadge->sizeHint().width()
-                - formatBadge->sizeHint().width() - heading->spacing() * 3);
-            sourceBadge->setText(sourceBadge->fontMetrics().elidedText(source, Qt::ElideRight, sourceWidth));
-        }
-        auto *layout = content->layout();
-        if (result.kind == 1) {
-            if (result.image.isNull()) {
-                auto *label = new QLabel(AppLocalization::get(QStringLiteral("ImagePreviewUnavailable")), content);
-                label->setAlignment(Qt::AlignCenter);
-                layout->addWidget(label);
-            } else {
-                hoverImageSize_ = result.image.size();
-                auto *scroll = new QScrollArea(content);
-                scroll->setFrameShape(QFrame::NoFrame);
-                scroll->verticalScrollBar()->setFixedWidth(historyList_->verticalScrollBar()->width());
-                scroll->horizontalScrollBar()->setFixedHeight(historyList_->verticalScrollBar()->width());
-                scroll->setAlignment(Qt::AlignCenter);
-                scroll->setWidgetResizable(false);
-                scroll->viewport()->setAutoFillBackground(false);
-                scroll->viewport()->setStyleSheet(QStringLiteral("background:transparent;"));
-                auto *label = new QLabel(scroll);
-                label->setAlignment(Qt::AlignCenter);
-                label->setScaledContents(true);
-                label->installEventFilter(this);
-                scroll->setWidget(label);
-                scroll->viewport()->installEventFilter(this);
-                layout->addWidget(scroll);
-                hoverImageScroll_ = scroll;
-                hoverImageLabel_ = label;
-                // 标签持有显示用 QPixmap，不再额外常驻一份解码后的 QImage。
-                hoverImageLabel_->setPixmap(QPixmap::fromImage(result.image));
-            }
-        } else {
-            auto *preview = new PreviewTextEdit(content);
-            preview->setReadOnly(true);
-            preview->setUndoRedoEnabled(false);
-            preview->setAcceptDrops(false);
-            preview->setFocusPolicy(Qt::NoFocus);
-            preview->setFrameShape(QFrame::NoFrame);
-            preview->setContextMenuPolicy(Qt::CustomContextMenu);
-            connect(preview, &QTextEdit::customContextMenuRequested, this, [this, preview](const QPoint &position) {
-                auto *menu = preview->createStandardContextMenu();
-                preparePanelMenu(menu);
-                connect(menu, &QMenu::aboutToHide, menu, &QObject::deleteLater);
-                menu->popup(preview->viewport()->mapToGlobal(position));
-            });
-            preview->setLineWrapMode(QTextEdit::WidgetWidth);
-            preview->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
-            preview->verticalScrollBar()->setFixedWidth(historyList_->verticalScrollBar()->width());
-            preview->horizontalScrollBar()->setFixedHeight(historyList_->verticalScrollBar()->width());
-            const bool richText = !result.html.isEmpty() || result.markdown;
-            preview->setStyleSheet(QStringLiteral("QTextEdit{background:transparent;border:0;color:%1;}")
-                .arg(previewText.name()));
-            preview->viewport()->setAutoFillBackground(false);
-            // Markdown 正文优先，避免编辑器附带的 HTML 覆盖源码和渲染方式。
-            if (result.markdown) preview->setMarkdown(result.text);
-            else if (!result.html.isEmpty()) preview->setHtml(result.html);
-            else preview->setPlainText(result.text);
-            if (richText) adaptPreviewContrast(preview->document(), previewBackground, previewText);
-            layout->addWidget(preview);
-            if (result.kind == 0) {
-                // 推测格式只影响展示，编辑和保存沿用原始格式。
-                const bool markdown = result.sourceMarkdown;
-                const bool html = !markdown && !result.html.isEmpty();
-                const bool plainRtf = !markdown && !html && result.formatLabel == QStringLiteral("RTF");
-                auto *actions = new QHBoxLayout;
-                actions->addStretch();
-                auto *edit = new QPushButton(AppLocalization::get(plainRtf
-                    ? QStringLiteral("EditViewedPlainText") : QStringLiteral("EditViewedText")), content);
-                edit->setObjectName(QStringLiteral("EditViewedText"));
-                auto *paste = new QPushButton(AppLocalization::get(QStringLiteral("PasteEditedText")), content);
-                paste->setObjectName(QStringLiteral("PasteEditedText"));
-                auto *replace = new QPushButton(AppLocalization::get(QStringLiteral("ReplaceOriginalRecord")), content);
-                replace->setObjectName(QStringLiteral("ReplaceOriginalRecord"));
-                replace->setToolTip(AppLocalization::get(QStringLiteral("ReplaceOriginalRecordHint")));
-                replace->hide();
-                paste->hide();
-                edit->setToolTip(AppLocalization::get(plainRtf ? QStringLiteral("RtfEditNotice") : QStringLiteral("EditViewedTextHint")));
-                paste->setToolTip(edit->toolTip());
-                actions->addWidget(edit);
-                actions->addWidget(replace);
-                actions->addWidget(paste);
-                static_cast<QVBoxLayout *>(layout)->addLayout(actions);
-                const auto beginEdit = [this, generation, preview, edit, paste, replace, html] {
-                    if (generation != hoverPreviewGeneration_->loadRelaxed()) return;
-                    activatePanel(preview);
-                    preview->setAcceptRichText(false);
-                    preview->setUndoRedoEnabled(true);
-                    preview->document()->setModified(false);
-                    preview->setReadOnly(false);
-                    preview->setFocusPolicy(Qt::StrongFocus);
-                    if (!html) {
-                        preview->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
-                        preview->setLineWrapMode(QTextEdit::NoWrap);
-                    }
-                    edit->hide();
-                    paste->show();
-                    replace->show();
-                    replace->setEnabled(false);
-                    preview->setFocus(Qt::MouseFocusReason);
-                };
-                connect(edit, &QPushButton::clicked, this,
-                        [this, id, generation, renderedMarkdown = result.markdown, html,
-                         sourceHtml = result.html, preview, edit, beginEdit] {
-                    if (generation != hoverPreviewGeneration_->loadRelaxed()) return;
-                    if (!renderedMarkdown) { beginEdit(); return; }
-                    if (html) {
-                        preview->setHtml(sourceHtml);
-                        beginEdit();
-                        return;
-                    }
-                    // Markdown 编辑源文本，按需重读，不让查看窗口额外常驻一份源码。
-                    edit->setEnabled(false);
-                    auto *watcher = new QFutureWatcher<QString>(this);
-                    connect(watcher, &QFutureWatcher<QString>::finished, this,
-                            [this, watcher, generation, guard = QPointer<QTextEdit>(preview), edit, beginEdit] {
-                        const QString source = watcher->result();
-                        watcher->deleteLater();
-                        if (!guard || generation != hoverPreviewGeneration_->loadRelaxed()) return;
-                        if (source.isEmpty()) {
-                            edit->setEnabled(true);
-                            showStatus(AppLocalization::get(QStringLiteral("ContentRestoreFailed")));
-                            return;
-                        }
-                        guard->setPlainText(source);
-                        beginEdit();
-                    });
-                    const QString path = databasePath_;
-                    watcher->setFuture(QtConcurrent::run(&readPool_, [path, id] {
-                        return decodeTextContent(HistoryStore(path).content(id)).text;
-                    }));
-                });
-                connect(preview, &QTextEdit::textChanged, paste, [preview, paste, statisticsBadge] {
-                    paste->setEnabled(!preview->document()->isEmpty());
-                    statisticsBadge->setText(AppLocalization::format(QStringLiteral("CharacterCount"),
-                        {QString::number(qMax(0, preview->document()->characterCount() - 1))}));
-                });
-                const auto updateReplace = [preview, replace] {
-                    replace->setEnabled(!preview->document()->isEmpty() && preview->document()->isModified()
-                        && !replace->property("saving").toBool());
-                };
-                connect(preview, &QTextEdit::textChanged, replace, updateReplace);
-                connect(preview->document(), &QTextDocument::modificationChanged, replace, updateReplace);
-                const auto editedContent = [preview, markdown, html] {
-                    QJsonObject payload{{QStringLiteral("Text"), preview->toPlainText()}, {QStringLiteral("Markdown"), markdown}};
-                    if (html) payload.insert(QStringLiteral("Html"), editedHtml(preview->document()));
-                    return QByteArray(TextPayloadPrefix) + QJsonDocument(payload).toJson(QJsonDocument::Compact);
-                };
-                connect(paste, &QPushButton::clicked, this, [this, id, generation, editedContent] {
-                    if (generation != hoverPreviewGeneration_->loadRelaxed()) return;
-                    pasteRecord(id, false, false, editedContent());
-                });
-                connect(replace, &QPushButton::clicked, this, [this, id, generation, preview, replace, paste,
-                                                             editedContent, formatBadge, markdown, html] {
-                    if (generation != hoverPreviewGeneration_->loadRelaxed()) return;
-                    const QString text = preview->toPlainText();
-                    const QByteArray content = editedContent();
-                    replace->setProperty("saving", true);
-                    replace->setEnabled(false);
-                    paste->setEnabled(false);
-                    preview->setReadOnly(true);
-                    const QString path = databasePath_;
-                    auto *watcher = new QFutureWatcher<QString>(this);
-                    connect(watcher, &QFutureWatcher<QString>::finished, this,
-                            [this, watcher, id, generation, text, content, guard = QPointer<QTextEdit>(preview),
-                             replace, paste, formatBadge, markdown, html] {
-                        const QString error = watcher->result();
-                        watcher->deleteLater();
-                        // 存储成功后才更新卡片；切换或关闭查看窗口不影响已确认的保存。
-                        if (error.isEmpty()) {
-                            model_->setText(id, text, content.size());
-                            if (loadingPage_ || !searchBox_->text().isEmpty()) historyDirty_ = true;
-                        }
-                        if (guard && generation == hoverPreviewGeneration_->loadRelaxed()) {
-                            guard->setReadOnly(false);
-                            replace->setProperty("saving", false);
-                            if (error.isEmpty()) {
-                                guard->document()->setModified(false);
-                                formatBadge->setText(markdown ? QStringLiteral("Markdown") : html ? QStringLiteral("HTML")
-                                    : AppLocalization::get(QStringLiteral("ContentTypeText")));
-                            } else replace->setEnabled(true);
-                            paste->setEnabled(!guard->document()->isEmpty());
-                        }
-                        // 保存成功且仍在当前查看窗口时才粘贴，防止异步保存后误操作已切换的目标。
-                        if (!error.isEmpty()) showStatus(AppLocalization::get(error));
-                        else if (guard && generation == hoverPreviewGeneration_->loadRelaxed() && isVisible())
-                            pasteRecord(id, false, false, content);
-                        else showStatus(AppLocalization::get(QStringLiteral("OriginalRecordReplaced")));
-                    });
-                    watcher->setFuture(QtConcurrent::run(&writePool_, [path, id, content, text] {
-                        return HistoryStore(path).replaceText(id, content, text);
-                    }));
-                });
-            }
-        }
-        // 内容与嵌套布局都准备好后再首次显示，避免加载占位符及首帧尺寸变化闪烁。
-        hoverPreview_->layout()->activate();
-        layout->activate();
-        if (hoverImageScroll_) updateHoverPreviewImage();
-        hoverPreview_->setUpdatesEnabled(true);
-        if (!hoverPreview_->isVisible()) hoverPreview_->show();
-    });
-    const auto generationState = hoverPreviewGeneration_;
-    watcher->setFuture(QtConcurrent::run(&readPool_, [path, id, kind, generationState, generation] {
-        PreviewResult result;
-        result.kind = kind;
-        if (generationState->loadRelaxed() != generation) return result;
-        const QByteArray content = HistoryStore(path).content(id, false);
-        if (generationState->loadRelaxed() != generation) return result;
-        if (kind == 1) {
-            // 优先从原图按上限解码，预览图仅作为原图损坏时的回退。
-            for (const bool preferPreview : {false, true}) {
-                if (generationState->loadRelaxed() != generation) return result;
-                const QByteArray bytes = decodeImageContent(preferPreview
-                    ? HistoryStore(path).content(id, true) : content).bytes;
-                if (generationState->loadRelaxed() != generation) return result;
-                if (bytes.isEmpty()) continue;
-                QBuffer buffer;
-                buffer.setData(bytes);
-                if (!buffer.open(QIODevice::ReadOnly)) continue;
-                QImageReader reader(&buffer);
-                reader.setAutoTransform(true);
-                const QSize target = boundedSize(reader.size(), 1600, 0, 4'000'000);
-                if (target.isValid()) reader.setScaledSize(target);
-                result.image = reader.read();
-                if (!result.image.isNull()) break;
-            }
-        } else if (kind == 0) {
-            const auto text = decodeTextContent(content);
-            result.text = text.text;
-            result.html = text.html;
-            result.sourceMarkdown = text.markdown;
-            result.markdown = isMarkdownContent(text);
-            result.formatLabel = textFormatLabel(text, result.markdown);
-        } else {
-            const auto paths = QJsonDocument::fromJson(content).array();
-            QStringList values;
-            values.reserve(paths.size());
-            for (const auto &pathValue : paths) values.push_back(pathValue.toString());
-            result.text = values.join(QLatin1Char('\n'));
-        }
-        return result;
-    }));
-}
-
-void MainWindow::updateHoverPreviewImage() {
-    if (!hoverPreview_ || !hoverImageLabel_ || !hoverImageScroll_ || hoverImageSize_.isEmpty()) return;
-    // 首次显示前 viewport 尚未稳定；用已激活布局的滚动容器宽度，包含内容背景的内边距。
-    const int availableWidth = qMax(1, hoverImageScroll_->width() - hoverImageScroll_->verticalScrollBar()->width());
-    const double fit = availableWidth / static_cast<double>(hoverImageSize_.width());
-    hoverImageLabel_->resize(hoverImageSize_ * (fit * hoverImageZoom_));
-}
-
 void MainWindow::setPinned(const QString &id) {
     if (loadingPage_) return;
     const auto *item = model_->itemAt(model_->rowForId(id));
@@ -2558,7 +1740,7 @@ void MainWindow::deleteRecord(const QString &id) {
 }
 
 void MainWindow::clearCurrentList() {
-    if (unpinnedCount_ <= 0) return;
+    if (loadingPage_ || unpinnedCount_ <= 0) return;
     activatePanel();
     const QString message = AppLocalization::format(QStringLiteral("ClearCurrentListMessage"),
                                                      {QString::number(unpinnedCount_)});
@@ -2567,12 +1749,13 @@ void MainWindow::clearCurrentList() {
     const QString path = databasePath_;
     const QString query = searchBox_->text();
     const int kind = selectedKind_;
+    const auto source = selectedSource_;
     auto *watcher = new QFutureWatcher<QPair<int, QString>>(this);
     connect(watcher, &QFutureWatcher<QPair<int, QString>>::finished, this, [this, watcher, path] {
         const auto result = watcher->result();
         watcher->deleteLater();
         if (!result.second.isEmpty()) showStatus(result.second);
-        // 删除提交后立即刷新，压缩独立排队，避免筛选结果等待全库压缩。
+        // 删除提交后立即刷新，后台仅限量回收空闲页，避免全库重写阻塞后续保存。
         refreshHistory();
         if (result.first <= 0 || !result.second.isEmpty()) return;
         showStatus(AppLocalization::format(QStringLiteral("CurrentListCleared"),
@@ -2584,12 +1767,12 @@ void MainWindow::clearCurrentList() {
             if (!error.isEmpty()) showStatus(error);
         });
         compactWatcher->setFuture(QtConcurrent::run(&writePool_, [path] {
-            return HistoryStore(path).compact(true);
+            return HistoryStore(path).compact();
         }));
     });
-    watcher->setFuture(QtConcurrent::run(&writePool_, [path, query, kind] {
+    watcher->setFuture(QtConcurrent::run(&writePool_, [path, query, kind, source] {
         QString error;
-        const int deleted = HistoryStore(path).removeMatching(query, kind, &error);
+        const int deleted = HistoryStore(path).removeMatching(query, kind, &error, source);
         return qMakePair(deleted, error);
     }));
 }
@@ -2624,6 +1807,9 @@ void MainWindow::openRowMenu(const QString &id, std::optional<QPoint> position) 
     menu->popup(popupPosition);
     if (kind == 1) return;
     const QString path = databasePath_;
+    const auto cancelled = QSharedPointer<QAtomicInteger<bool>>::create(false);
+    connect(menu, &QMenu::aboutToHide, this, [cancelled] { cancelled->storeRelaxed(true); });
+    connect(menu, &QObject::destroyed, this, [cancelled] { cancelled->storeRelaxed(true); });
     auto *watcher = new QFutureWatcher<QStringList>(this);
     connect(watcher, &QFutureWatcher<QStringList>::finished, this,
             [this, watcher, menu = QPointer<QMenu>(menu), kind, generation] {
@@ -2663,14 +1849,20 @@ void MainWindow::openRowMenu(const QString &id, std::optional<QPoint> position) 
             });
         }
     });
-    // 链接解析不占用预览读取队列，关闭菜单后的结果由 QPointer 丢弃。
-    watcher->setFuture(QtConcurrent::run([path, id, kind] {
+    // 关闭菜单后跳过尚未开始的读取和解析，避免挤占缩略图的后台队列。
+    watcher->setFuture(QtConcurrent::run([path, id, kind, cancelled] {
+        if (cancelled->loadRelaxed()) return QStringList{};
         const QByteArray content = HistoryStore(path).content(id);
+        if (cancelled->loadRelaxed()) return QStringList{};
         if (kind == 0) return webLinks(content);
         QStringList paths;
+        QSet<QString> seen;
         for (const auto &entry : QJsonDocument::fromJson(content).array()) {
             const QString path = entry.toString();
-            if (QDir::isAbsolutePath(path) && !paths.contains(path)) paths.append(path);
+            if (QDir::isAbsolutePath(path) && !seen.contains(path)) {
+                seen.insert(path);
+                paths.append(path);
+            }
         }
         return paths;
     }));
@@ -2849,6 +2041,10 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile, std
         const auto result = watcher->result();
         watcher->deleteLater();
         if (generation != pasteGeneration_->loadRelaxed()) return;
+        if (!result.unavailablePath.isEmpty()) {
+            showStatus(AppLocalization::format(QStringLiteral("FilePathUnavailable"), {result.unavailablePath}));
+            return;
+        }
         const HistoryItem &item = result.item;
         const QByteArray &content = result.content;
         if (content.isEmpty()) { showStatus(AppLocalization::get(QStringLiteral("ContentRestoreFailed"))); return; }
@@ -3016,6 +2212,12 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile, std
         if (generationState->loadRelaxed() != generation) return result;
         result.content = editedContent ? *editedContent : HistoryStore(path).content(item.id);
         if (generationState->loadRelaxed() != generation) return result;
+        if (item.kind == 2) {
+            QStringList paths;
+            for (const auto &entry : QJsonDocument::fromJson(result.content).array()) paths.append(entry.toString());
+            result.unavailablePath = firstUnavailableFilePath(paths);
+            if (!result.unavailablePath.isEmpty()) return result;
+        }
         // 格式识别在读取线程完成，避免大段 JSON/XML 阻塞面板响应。
         if (asFile && item.kind == 0) result.file = textFileContent(decodeTextContent(result.content));
         if (item.kind == 1) {
