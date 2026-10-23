@@ -54,6 +54,21 @@ chinesesimp.LaunchProduct=启动贴环
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加快捷方式："; Flags: unchecked
 Name: "autostart"; Description: "{cm:AutoStart}"; GroupDescription: "附加选项："; Flags: unchecked
 
+[InstallDelete]
+; 仅清理新版明确排除的旧依赖，不递归删除安装目录或用户文件。
+Type: files; Name: "{app}\d3dcompiler_47.dll"
+Type: files; Name: "{app}\dxcompiler.dll"
+Type: files; Name: "{app}\dxil.dll"
+Type: files; Name: "{app}\generic\qtuiotouchplugin.dll"
+Type: files; Name: "{app}\styles\qmodernwindowsstyle.dll"
+Type: files; Name: "{app}\networkinformation\qglib.dll"
+Type: files; Name: "{app}\sqldrivers\qsqlibase.dll"
+Type: files; Name: "{app}\sqldrivers\qsqlmimer.dll"
+Type: files; Name: "{app}\sqldrivers\qsqloci.dll"
+Type: files; Name: "{app}\sqldrivers\qsqlmysql.dll"
+Type: files; Name: "{app}\sqldrivers\qsqlodbc.dll"
+Type: files; Name: "{app}\sqldrivers\qsqlpsql.dll"
+
 [Files]
 ; 保留发布目录中的 Assets、Themes、XBF、PRI 和所有运行依赖的相对路径。
 Source: "{#ReleaseDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

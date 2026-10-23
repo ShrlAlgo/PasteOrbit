@@ -16,22 +16,21 @@ add_executable(PasteOrbitNative WIN32
     app/app.rc
     resources/resources.qrc
 )
-target_include_directories(PasteOrbitNative PRIVATE app data services ui)
+target_include_directories(PasteOrbitNative PRIVATE app data services ui platform)
+# 平台实现由构建选择，存储层只依赖不含系统类型的接口。
+if(WIN32)
+    target_sources(PasteOrbitNative PRIVATE platform/windows/data_protection.cpp)
+endif()
 target_link_libraries(PasteOrbitNative PRIVATE
     Qt6::Widgets
     Qt6::Sql
     Qt6::Concurrent
     Qt6::Network
     qlementine
-    crypt32
-    user32
-    shell32
-    advapi32
-    bcrypt
-    ole32
-    oleaut32
-    oleacc
 )
+if(WIN32)
+    target_link_libraries(PasteOrbitNative PRIVATE crypt32 user32 shell32 advapi32 bcrypt ole32 oleaut32 oleacc)
+endif()
 target_compile_definitions(PasteOrbitNative PRIVATE PASTEORBIT_VERSION="${PASTEORBIT_VERSION}")
 set_target_properties(PasteOrbitNative PROPERTIES OUTPUT_NAME PasteOrbit)
 set_target_properties(PasteOrbitNative PROPERTIES
@@ -47,7 +46,9 @@ if(MSVC)
     find_program(qt_deploy windeployqt HINTS "${qt_bin}" REQUIRED NO_DEFAULT_PATH)
     add_custom_command(TARGET PasteOrbitNative POST_BUILD
         COMMAND "${qt_deploy}" "$<IF:$<CONFIG:Debug>,--debug,--release>"
-            --no-translations --no-compiler-runtime
+            --no-translations --no-compiler-runtime --no-system-dxc-compiler --no-system-d3d-compiler
+            --skip-plugin-types generic,styles
+            --exclude-plugins qglib,qsqlibase,qsqlmimer,qsqloci,qsqlmysql,qsqlodbc,qsqlpsql
             --dir "$<TARGET_FILE_DIR:PasteOrbitNative>" "$<TARGET_FILE:PasteOrbitNative>"
         VERBATIM)
 endif()

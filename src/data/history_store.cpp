@@ -1,4 +1,5 @@
 #include "history_store.h"
+#include "data_protection.h"
 
 #include <QCryptographicHash>
 #include <QByteArrayView>
@@ -10,10 +11,11 @@
 #include <QVariant>
 #include <QUuid>
 
-#include <windows.h>
-#include <wincrypt.h>
 
 namespace {
+
+using DataProtection::protect;
+using DataProtection::unprotect;
 
 constexpr int CurrentSchemaVersion = 4;
 
@@ -42,30 +44,6 @@ private:
     QSqlDatabase database_;
     bool open_ = false;
 };
-
-std::optional<QByteArray> protect(const QByteArray &plain) {
-    DATA_BLOB input{static_cast<DWORD>(plain.size()),
-                    reinterpret_cast<BYTE *>(const_cast<char *>(plain.constData()))};
-    DATA_BLOB output{};
-    if (!CryptProtectData(&input, nullptr, nullptr, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &output)) {
-        return std::nullopt;
-    }
-    QByteArray result(reinterpret_cast<const char *>(output.pbData), static_cast<qsizetype>(output.cbData));
-    LocalFree(output.pbData);
-    return result;
-}
-
-std::optional<QByteArray> unprotect(const QByteArray &cipher) {
-    DATA_BLOB input{static_cast<DWORD>(cipher.size()),
-                    reinterpret_cast<BYTE *>(const_cast<char *>(cipher.constData()))};
-    DATA_BLOB output{};
-    if (!CryptUnprotectData(&input, nullptr, nullptr, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &output)) {
-        return std::nullopt;
-    }
-    QByteArray result(reinterpret_cast<const char *>(output.pbData), static_cast<qsizetype>(output.cbData));
-    LocalFree(output.pbData);
-    return result;
-}
 
 bool execute(QSqlDatabase &database, const QString &sql, QString *error = nullptr) {
     QSqlQuery query(database);

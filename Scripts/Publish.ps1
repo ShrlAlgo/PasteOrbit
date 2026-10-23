@@ -101,10 +101,6 @@ function Copy-ToolchainRuntimeDependencies {
     }
 }
 
-Remove-PackagePath -Path $publishDirectory
-Remove-PackagePath -Path $archivePath
-New-Item -ItemType Directory -Path $publishDirectory -Force | Out-Null
-
 if ((-not (Test-Path -LiteralPath $cmakePath -PathType Leaf)) -or (-not (Test-Path -LiteralPath $deployToolPath -PathType Leaf)) -or ((-not $useMsvc) -and (-not (Test-Path -LiteralPath $dependencyToolPath -PathType Leaf)))) {
     throw '未找到 MSYS2 UCRT64 的 CMake/Qt 工具。请先安装项目要求的 Qt 6 和 MinGW 工具链。'
 }
@@ -136,11 +132,16 @@ $builtExecutable = Join-Path $buildDirectory 'bin\Release\PasteOrbit.exe'
 if (-not (Test-Path -LiteralPath $builtExecutable -PathType Leaf)) {
     throw "未找到 Qt 构建产物：$builtExecutable"
 }
+# 构建成功后才替换发布产物，配置或编译失败时保留上一份可用包。
+Remove-PackagePath -Path $publishDirectory
+if (-not $NoArchive) { Remove-PackagePath -Path $archivePath }
+New-Item -ItemType Directory -Path $publishDirectory -Force | Out-Null
 $stagedExecutable = Join-Path $deploymentDirectory 'PasteOrbit.exe'
 Copy-Item -LiteralPath $builtExecutable -Destination $stagedExecutable
+# Widgets 使用光栅绘制，无需部署 Direct3D 着色器编译器。
 # 使用 Windows 原生网络后端；不部署 TUIO、GLib 和应用未使用的数据库驱动。
 # 必须先筛选插件，再收集动态依赖，避免把 GLib 的整条 DLL 依赖链带入发布包。
-& $deployToolPath --release --no-translations --no-compiler-runtime --no-system-dxc-compiler `
+& $deployToolPath --release --no-translations --no-compiler-runtime --no-system-dxc-compiler --no-system-d3d-compiler `
     --skip-plugin-types generic,styles `
     --exclude-plugins qglib,qsqlibase,qsqlmimer,qsqloci,qsqlmysql,qsqlodbc,qsqlpsql `
     --dir $deploymentDirectory $stagedExecutable

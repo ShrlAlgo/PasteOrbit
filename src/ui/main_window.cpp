@@ -577,8 +577,9 @@ MainWindow::MainWindow(QString dataDirectory, AppSettings settings)
       databasePath_(dataDirectory_ + QStringLiteral("/history.db")),
       settingsPath_(dataDirectory_ + QStringLiteral("/settings.json")),
       settings_(std::move(settings)), store_(databasePath_) {
-    // 限制并行解码，避免滚动预览与图片捕获同时放大内存峰值。
+    // 短查询独立排队；文件访问和内容解码串行，避免慢文件阻塞搜索。
     readPool_.setMaxThreadCount(1);
+    contentPool_.setMaxThreadCount(1);
     writePool_.setMaxThreadCount(1);
     QThreadPool::globalInstance()->setMaxThreadCount(1);
     buildUi();
@@ -588,10 +589,11 @@ MainWindow::MainWindow(QString dataDirectory, AppSettings settings)
     createWinId();
     registerHotkey();
     updateWinVHook();
-    AddClipboardFormatListener(reinterpret_cast<HWND>(winId()));
+    clipboardNotificationsAvailable_ = AddClipboardFormatListener(reinterpret_cast<HWND>(winId())) != FALSE;
     lastClipboardSequence_ = GetClipboardSequenceNumber();
     connect(QApplication::clipboard(), &QClipboard::dataChanged, this, &MainWindow::scheduleCapture);
-    clipboardPollTimer_.setInterval(250);
+    // 系统通知负责即时捕获，隐藏时只保留低频漏通知补偿。
+    clipboardPollTimer_.setInterval(clipboardNotificationsAvailable_ ? 2000 : 250);
     connect(&clipboardPollTimer_, &QTimer::timeout, this, [this] {
         if (isVisible() && dateIndicatorDay_ != QDate::currentDate()) updateDateIndicator();
         if (passiveBrowsing_ && isVisible()) {
@@ -649,6 +651,7 @@ MainWindow::~MainWindow() {
     trayIcon_->setContextMenu(nullptr);
     delete trayMenu_;
     readPool_.waitForDone(1000);
+    contentPool_.waitForDone(1000);
     writePool_.waitForDone(1000);
 }
 
@@ -659,12 +662,15 @@ void MainWindow::beginStorageOperation() {
     restoreWasPaused_ = paused_;
     paused_ = true;
     captureTimer_.stop();
-    readPool_.waitForDone();
-    writePool_.waitForDone();
-    QThreadPool::globalInstance()->waitForDone();
+    // 先取消排队的读取，再等待已运行任务释放数据库，避免备份被过期预览拖住。
     historyGeneration_->fetchAndAddRelaxed(1);
+    pasteGeneration_->fetchAndAddRelaxed(1);
     closeHoverPreview();
     model_->releaseThumbnails();
+    readPool_.waitForDone();
+    contentPool_.waitForDone();
+    writePool_.waitForDone();
+    QThreadPool::globalInstance()->waitForDone();
 }
 
 void MainWindow::finishStorageOperation(bool restored) {
@@ -866,7 +872,7 @@ void MainWindow::buildUi() {
         openRowMenu(current.data(HistoryModel::IdRole).toString(),
                     historyList_->viewport()->mapToGlobal(historyList_->visualRect(current).topRight()));
     });
-    connect(model_, &QAbstractItemModel::modelAboutToBeReset, this, &MainWindow::closeHoverPreview);
+    connect(model_, &QAbstractItemModel::modelAboutToBeReset, this, [this] { closeHoverPreview(); });
     connect(delegate_, &HistoryDelegate::actionTriggered, this, [this](const QString &id, int action) {
         if (action == HistoryDelegate::Preview) toggleHoverPreview(id);
         else if (action == HistoryDelegate::Pin) setPinned(id);
@@ -1576,7 +1582,13 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
     if ((watched == historyList_ || watched == searchBox_ || watched == emptyLabel_)
         && event->type() == QEvent::KeyPress) {
         auto *key = static_cast<QKeyEvent *>(event);
-        if (key->key() == Qt::Key_Escape) { hidePanel(); return true; }
+        if (key->key() == Qt::Key_Escape) {
+            // 按交互层级退出，预览是否持有焦点不影响 Esc 的行为。
+            if (hoverPreview_) closeHoverPreview(true);
+            else if (!searchBox_->text().isEmpty()) searchBox_->clear();
+            else hidePanel();
+            return true;
+        }
         if (key->key() == Qt::Key_F && key->modifiers() == Qt::ControlModifier) {
             activatePanel(searchBox_);
             return true;
@@ -1639,6 +1651,8 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
 
 bool MainWindow::event(QEvent *event) {
     const bool handled = QWidget::event(event);
+    if (event->type() == QEvent::Show || event->type() == QEvent::Hide)
+        clipboardPollTimer_.setInterval(isVisible() || !clipboardNotificationsAvailable_ ? 250 : 2000);
     // 托盘唤出的顶层窗口失去激活时不会触发 QWidget::focusOutEvent。
     if (event->type() == QEvent::WindowDeactivate && !passiveBrowsing_) {
         if (isPinned_ && !settingsPage_) {
@@ -1845,7 +1859,7 @@ void MainWindow::openRowMenu(const QString &id, std::optional<QPoint> position) 
                     if (!opened) showStatus(AppLocalization::get(QStringLiteral("RevealFileFailed")));
                 });
                 // 网络路径、Shell 扩展可能很慢，只在用户选择后由后台访问。
-                watcher->setFuture(QtConcurrent::run(&readPool_, [target] { return revealFile(target); }));
+                watcher->setFuture(QtConcurrent::run(&contentPool_, [target] { return revealFile(target); }));
             });
         }
     });
@@ -2206,7 +2220,7 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile, std
         QTimer::singleShot(100, this, [timer] { timer->start(); });
     });
     const auto generationState = pasteGeneration_;
-    watcher->setFuture(QtConcurrent::run(&readPool_, [path, item, plainText, asFile, generationState, generation, editedContent] {
+    watcher->setFuture(QtConcurrent::run(&contentPool_, [path, item, plainText, asFile, generationState, generation, editedContent] {
         PasteResult result;
         result.item = item;
         if (generationState->loadRelaxed() != generation) return result;

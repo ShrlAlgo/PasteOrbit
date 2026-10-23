@@ -1,6 +1,7 @@
 #include "backup_service.h"
 
 #include "history_store.h"
+#include "data_protection.h"
 #include "localization.h"
 
 #include <QDateTime>
@@ -18,7 +19,6 @@
 #include <limits>
 #include <windows.h>
 #include <bcrypt.h>
-#include <wincrypt.h>
 
 namespace {
 constexpr char BackupMagic[] = "PasteOrbit.Backup";
@@ -167,26 +167,6 @@ private:
     QByteArray keyObject_;
     QByteArray iv_;
 };
-
-QByteArray protectKeys(const QByteArray &keys) {
-    DATA_BLOB input{static_cast<DWORD>(keys.size()),
-                    reinterpret_cast<BYTE *>(const_cast<char *>(keys.constData()))};
-    DATA_BLOB output{};
-    if (!CryptProtectData(&input, nullptr, nullptr, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &output)) return {};
-    QByteArray result(reinterpret_cast<const char *>(output.pbData), static_cast<qsizetype>(output.cbData));
-    LocalFree(output.pbData);
-    return result;
-}
-
-QByteArray unprotectKeys(const QByteArray &protectedKeys) {
-    DATA_BLOB input{static_cast<DWORD>(protectedKeys.size()),
-                    reinterpret_cast<BYTE *>(const_cast<char *>(protectedKeys.constData()))};
-    DATA_BLOB output{};
-    if (!CryptUnprotectData(&input, nullptr, nullptr, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &output)) return {};
-    QByteArray result(reinterpret_cast<const char *>(output.pbData), static_cast<qsizetype>(output.cbData));
-    LocalFree(output.pbData);
-    return result;
-}
 
 bool writeAuthenticated(QIODevice &output, HmacSha256 &hmac, const char *data, qint64 length) {
     return hmac.add(data, length) && writeExactly(output, data, length);
@@ -383,7 +363,7 @@ QString BackupService::exportToFile(const QString &databasePath, const QString &
                            BCRYPT_USE_SYSTEM_PREFERRED_RNG) < 0) return localized(QStringLiteral("BackupExportFailed"));
     std::memcpy(keyMaterial.bytes.data(), encryptionKey.bytes.constData(), 32);
     std::memcpy(keyMaterial.bytes.data() + 32, authenticationKey.bytes.constData(), 32);
-    const QByteArray protectedKeys = protectKeys(keyMaterial.bytes);
+    const QByteArray protectedKeys = DataProtection::protect(keyMaterial.bytes).value_or(QByteArray{});
     if (protectedKeys.isEmpty() || protectedKeys.size() > 4096) return localized(QStringLiteral("BackupExportFailed"));
 
     QByteArray iv(16, Qt::Uninitialized);
@@ -445,7 +425,7 @@ QString BackupService::restoreFromFile(const QString &sourcePath, const QString 
     const QByteArray protectedKeys = readHeaderBytes(input, protectedLength);
     if (protectedKeys.size() != protectedLength) return localized(QStringLiteral("BackupFileIncomplete"));
     SecureBytes keyMaterial;
-    keyMaterial.bytes = unprotectKeys(protectedKeys);
+    keyMaterial.bytes = DataProtection::unprotect(protectedKeys).value_or(QByteArray{});
     if (keyMaterial.bytes.size() != 64) return localized(QStringLiteral("InvalidBackupKeyLength"));
     const QByteArray iv = readHeaderBytes(input, 16);
     if (iv.size() != 16) return localized(QStringLiteral("InvalidBackupInitializationVector"));

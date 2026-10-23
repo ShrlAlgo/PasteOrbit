@@ -306,7 +306,7 @@ try {
     }
     if (-not (Test-Path -LiteralPath $InstallerPath -PathType Leaf)) { throw 'Downloaded installer is missing' }
 
-    # 只卸载与当前程序目录匹配的 Inno 安装，绝不执行其他位置的卸载程序。
+    # 仅覆盖与当前程序目录匹配的安装，避免更新免安装副本时改写另一份安装。
     $expectedDirectory = [IO.Path]::GetFullPath($ApplicationDirectory).TrimEnd([char]'\')
     $registry = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
         [Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryView]::Registry32)
@@ -315,23 +315,14 @@ try {
         if ($key) {
             try {
                 $installedDirectory = [string]$key.GetValue('InstallLocation')
-                $uninstallCommand = [string]$key.GetValue('UninstallString')
             } finally { $key.Close() }
             if ([string]::IsNullOrWhiteSpace($installedDirectory) -or
                 -not [string]::Equals([IO.Path]::GetFullPath($installedDirectory).TrimEnd([char]'\'),
-                                      $expectedDirectory, [StringComparison]::OrdinalIgnoreCase) -or
-                $uninstallCommand -cnotmatch '^"([^"]+\\unins[0-9]+\.exe)"$') {
+                                      $expectedDirectory, [StringComparison]::OrdinalIgnoreCase)) {
                 throw 'Existing installation does not match the running application'
             }
-            $uninstallerPath = $Matches[1]
-            if (-not [string]::Equals([IO.Path]::GetDirectoryName($uninstallerPath).TrimEnd([char]'\'),
-                                      $expectedDirectory, [StringComparison]::OrdinalIgnoreCase) -or
-                -not (Test-Path -LiteralPath $uninstallerPath -PathType Leaf)) {
-                throw 'Existing uninstaller is unavailable or outside the application directory'
-            }
-            if (((Get-Item -LiteralPath $expectedDirectory).Attributes -band [IO.FileAttributes]::ReparsePoint) -or
-                ((Get-Item -LiteralPath $uninstallerPath).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-                throw 'Refusing to uninstall through a symbolic link'
+            if ((Get-Item -LiteralPath $expectedDirectory).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                throw 'Refusing to update through a symbolic link'
             }
             $installed = $true
         }
@@ -348,17 +339,11 @@ try {
         if ($desktop -and (Test-Path -LiteralPath (Join-Path $desktop 'PasteOrbit.lnk') -PathType Leaf)) {
             $tasks += 'desktopicon'
         }
-        $uninstaller = Start-Process -FilePath $uninstallerPath -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -Wait -PassThru
-        if ($uninstaller.ExitCode -ne 0) { throw 'Uninstaller failed' }
-        # Inno 的卸载程序会派生临时副本，等待原卸载文件消失后再安装新版。
-        for ($i = 0; $i -lt 300 -and (Test-Path -LiteralPath $uninstallerPath); $i++) {
-            Start-Sleep -Milliseconds 100
-        }
-        if (Test-Path -LiteralPath $uninstallerPath) { throw 'Uninstaller did not finish' }
     }
+    # 直接覆盖升级，旧依赖由安装器清理；安装启动失败时旧程序仍可恢复。
     $args = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CLOSEAPPLICATIONS',('/DIR="' + $ApplicationDirectory + '"'))
     if ($installed) { $args += ('/TASKS="' + ($tasks -join ',') + '"') }
-    $installer = Start-Process -FilePath $InstallerPath -ArgumentList $args -Wait -PassThru
+    $installer = Start-Process -FilePath $InstallerPath -ArgumentList $args -WindowStyle Hidden -Wait -PassThru
     $installedVersion = (Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{D6C9A5F7-5C7E-4C1D-9F2A-7C9D8B3E4A11}_is1' -ErrorAction SilentlyContinue).DisplayVersion
     if ($installer.ExitCode -ne 0 -or
         -not (Test-Path -LiteralPath $ApplicationPath -PathType Leaf) -or

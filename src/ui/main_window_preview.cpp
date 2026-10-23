@@ -28,6 +28,7 @@
 #include <QScreen>
 #include <QShortcut>
 #include <QStackedLayout>
+#include <QStackedWidget>
 #include <QTextEdit>
 #include <QTextBlock>
 #include <QTextCursor>
@@ -176,7 +177,7 @@ protected:
 
 }
 
-void MainWindow::closeHoverPreview() {
+void MainWindow::closeHoverPreview(bool restoreFocus) {
     hoverPreviewGeneration_->fetchAndAddRelaxed(1);
     hoverPreviewId_.clear();
     hoverImageScroll_ = nullptr;
@@ -187,6 +188,9 @@ void MainWindow::closeHoverPreview() {
     delete hoverPreview_;
     hoverPreview_ = nullptr;
     if (delegate_) delegate_->setActivePreviewId({});
+    // 仅显式关闭预览时恢复浏览焦点，刷新和隐藏过程不抢占目标应用。
+    if (restoreFocus && isVisible() && !passiveBrowsing_ && !settingsPage_)
+        activatePanel(historyStack_->currentWidget());
 }
 
 void MainWindow::toggleHoverPreview(QString id) {
@@ -194,7 +198,7 @@ void MainWindow::toggleHoverPreview(QString id) {
     if (loadingPage_ || id.isEmpty()) return;
     // 点击和快捷键共用状态：同一卡片关闭预览，另一卡片切换预览。
     if (hoverPreview_ && hoverPreviewId_ == id) {
-        closeHoverPreview();
+        closeHoverPreview(true);
         return;
     }
     const int row = model_->rowForId(id);
@@ -212,8 +216,7 @@ void MainWindow::toggleHoverPreview(QString id) {
         popup->installEventFilter(this);
         auto *close = new QShortcut(QKeySequence(Qt::Key_Escape), popup);
         connect(close, &QShortcut::activated, this, [this] {
-            closeHoverPreview();
-            if (isVisible() && !passiveBrowsing_) activatePanel(historyList_);
+            closeHoverPreview(true);
         });
         auto *pages = new QStackedLayout(popup);
         pages->setContentsMargins(0, 0, 0, 0);
@@ -521,8 +524,13 @@ void MainWindow::toggleHoverPreview(QString id) {
                         beginEdit();
                     });
                     const QString path = databasePath_;
-                    watcher->setFuture(QtConcurrent::run(&readPool_, [path, id] {
-                        return decodeTextContent(HistoryStore(path).content(id)).text;
+                    const auto generationState = hoverPreviewGeneration_;
+                    watcher->setFuture(QtConcurrent::run(&contentPool_, [path, id, generationState, generation] {
+                        // 关闭预览后跳过排队的重读，读取期间取消则不再解析源码。
+                        if (generationState->loadRelaxed() != generation) return QString{};
+                        const auto content = HistoryStore(path).content(id);
+                        if (generationState->loadRelaxed() != generation) return QString{};
+                        return decodeTextContent(content).text;
                     }));
                 });
                 connect(preview, &QTextEdit::textChanged, paste, [preview, paste, statisticsBadge] {
@@ -597,7 +605,7 @@ void MainWindow::toggleHoverPreview(QString id) {
         if (!hoverPreview_->isVisible()) hoverPreview_->show();
     });
     const auto generationState = hoverPreviewGeneration_;
-    watcher->setFuture(QtConcurrent::run(&readPool_, [path, id, kind, generationState, generation] {
+    watcher->setFuture(QtConcurrent::run(&contentPool_, [path, id, kind, generationState, generation] {
         PreviewResult result;
         result.kind = kind;
         if (generationState->loadRelaxed() != generation) return result;

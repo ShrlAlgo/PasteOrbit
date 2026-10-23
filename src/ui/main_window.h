@@ -97,7 +97,7 @@ private:
                      std::optional<QByteArray> editedContent = std::nullopt);
     void openRowMenu(const QString &id, std::optional<QPoint> position = std::nullopt);
     void toggleHoverPreview(QString id);
-    void closeHoverPreview();
+    void closeHoverPreview(bool restoreFocus = false);
     void updateHoverPreviewImage();
     void setPinned(const QString &id);
     void deleteRecord(const QString &id);
@@ -156,6 +156,7 @@ private:
     QTimer searchTimer_;
     QTimer captureTimer_;
     QTimer clipboardPollTimer_;
+    bool clipboardNotificationsAvailable_ = false;
     QTimer pauseTimer_;
     std::optional<HistoryCursor> nextCursor_;
     int selectedKind_ = -1;
@@ -189,6 +190,7 @@ private:
     int panelShowGeneration_ = 0;
     QSharedPointer<QAtomicInteger<int>> pasteGeneration_ = QSharedPointer<QAtomicInteger<int>>::create(0);
     QThreadPool readPool_;
+    QThreadPool contentPool_;
     QThreadPool writePool_;
     QColor pageColor_;
     QColor borderColor_;
