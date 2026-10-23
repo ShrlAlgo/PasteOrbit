@@ -826,7 +826,6 @@ void MainWindow::buildUi() {
     historyList_->setSelectionMode(QAbstractItemView::SingleSelection);
     historyList_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     historyList_->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
-    historyList_->verticalScrollBar()->setFixedWidth(10);
     historyList_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     historyList_->setUniformItemSizes(false);
     historyList_->setSpacing(0);

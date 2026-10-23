@@ -31,6 +31,7 @@
 #include <QLocale>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QSet>
 #include <QSignalBlocker>
 #include <QStackedWidget>
@@ -344,6 +345,8 @@ SettingsDialog::SettingsDialog(AppSettings settings, QString databasePath, QStri
     outer->addWidget(navigation_);
     outer->addWidget(tabs_, 1);
     connect(navigation_, &QTabBar::currentChanged, tabs_, &QStackedWidget::setCurrentIndex);
+    // 嵌入透明顶层窗口后，页面切换需让宿主一起刷新，避免显示旧页面的缓存。
+    connect(tabs_, &QStackedWidget::currentChanged, this, [this] { window()->update(); });
     const auto addTab = [this](QWidget *page, const QString &key) {
         page->setProperty("TabLocalizationKey", key);
         tabs_->addWidget(page);
@@ -643,6 +646,8 @@ QWidget *SettingsDialog::createPage(const QString &headingKey) {
     scroll->viewport()->setBackgroundRole(QPalette::Window);
     scroll->viewport()->setAutoFillBackground(true);
     scroll->setWidget(content);
+    // 滚动的局部搬移可能未刷新透明宿主；update 会合并同一帧内的重绘请求。
+    connect(scroll->verticalScrollBar(), &QScrollBar::valueChanged, this, [this] { window()->update(); });
     return scroll;
 }
 
