@@ -20,6 +20,7 @@ struct HistoryItem {
     qint64 updatedAt = 0;
     bool pinned = false;
     qint64 contentSize = 0;
+    QString formatLabel;
 };
 
 struct HistoryCursor {
@@ -52,7 +53,7 @@ public:
     explicit HistoryStore(QString path);
 
     QString initialize() const;
-    static bool isCurrentSchema(const QString &path);
+    static bool isCurrentSchema(const QString &path, bool allowUpgrade = false);
     HistoryPage search(const QString &text, int kind, const std::optional<HistoryCursor> &cursor,
                        int pageSize = 30, const std::optional<QString> &source = std::nullopt) const;
     QPair<QStringList, QString> sourceApplications() const;
@@ -61,6 +62,8 @@ public:
     QString replaceText(const QString &id, const QByteArray &content, const QString &text) const;
     QByteArray content(const QString &id, bool preferPreview = false) const;
     QByteArray thumbnail(const QString &id) const;
+    // 旧记录首次可见时补算标签；仅在内容未变化时回写。
+    QString formatLabel(const QString &id) const;
     QString setPinned(const QString &id, bool pinned) const;
     QString touch(const QString &id) const;
     QString remove(const QString &id) const;

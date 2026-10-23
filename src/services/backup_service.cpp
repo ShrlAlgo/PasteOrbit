@@ -471,8 +471,14 @@ QString BackupService::restoreFromFile(const QString &sourcePath, const QString 
     bool hasSettings = false;
     if (!extractPayload(payloadPath, temporaryDatabase, temporarySettings, &hasSettings))
         return localized(QStringLiteral("InvalidBackupContentLength"));
-    if (!HistoryStore::isCurrentSchema(temporaryDatabase))
+    if (!HistoryStore::isCurrentSchema(temporaryDatabase, true))
         return localized(QStringLiteral("UnsupportedBackupDatabaseVersion"));
+    // 在临时库升级旧备份，成功并合并 WAL 后才替换当前数据。
+    const HistoryStore restoredStore(temporaryDatabase);
+    const QString migrationError = restoredStore.initialize();
+    if (!migrationError.isEmpty()) return migrationError;
+    const QString migrationCheckpointError = restoredStore.compact(true);
+    if (!migrationCheckpointError.isEmpty()) return migrationCheckpointError;
     if (hasSettings) {
         QFile settings(temporarySettings);
         if (!settings.open(QIODevice::ReadOnly) || !QJsonDocument::fromJson(settings.readAll()).isObject())

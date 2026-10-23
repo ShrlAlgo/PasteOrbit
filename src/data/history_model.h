@@ -43,7 +43,6 @@ private:
     QString databasePath_;
     QVector<HistoryItem> items_;
     QHash<QString, QImage> thumbnails_;
-    QHash<QString, QString> formats_;
     QSet<QString> visibleIds_;
     QHash<QString, QSharedPointer<QAtomicInteger<bool>>> thumbnailLoads_;
     bool quickPasteEnabled_ = true;

@@ -1,5 +1,4 @@
 #include "history_model.h"
-#include "clipboard_content.h"
 
 #include <QCache>
 #include <QBuffer>
@@ -82,7 +81,7 @@ QVariant HistoryModel::data(const QModelIndex &index, int role) const {
     case SizeRole: return item.contentSize;
     case TextLengthRole: return item.searchTextLength;
     case ThumbnailRole: return thumbnails_.value(item.id);
-    case FormatRole: return formats_.value(item.id);
+    case FormatRole: return item.formatLabel;
     case QuickPasteRole: {
         // 收藏分类同样支持数字粘贴，编号与当前列表的可见顺序一致。
         if (!quickPasteEnabled_ || index.row() >= 9) return {};
@@ -98,7 +97,6 @@ void HistoryModel::setFirstPage(const HistoryPage &page) {
     beginResetModel();
     items_ = page.items;
     thumbnails_.clear();
-    formats_.clear();
     visibleIds_.clear();
     endResetModel();
 }
@@ -154,7 +152,7 @@ void HistoryModel::setText(const QString &id, const QString &text, qint64 conten
     item.searchTextLength = text.size();
     item.contentSize = contentSize;
     if (const auto cancelled = thumbnailLoads_.take(id)) cancelled->storeRelaxed(true);
-    formats_.insert(id, format);
+    item.formatLabel = format;
     // 只更新当前卡片，不重置列表或改变用户的选择、滚动位置。
     emit dataChanged(index(row), index(row), {Qt::DisplayRole, PreviewRole, TextLengthRole, SizeRole, FormatRole});
 }
@@ -164,7 +162,6 @@ void HistoryModel::remove(const QString &id) {
     if (row < 0) return;
     beginRemoveRows({}, row, row);
     thumbnails_.remove(id);
-    formats_.remove(id);
     visibleIds_.remove(id);
     if (const auto cancelled = thumbnailLoads_.take(id)) cancelled->storeRelaxed(true);
     items_.removeAt(row);
@@ -181,7 +178,6 @@ void HistoryModel::setVisibleRows(int first, int last) {
     for (const auto &id : std::as_const(visibleIds_)) {
         if (!nowVisible.contains(id)) {
             thumbnails_.remove(id);
-            formats_.remove(id);
             if (const auto cancelled = thumbnailLoads_.take(id)) cancelled->storeRelaxed(true);
             const int row = rowForId(id);
             if (row >= 0) emit dataChanged(index(row), index(row), {ThumbnailRole, FormatRole});
@@ -190,7 +186,9 @@ void HistoryModel::setVisibleRows(int first, int last) {
     visibleIds_ = std::move(nowVisible);
     // 只取消移出视口的请求，仍可见卡片继续复用正在读取的任务。
     for (const auto &id : std::as_const(visibleIds_)) {
-        if (thumbnails_.contains(id) || thumbnailLoads_.contains(id)) continue;
+        const auto &item = items_.at(rowForId(id));
+        if ((item.kind == 0 && !item.formatLabel.isEmpty())
+            || thumbnails_.contains(id) || thumbnailLoads_.contains(id)) continue;
         const auto cancelled = QSharedPointer<QAtomicInteger<bool>>::create(false);
         thumbnailLoads_.insert(id, cancelled);
         const int kind = items_.at(rowForId(id)).kind;
@@ -204,19 +202,15 @@ void HistoryModel::setVisibleRows(int first, int last) {
             // 空图像也记为已尝试，避免可见范围内反复读取和解码失败记录。
             // 离开可见范围或重新打开面板后会清除，允许下次重试。
             thumbnails_.insert(result.id, result.image);
-            if (!result.format.isEmpty()) formats_.insert(result.id, result.format);
             const int row = rowForId(result.id);
+            if (row >= 0 && !result.format.isEmpty()) items_[row].formatLabel = result.format;
             if (row >= 0) emit dataChanged(index(row), index(row), {ThumbnailRole, FormatRole});
         });
         const QString path = databasePath_;
         watcher->setFuture(QtConcurrent::run([path, id, cancelled, kind] {
             if (cancelled->loadRelaxed()) return ThumbnailResult{id, {}};
             if (kind == 0) {
-                const auto content = HistoryStore(path).content(id);
-                if (cancelled->loadRelaxed() || content.isEmpty()) return ThumbnailResult{id, {}};
-                const auto text = ClipboardContent::decodeTextContent(content);
-                const QString format = ClipboardContent::textFormatLabel(text);
-                return ThumbnailResult{id, {}, format.isEmpty() ? QStringLiteral("PlainTextFormat") : format};
+                return ThumbnailResult{id, {}, HistoryStore(path).formatLabel(id)};
             }
             if (kind == 2) {
                 const auto content = HistoryStore(path).content(id);
@@ -240,8 +234,7 @@ void HistoryModel::releaseThumbnails() {
     // 面板隐藏或开始恢复备份时，让尚未执行的缩略图任务直接退出。
     cancelThumbnailLoads();
     visibleIds_.clear();
-    if (thumbnails_.isEmpty() && formats_.isEmpty()) return;
+    if (thumbnails_.isEmpty()) return;
     thumbnails_.clear();
-    formats_.clear();
     if (!items_.isEmpty()) emit dataChanged(index(0), index(items_.size() - 1), {ThumbnailRole, FormatRole});
 }

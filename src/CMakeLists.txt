@@ -19,7 +19,10 @@ add_executable(PasteOrbitNative WIN32
 target_include_directories(PasteOrbitNative PRIVATE app data services ui platform)
 # 平台实现由构建选择，存储层只依赖不含系统类型的接口。
 if(WIN32)
-    target_sources(PasteOrbitNative PRIVATE platform/windows/data_protection.cpp)
+    target_sources(PasteOrbitNative PRIVATE
+        platform/windows/data_protection.cpp
+        platform/windows/paste_target.cpp
+        platform/windows/global_hotkey.cpp)
 endif()
 target_link_libraries(PasteOrbitNative PRIVATE
     Qt6::Widgets

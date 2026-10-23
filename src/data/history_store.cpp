@@ -1,5 +1,6 @@
 #include "history_store.h"
 #include "data_protection.h"
+#include "clipboard_content.h"
 
 #include <QCryptographicHash>
 #include <QByteArrayView>
@@ -17,7 +18,14 @@ namespace {
 using DataProtection::protect;
 using DataProtection::unprotect;
 
-constexpr int CurrentSchemaVersion = 4;
+constexpr int CurrentSchemaVersion = 5;
+
+QString contentFormat(const QByteArray &content) {
+    // 未封装的正文就是纯文本，无需为识别标签再分配整段 QString。
+    if (!content.startsWith(ClipboardContent::TextPayloadPrefix)) return QStringLiteral("PlainTextFormat");
+    const auto format = ClipboardContent::textFormatLabel(ClipboardContent::decodeTextContent(content));
+    return format.isEmpty() ? QStringLiteral("PlainTextFormat") : format;
+}
 
 class Connection {
 public:
@@ -52,7 +60,7 @@ bool execute(QSqlDatabase &database, const QString &sql, QString *error = nullpt
     return false;
 }
 
-bool hasRequiredColumns(QSqlDatabase &database) {
+bool hasRequiredColumns(QSqlDatabase &database, bool requireFormat = false) {
     const QStringList required{
         QStringLiteral("storage_id"), QStringLiteral("id"), QStringLiteral("kind"),
         QStringLiteral("content_hash"), QStringLiteral("preview_text"),
@@ -67,7 +75,7 @@ bool hasRequiredColumns(QSqlDatabase &database) {
     for (const auto &column : required) {
         if (!found.contains(column)) return false;
     }
-    return true;
+    return !requireFormat || found.contains(QStringLiteral("format_label"));
 }
 
 QString escapeLike(QString value) {
@@ -138,7 +146,7 @@ QString HistoryStore::initialize() const {
     }
     version = versionQuery.value(0).toInt();
     versionQuery.finish();
-    if (version != 0 && version != CurrentSchemaVersion) {
+    if (version != 0 && version != 4 && version != CurrentSchemaVersion) {
         return QStringLiteral("历史数据库版本不兼容，已保留原文件：%1").arg(version);
     }
     QSqlQuery existingQuery(connection.database());
@@ -147,7 +155,7 @@ QString HistoryStore::initialize() const {
     const bool hasItems = existingQuery.value(0).toInt() != 0;
     // 结束读取游标后才能切换 journal_mode，否则新数据库会被隐式读事务阻塞。
     existingQuery.finish();
-    if (hasItems && !hasRequiredColumns(connection.database())) {
+    if (hasItems && !hasRequiredColumns(connection.database(), version == CurrentSchemaVersion)) {
         return QStringLiteral("历史数据库结构不兼容，已保留原文件");
     }
 
@@ -159,7 +167,7 @@ QString HistoryStore::initialize() const {
             "storage_id INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT NOT NULL UNIQUE,kind INTEGER NOT NULL,"
             "content_hash TEXT NOT NULL UNIQUE,preview_text BLOB NOT NULL,search_text_length INTEGER NOT NULL,"
             "content BLOB NOT NULL,thumbnail BLOB NULL,content_size INTEGER NOT NULL,source_application BLOB NULL,"
-            "created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,is_pinned INTEGER NOT NULL)"),
+            "created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,is_pinned INTEGER NOT NULL,format_label TEXT NULL)"),
         QStringLiteral("CREATE INDEX IF NOT EXISTS ix_clipboard_items_order ON clipboard_items(is_pinned DESC,updated_at DESC,storage_id DESC)"),
         QStringLiteral("CREATE INDEX IF NOT EXISTS ix_clipboard_items_kind_order ON clipboard_items(kind,is_pinned DESC,updated_at DESC,storage_id DESC)"),
         QStringLiteral("CREATE INDEX IF NOT EXISTS ix_clipboard_items_recent ON clipboard_items(updated_at DESC,storage_id DESC)"),
@@ -170,12 +178,20 @@ QString HistoryStore::initialize() const {
     for (const auto &statement : statements) {
         if (!execute(connection.database(), statement, &error)) return error;
     }
-    if (!hasRequiredColumns(connection.database())) return QStringLiteral("历史数据库缺少必要字段");
-    if (!execute(connection.database(), QStringLiteral("PRAGMA user_version=4"), &error)) return error;
+    // 只添加可空元数据列，不在启动时读取旧记录正文；版本与结构一起提交。
+    auto &database = connection.database();
+    if (!database.transaction()) return connection.error();
+    if ((!hasRequiredColumns(database, true)
+         && !execute(database, QStringLiteral("ALTER TABLE clipboard_items ADD COLUMN format_label TEXT NULL"), &error))
+        || !execute(database, QStringLiteral("PRAGMA user_version=5"), &error)) {
+        database.rollback();
+        return error;
+    }
+    if (!database.commit()) return connection.error();
     return {};
 }
 
-bool HistoryStore::isCurrentSchema(const QString &path) {
+bool HistoryStore::isCurrentSchema(const QString &path, bool allowUpgrade) {
     if (!QFileInfo::exists(path)) return false;
     Connection connection(path);
     if (!connection.isOpen()) return false;
@@ -184,8 +200,10 @@ bool HistoryStore::isCurrentSchema(const QString &path) {
         || integrity.value(0).toString() != QStringLiteral("ok")) return false;
     integrity.finish();
     QSqlQuery version(connection.database());
-    if (!version.exec(QStringLiteral("PRAGMA user_version")) || !version.next()
-        || version.value(0).toInt() != CurrentSchemaVersion || !hasRequiredColumns(connection.database())) return false;
+    if (!version.exec(QStringLiteral("PRAGMA user_version")) || !version.next()) return false;
+    const int schema = version.value(0).toInt();
+    if ((schema != CurrentSchemaVersion && !(allowUpgrade && schema == 4))
+        || !hasRequiredColumns(connection.database(), schema == CurrentSchemaVersion)) return false;
     QSqlQuery searchTable(connection.database());
     return searchTable.exec(QStringLiteral("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='clipboard_items_fts'"))
         && searchTable.next() && searchTable.value(0).toInt() == 1;
@@ -212,7 +230,7 @@ HistoryPage HistoryStore::search(const QString &text, int kind, const std::optio
 
     QSqlQuery query(connection.database());
     const QString sql = QStringLiteral("SELECT item.storage_id,item.id,item.kind,item.preview_text,"
-        "item.search_text_length,item.source_application,item.created_at,item.updated_at,item.is_pinned,item.content_size")
+        "item.search_text_length,item.source_application,item.created_at,item.updated_at,item.is_pinned,item.content_size,item.format_label")
         + from + searchClause(text, kind, cursor, false, source)
         + QStringLiteral(" ORDER BY item.updated_at DESC,item.storage_id DESC LIMIT :limit");
     query.prepare(sql);
@@ -236,6 +254,7 @@ HistoryPage HistoryStore::search(const QString &text, int kind, const std::optio
         item.updatedAt = query.value(7).toLongLong();
         item.pinned = query.value(8).toBool();
         item.contentSize = query.value(9).toLongLong();
+        item.formatLabel = query.value(10).toString();
         page.items.push_back(std::move(item));
     }
     if (page.items.size() > pageSize) {
@@ -262,6 +281,7 @@ QPair<QStringList, QString> HistoryStore::sourceApplications() const {
 
 QString HistoryStore::save(const ClipboardCapture &capture, HistoryItem *saved) const {
     if (capture.content.isEmpty() || capture.searchText.isEmpty()) return QStringLiteral("剪贴板内容为空");
+    const QString format = capture.kind == 0 ? contentFormat(capture.content) : QString{};
     QCryptographicHash hash(QCryptographicHash::Sha256);
     const char kindByte = static_cast<char>(capture.kind);
     hash.addData(QByteArrayView(&kindByte, 1));
@@ -298,7 +318,7 @@ QString HistoryStore::save(const ClipboardCapture &capture, HistoryItem *saved) 
     QSqlQuery write(database);
     if (exists) {
         write.prepare(QStringLiteral("UPDATE clipboard_items SET preview_text=:preview,search_text_length=:length,"
-            "content_size=:size,source_application=:source,updated_at=:now WHERE storage_id=:storage"));
+            "content_size=:size,source_application=:source,updated_at=:now,format_label=:format WHERE storage_id=:storage"));
         write.bindValue(QStringLiteral(":storage"), storageId);
     } else {
         const auto protectedContent = protect(capture.content);
@@ -309,8 +329,8 @@ QString HistoryStore::save(const ClipboardCapture &capture, HistoryItem *saved) 
             return QStringLiteral("DPAPI 加密失败");
         }
         write.prepare(QStringLiteral("INSERT INTO clipboard_items(id,kind,content_hash,preview_text,search_text_length,"
-            "content,thumbnail,content_size,source_application,created_at,updated_at,is_pinned) "
-            "VALUES(:id,:kind,:hash,:preview,:length,:content,:thumbnail,:size,:source,:created,:now,0)"));
+            "content,thumbnail,content_size,source_application,created_at,updated_at,is_pinned,format_label) "
+            "VALUES(:id,:kind,:hash,:preview,:length,:content,:thumbnail,:size,:source,:created,:now,0,:format)"));
         write.bindValue(QStringLiteral(":id"), id);
         write.bindValue(QStringLiteral(":kind"), capture.kind);
         write.bindValue(QStringLiteral(":hash"), contentHash);
@@ -319,6 +339,7 @@ QString HistoryStore::save(const ClipboardCapture &capture, HistoryItem *saved) 
         write.bindValue(QStringLiteral(":created"), createdAt);
     }
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    write.bindValue(QStringLiteral(":format"), format);
     write.bindValue(QStringLiteral(":preview"), *protectedPreview);
     write.bindValue(QStringLiteral(":length"), capture.searchText.size());
     write.bindValue(QStringLiteral(":size"), capture.content.size());
@@ -366,6 +387,7 @@ QString HistoryStore::save(const ClipboardCapture &capture, HistoryItem *saved) 
         saved->updatedAt = now;
         saved->pinned = pinned;
         saved->contentSize = capture.content.size();
+        saved->formatLabel = format;
     }
     return {};
 }
@@ -405,7 +427,8 @@ QString HistoryStore::replaceText(const QString &id, const QByteArray &content, 
     // 内容、加密摘要和全文索引在同一事务内替换，失败时不留下半更新状态。
     QSqlQuery write(database);
     write.prepare(QStringLiteral("UPDATE clipboard_items SET content=:content,content_hash=:hash,preview_text=:preview,"
-        "search_text_length=:length,content_size=:size WHERE storage_id=:storage"));
+        "search_text_length=:length,content_size=:size,format_label=:format WHERE storage_id=:storage"));
+    write.bindValue(QStringLiteral(":format"), contentFormat(content));
     write.bindValue(QStringLiteral(":content"), *protectedContent);
     write.bindValue(QStringLiteral(":hash"), contentHash);
     write.bindValue(QStringLiteral(":preview"), *protectedPreview);
@@ -419,6 +442,32 @@ QString HistoryStore::replaceText(const QString &id, const QByteArray &content, 
     index.bindValue(QStringLiteral(":storage"), storageId);
     if (!index.exec()) { database.rollback(); return index.lastError().text(); }
     return database.commit() ? QString{} : connection.error();
+}
+
+QString HistoryStore::formatLabel(const QString &id) const {
+    Connection connection(path_);
+    if (!connection.isOpen()) return {};
+    auto &database = connection.database();
+    QSqlQuery query(database);
+    query.prepare(QStringLiteral("SELECT format_label,content_hash,CASE WHEN format_label IS NULL THEN content END "
+                                 "FROM clipboard_items WHERE id=:id AND kind=0"));
+    query.bindValue(QStringLiteral(":id"), id);
+    if (!query.exec() || !query.next()) return {};
+    if (!query.value(0).isNull()) return query.value(0).toString();
+    const QString hash = query.value(1).toString();
+    const auto plain = unprotect(query.value(2).toByteArray());
+    query.finish();
+    if (!plain) return {};
+    const QString format = contentFormat(*plain);
+    // 与编辑竞争时不覆盖新版标签，避免把旧正文的识别结果写回新内容。
+    QSqlQuery write(database);
+    write.prepare(QStringLiteral("UPDATE clipboard_items SET format_label=:format "
+                                 "WHERE id=:id AND content_hash=:hash AND format_label IS NULL"));
+    write.bindValue(QStringLiteral(":format"), format);
+    write.bindValue(QStringLiteral(":id"), id);
+    write.bindValue(QStringLiteral(":hash"), hash);
+    if (!write.exec() || write.numRowsAffected() != 1) return {};
+    return format;
 }
 
 QByteArray HistoryStore::content(const QString &id, bool preferPreview) const {

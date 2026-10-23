@@ -1,6 +1,7 @@
 #include "main_window.h"
 #include "history_model.h"
 #include "localization.h"
+#include "paste_target.h"
 #include <QApplication>
 #include <QGuiApplication>
 #include <QLineEdit>
@@ -245,20 +246,14 @@ void MainWindow::positionPanel(bool preferCursor, std::optional<RECT> resolvedBo
 }
 
 std::optional<RECT> MainWindow::capturePasteTarget(HWND window) {
-    DWORD process = 0;
-    const DWORD thread = window ? GetWindowThreadProcessId(window, &process) : 0;
-    if (!thread || process == GetCurrentProcessId()) return {};
-    targetWindow_ = window;
-    targetFocusWindow_ = nullptr;
-    GUITHREADINFO info{};
-    info.cbSize = sizeof(info);
-    if (!GetGUIThreadInfo(thread, &info)) return {};
-    if (info.hwndFocus && (info.hwndFocus == window || IsChild(window, info.hwndFocus)))
-        targetFocusWindow_ = info.hwndFocus;
-    if (!info.hwndCaret) return {};
-    RECT caret = info.rcCaret;
-    MapWindowPoints(info.hwndCaret, nullptr, reinterpret_cast<POINT *>(&caret), 2);
-    return caret;
+    const auto target = PasteTarget::capture(reinterpret_cast<quintptr>(window));
+    if (!target) return {};
+    targetWindow_ = reinterpret_cast<HWND>(target->window);
+    targetFocusWindow_ = reinterpret_cast<HWND>(target->focus);
+    if (!target->caret) return {};
+    // 平台矩形使用宽高，RECT 的右下边界不包含末端像素。
+    const auto &caret = *target->caret;
+    return RECT{caret.x(), caret.y(), caret.x() + caret.width(), caret.y() + caret.height()};
 }
 
 void MainWindow::showPanel(bool fromTray, HWND requestedTarget) {

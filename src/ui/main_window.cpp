@@ -5,6 +5,8 @@
 #include "localization.h"
 #include "settings_dialog.h"
 #include "clipboard_content.h"
+#include "paste_target.h"
+#include "global_hotkey.h"
 
 
 #include <oclero/qlementine/style/QlementineStyle.hpp>
@@ -85,7 +87,6 @@ using namespace ClipboardContent;
 
 namespace {
 constexpr int HotkeyId = 0x504F;
-constexpr ULONG_PTR PasteInputMarker = 0x504F5041;
 constexpr int HistoryPageSize = 30;
 constexpr UINT TrayResumeMilliseconds = 10 * 60 * 1000;
 const QString WindowsRtfMime = QStringLiteral("application/x-qt-windows-mime;value=\"Rich Text Format\"");
@@ -212,31 +213,6 @@ void prepareImageCapture(ClipboardCapture &capture, const QImage &fallback) {
             ? image : image.scaled(thumbnailSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
         capture.thumbnail = encodePng(thumbnail);
     }
-}
-
-bool parseHotkey(const QString &shortcut, UINT &modifiers, UINT &key) {
-    modifiers = MOD_NOREPEAT;
-    key = 0;
-    const auto parts = shortcut.split(QLatin1Char('+'), Qt::SkipEmptyParts);
-    for (auto part : parts) {
-        part = part.trimmed().toLower();
-        if (part == QStringLiteral("ctrl") || part == QStringLiteral("control")) modifiers |= MOD_CONTROL;
-        else if (part == QStringLiteral("alt")) modifiers |= MOD_ALT;
-        else if (part == QStringLiteral("shift")) modifiers |= MOD_SHIFT;
-        else if (part == QStringLiteral("win") || part == QStringLiteral("windows")
-                 || part == QStringLiteral("meta")) modifiers |= MOD_WIN;
-        else if (part.size() == 1) key = static_cast<UINT>(VkKeyScanW(part.at(0).toUpper().unicode()) & 0xFF);
-        else if (part.size() >= 2 && part.at(0) == QLatin1Char('f')) {
-            bool ok = false;
-            const int number = part.mid(1).toInt(&ok);
-            if (ok && number >= 1 && number <= 24) key = VK_F1 + number - 1;
-        } else if (part == QStringLiteral("space")) key = VK_SPACE;
-        else if (part == QStringLiteral("enter") || part == QStringLiteral("return")) key = VK_RETURN;
-        else if (part == QStringLiteral("tab")) key = VK_TAB;
-        else if (part == QStringLiteral("esc") || part == QStringLiteral("escape")) key = VK_ESCAPE;
-        else if (part == QStringLiteral("delete")) key = VK_DELETE;
-    }
-    return key != 0 && (modifiers & (MOD_ALT | MOD_CONTROL | MOD_SHIFT | MOD_WIN)) != 0;
 }
 
 QString normalizedShortcut(const QString &value) {
@@ -398,7 +374,7 @@ bool revealFile(const QString &path) {
 LRESULT CALLBACK MainWindow::panelKeyboardProc(int code, WPARAM message, LPARAM data) {
     auto *panel = passivePanelTarget;
     const auto *input = reinterpret_cast<const KBDLLHOOKSTRUCT *>(data);
-    if (code < 0 || !panel || !input || input->vkCode >= 256 || input->dwExtraInfo == PasteInputMarker)
+    if (code < 0 || !panel || !input || input->vkCode >= 256 || input->dwExtraInfo == PasteTarget::InputMarker)
         return CallNextHookEx(nullptr, code, message, data);
     const auto vk = input->vkCode;
     if (message == WM_KEYUP || message == WM_SYSKEYUP) {
@@ -645,7 +621,7 @@ MainWindow::~MainWindow() {
         winVHook_ = nullptr;
     }
     if (winVHookTarget == this) winVHookTarget = nullptr;
-    UnregisterHotKey(reinterpret_cast<HWND>(winId()), HotkeyId);
+    GlobalHotkey::remove(winId(), HotkeyId);
     RemoveClipboardFormatListener(reinterpret_cast<HWND>(winId()));
     trayIcon_->hide();
     trayIcon_->setContextMenu(nullptr);
@@ -1064,11 +1040,7 @@ void MainWindow::applySettings(const AppSettings &settings) {
 }
 
 void MainWindow::registerHotkey() {
-    UnregisterHotKey(reinterpret_cast<HWND>(winId()), HotkeyId);
-    UINT modifiers = 0;
-    UINT key = 0;
-    if (!parseHotkey(settings_.globalHotKey, modifiers, key)
-        || !RegisterHotKey(reinterpret_cast<HWND>(winId()), HotkeyId, modifiers, key)) {
+    if (!GlobalHotkey::replace(winId(), HotkeyId, settings_.globalHotKey)) {
         showStatus(AppLocalization::format(QStringLiteral("GlobalHotKeyRegistrationFailed"),
                                            {settings_.globalHotKey}));
     }
@@ -2128,13 +2100,10 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile, std
         // 浏览期间目标一直持有焦点，粘贴时不再发送额外的激活或恢复焦点消息。
         const bool targetKeptFocus = passiveBrowsing_ && GetForegroundWindow() == target;
         if (!keepPanel) hidePanel();
-        if (!target || !IsWindow(target)) {
+        if (!PasteTarget::prepare(reinterpret_cast<quintptr>(target), targetKeptFocus)) {
             showStatus(AppLocalization::get(QStringLiteral("ContentRestoredManualPaste")));
             return;
         }
-        // 已最大化的窗口不能用 SW_RESTORE，否则粘贴时会意外退出最大化。
-        if (IsIconic(target)) ShowWindow(target, SW_RESTORE);
-        if (!targetKeptFocus) SetForegroundWindow(target);
         auto *timer = new QTimer(this);
         timer->setInterval(10);
         auto attempts = std::make_shared<int>(0);
@@ -2145,65 +2114,11 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile, std
                 timer->stop(); timer->deleteLater();
                 return;
             }
-            if (!IsWindow(target) || GetForegroundWindow() != target) {
-                timer->stop(); timer->deleteLater();
-                showStatus(AppLocalization::get(QStringLiteral("ContentRestoredManualPaste")));
-                return;
-            }
-            if (GetAsyncKeyState(VK_CONTROL) & 0x8000 || GetAsyncKeyState(VK_MENU) & 0x8000
-                || GetAsyncKeyState(VK_SHIFT) & 0x8000 || GetAsyncKeyState(VK_LWIN) & 0x8000
-                || GetAsyncKeyState(VK_RWIN) & 0x8000) {
-                if (++*attempts < 100) return;
-                timer->stop(); timer->deleteLater();
-                showStatus(AppLocalization::get(QStringLiteral("ContentRestoredManualPaste")));
-                return;
-            }
-            // 激活目标窗口后恢复保存的原生输入窗口。
-            if (targetFocus && !targetKeptFocus) {
-                if (!IsWindow(targetFocus) || (targetFocus != target && !IsChild(target, targetFocus))) {
-                    timer->stop(); timer->deleteLater();
-                    showStatus(AppLocalization::get(QStringLiteral("ContentRestoredManualPaste")));
-                    return;
-                }
-                const DWORD targetThread = GetWindowThreadProcessId(targetFocus, nullptr);
-                const DWORD currentThread = GetCurrentThreadId();
-                const bool attached = targetThread && targetThread != currentThread
-                    && AttachThreadInput(currentThread, targetThread, TRUE);
-                if (attached || targetThread == currentThread) SetFocus(targetFocus);
-                if (attached) AttachThreadInput(currentThread, targetThread, FALSE);
-                GUITHREADINFO info{};
-                info.cbSize = sizeof(info);
-                if (!GetGUIThreadInfo(targetThread, &info) || info.hwndFocus != targetFocus
-                    || GetForegroundWindow() != target) {
-                    timer->stop(); timer->deleteLater();
-                    showStatus(AppLocalization::get(QStringLiteral("ContentRestoredManualPaste")));
-                    return;
-                }
-            }
-            bool pasted = false;
-            wchar_t controlClass[32]{};
-            const bool pasteToNativeEdit = directTextPaste && targetFocus
-                && GetClassNameW(targetFocus, controlClass, 32)
-                && QString::fromWCharArray(controlClass).compare(QStringLiteral("Edit"), Qt::CaseInsensitive) == 0;
-            if (pasteToNativeEdit) {
-                // 原生 Edit 直接接收粘贴消息，避免目标程序将模拟按键转给其他区域。
-                DWORD_PTR ignored = 0;
-                pasted = SendMessageTimeoutW(targetFocus, WM_PASTE, 0, 0,
-                                             SMTO_ABORTIFHUNG | SMTO_BLOCK, 250, &ignored) != 0;
-            } else {
-                INPUT inputs[4]{};
-                const WORD keys[4]{VK_CONTROL, 'V', 'V', VK_CONTROL};
-                for (int i = 0; i < 4; ++i) {
-                    inputs[i].type = INPUT_KEYBOARD;
-                    inputs[i].ki.wVk = keys[i];
-                    inputs[i].ki.dwFlags = (i >= 2) ? KEYEVENTF_KEYUP : 0;
-                    // 只跳过本应用注入的粘贴，保留辅助输入工具的导航兼容性。
-                    inputs[i].ki.dwExtraInfo = PasteInputMarker;
-                }
-                pasted = SendInput(4, inputs, sizeof(INPUT)) == 4;
-            }
+            const auto result = PasteTarget::send(reinterpret_cast<quintptr>(target),
+                reinterpret_cast<quintptr>(targetFocus), targetKeptFocus, directTextPaste);
+            if (result == PasteTarget::Result::WaitingForModifiers && ++*attempts < 100) return;
             timer->stop(); timer->deleteLater();
-            if (!pasted) {
+            if (result != PasteTarget::Result::Sent) {
                 showStatus(AppLocalization::get(QStringLiteral("ContentRestoredManualPaste")));
                 return;
             }
