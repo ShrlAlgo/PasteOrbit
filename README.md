@@ -10,15 +10,19 @@ PasteOrbit is a Windows desktop clipboard history manager.
 
 - Stores text, rich text, images, and file records.
 - Displays clipboard history near the active input position.
-- Supports filtering by content type and full-text search.
+- Supports filtering by content type or source application and full-text search.
+- Displays format labels for plain text, Markdown, HTML, and RTF records.
 - Supports pasting as original content, plain text, or files.
 - Supports previews for text, images, and file records.
+- Supports editing text in previews, pasting edited content, and replacing the original record.
+- Supports exporting detected tables as CSV or TSV.
 - Supports pinning, deleting, and clearing unpinned records from the current list.
 - Supports number-key quick paste for records in the current list.
 - Supports saving text and image records as files.
 - Supports excluding clipboard records from specified applications.
 - Supports system tray presence and monitoring pause.
 - Supports encrypted local backup and restore.
+- Supports checking for updates, downloading installers, and upgrading in place.
 - Supports Chinese and English interfaces, plus light and dark themes.
 - Uses a compact layout by default and supports configurable shortcuts, retention days, and history limits.
 
@@ -35,10 +39,12 @@ PasteOrbit is a Windows desktop clipboard history manager.
 - Configure with `cmake --preset windows-msvc`; build with `cmake --build --preset windows-debug` or `windows-release`.
 - After configuration, `build\windows-msvc\PasteOrbitNative.slnx` can also be opened directly with Debug/Release and x64 selected.
 - The executable and Qt dependencies reside in `build\windows-msvc\bin\Debug` or `bin\Release`.
-- `Scripts\Publish.ps1` writes the unpacked release and ZIP to `dist`; the installer is written there too.
+- `Scripts\Publish.ps1` writes the unpacked release to `dist\PasteOrbit-win-x64` and the ZIP to `dist`.
+- Inno Setup 6 builds the installer from `Scripts\Installer.iss` and writes it to `dist`.
 - Local publishing prefers `C:\Qt` and VS tools; CI retains its MinGW build path.
 
-Sources in `src` are grouped into `app` (startup, settings, localization), `data` (history storage and model), `services` (backup and updates), `ui` (windows and cards), and `resources` (icons, resource manifest, and localized strings).
+Sources in `src` are grouped into `app` (startup, settings, localization), `data` (history storage and model), `services` (backup and updates), `ui` (windows and cards), `platform` (data protection, global hotkeys, and paste target interaction), and `resources` (icons, resource manifest, and localized strings).
+Windows platform implementations reside in `src/platform/windows`.
 `build/windows-msvc` contains the CMake-generated Visual Studio solution, project files, and build output; these files are not source files and are not committed.
 
 ## GitHub Actions
@@ -52,3 +58,6 @@ Sources in `src` are grouped into `app` (startup, settings, localization), `data
 - File records store file or folder paths without copying the original files.
 - Applications can be excluded from clipboard monitoring.
 - Local backups are protected by the current Windows user credentials.
+- Text format labels are stored with each record; existing records receive labels when first displayed.
+- Since v2.5.11, startup automatically upgrades history databases from schema v4 to v5, and restoring a v4 backup upgrades a temporary database before replacing local data.
+- Older application versions cannot open the upgraded database directly; retain a backup made before upgrading when planning a downgrade.

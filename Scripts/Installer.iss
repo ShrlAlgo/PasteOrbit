@@ -1,6 +1,6 @@
 ; 安装包版本。发布新版本时应与 Publish.ps1 的 -Version 参数保持一致。
 #ifndef AppVersion
-#define AppVersion "2.5.12"
+#define AppVersion "2.5.13"
 #endif
 ; 安装文件来源于 Publish.ps1 生成的完整 win-x64 发布目录。
 #define ReleaseDir "..\dist\PasteOrbit-win-x64"
@@ -59,6 +59,11 @@ Name: "autostart"; Description: "{cm:AutoStart}"; GroupDescription: "附加选�
 Type: files; Name: "{app}\d3dcompiler_47.dll"
 Type: files; Name: "{app}\dxcompiler.dll"
 Type: files; Name: "{app}\dxil.dll"
+Type: files; Name: "{app}\concrt140.dll"
+Type: files; Name: "{app}\vccorlib140.dll"
+Type: files; Name: "{app}\msvcp140_atomic_wait.dll"
+Type: files; Name: "{app}\msvcp140_codecvt_ids.dll"
+Type: files; Name: "{app}\vcruntime140_threads.dll"
 Type: files; Name: "{app}\generic\qtuiotouchplugin.dll"
 Type: files; Name: "{app}\styles\qmodernwindowsstyle.dll"
 Type: files; Name: "{app}\networkinformation\qglib.dll"

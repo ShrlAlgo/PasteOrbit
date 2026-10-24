@@ -933,6 +933,11 @@ void MainWindow::applyTheme() {
         theme.backgroundColorMain1 = surface;
         theme.backgroundColorMain2 = page;
         theme.backgroundColorMain3 = hover;
+        // 普通按钮和下拉框共用中性色，让默认底色融入卡片并保留交互层次。
+        theme.neutralColor = dark ? QColor("#333333") : QColor("#F8F8F8");
+        theme.neutralColorHovered = dark ? QColor("#3D3D3D") : QColor("#EFEFEF");
+        theme.neutralColorPressed = dark ? QColor("#262626") : QColor("#E5E5E5");
+        theme.neutralColorDisabled = surface;
         theme.secondaryColor = text;
         theme.secondaryColorDisabled = muted;
         theme.secondaryAlternativeColor = muted;

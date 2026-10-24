@@ -26,6 +26,7 @@ if ($useMsvc) {
     $toolchainDirectory = 'C:\Qt\bin'
     $cmakePath = Join-Path $vsDirectory 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
     $deployToolPath = Join-Path $toolchainDirectory 'windeployqt.exe'
+    $dependencyToolPath = Join-Path $env:VCToolsInstallDir 'bin\Hostx64\x64\dumpbin.exe'
 }
 $buildDirectory = Join-Path $repositoryRoot $(if ($useMsvc) { 'build\publish-msvc' } else { 'build\publish-ucrt64' })
 $artifactsDirectory = Join-Path $repositoryRoot 'dist'
@@ -66,16 +67,21 @@ function Copy-ToolchainRuntimeDependencies {
         $pendingBinaries.Enqueue($binary.FullName)
     }
 
-    # 递归补齐 Qt/MinGW 的动态依赖，确保发布包脱离 MSYS2 PATH 也能启动。
+    # 按实际导入递归补齐运行库；MSVC 从当前工具集的 CRT 目录取文件。
     while ($pendingBinaries.Count -gt 0) {
         $binaryPath = $pendingBinaries.Dequeue()
-        $imports = & $dependencyToolPath -p $binaryPath 2>&1
+        $imports = if ($useMsvc) {
+            & $dependencyToolPath /nologo /dependents $binaryPath 2>&1
+        } else {
+            & $dependencyToolPath -p $binaryPath 2>&1
+        }
         if ($LASTEXITCODE -ne 0) {
             throw "无法读取运行库依赖：$binaryPath"
         }
 
         foreach ($line in $imports) {
-            if ("$line" -notmatch '^\s*DLL Name:\s*(.+)$') {
+            $pattern = if ($useMsvc) { '^\s+([^\s]+\.dll)\s*$' } else { '^\s*DLL Name:\s*(.+)$' }
+            if ("$line" -notmatch $pattern) {
                 continue
             }
 
@@ -84,11 +90,13 @@ function Copy-ToolchainRuntimeDependencies {
                 continue
             }
 
-            if (Test-Path -LiteralPath (Join-Path $env:WINDIR "System32\$dependencyName") -PathType Leaf) {
+            $dependencySource = Join-Path $(if ($useMsvc) { $crtDirectory.FullName } else { $toolchainDirectory }) $dependencyName
+            # MSVC 优先使用随包 CRT，不能因开发机 System32 已安装而漏带。
+            if ((-not $useMsvc -or -not (Test-Path -LiteralPath $dependencySource -PathType Leaf)) -and
+                (Test-Path -LiteralPath (Join-Path $env:WINDIR "System32\$dependencyName") -PathType Leaf)) {
                 continue
             }
 
-            $dependencySource = Join-Path $toolchainDirectory $dependencyName
             if (-not (Test-Path -LiteralPath $dependencySource -PathType Leaf)) {
                 throw "未找到运行依赖：$dependencyName（来自 $binaryPath）"
             }
@@ -101,13 +109,13 @@ function Copy-ToolchainRuntimeDependencies {
     }
 }
 
-if ((-not (Test-Path -LiteralPath $cmakePath -PathType Leaf)) -or (-not (Test-Path -LiteralPath $deployToolPath -PathType Leaf)) -or ((-not $useMsvc) -and (-not (Test-Path -LiteralPath $dependencyToolPath -PathType Leaf)))) {
-    throw '未找到 MSYS2 UCRT64 的 CMake/Qt 工具。请先安装项目要求的 Qt 6 和 MinGW 工具链。'
+if ((-not (Test-Path -LiteralPath $cmakePath -PathType Leaf)) -or (-not (Test-Path -LiteralPath $deployToolPath -PathType Leaf)) -or (-not (Test-Path -LiteralPath $dependencyToolPath -PathType Leaf))) {
+    throw '未找到 CMake、Qt 部署工具或运行库依赖检查工具，请检查所选工具链。'
 }
 $env:PATH = "$toolchainDirectory;$env:PATH"
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
-    $Version = '2.5.12'
+    $Version = '2.5.13'
 }
 $configureArguments = @(
     '-S', $repositoryRoot,
@@ -149,13 +157,10 @@ if ($LASTEXITCODE -ne 0) {
     throw "Qt 运行库部署失败，退出代码：$LASTEXITCODE"
 }
 if ($useMsvc) {
-    # 将当前 MSVC 工具集的发布版 CRT 放在应用目录，避免捆绑未执行的完整安装器。
+    # 后续只复制实际依赖的发布版 CRT，不整包带入 C++/CX 等未使用运行库。
     $redistRoot = Join-Path $env:VCToolsRedistDir 'x64'
     $crtDirectory = Get-ChildItem -LiteralPath $redistRoot -Directory -Filter 'Microsoft.VC*.CRT' | Select-Object -First 1
     if (-not $crtDirectory) { throw "未找到 MSVC 发布版运行库：$redistRoot" }
-    foreach ($runtimeFile in (Get-ChildItem -LiteralPath $crtDirectory.FullName -File -Filter '*.dll')) {
-        Copy-Item -LiteralPath $runtimeFile.FullName -Destination $deploymentDirectory -Force
-    }
 }
 # MSYS2 的 windeployqt 不会稳定复制 MinGW 与 SQLite 插件的动态依赖，先显式带上基础运行库。
 foreach ($runtimeName in $(if ($useMsvc) { @() } else { @('libgcc_s_seh-1.dll', 'libstdc++-6.dll', 'libwinpthread-1.dll', 'libsqlite3-0.dll') })) {
@@ -169,7 +174,7 @@ foreach ($runtimeName in $(if ($useMsvc) { @() } else { @('libgcc_s_seh-1.dll', 
 foreach ($driverName in @('qsqlibase.dll', 'qsqlmysql.dll', 'qsqlodbc.dll', 'qsqlpsql.dll')) {
     Remove-Item -LiteralPath (Join-Path $deploymentDirectory "sqldrivers\$driverName") -Force -ErrorAction SilentlyContinue
 }
-if (-not $useMsvc) { Copy-ToolchainRuntimeDependencies -Directory $deploymentDirectory }
+Copy-ToolchainRuntimeDependencies -Directory $deploymentDirectory
 New-Item -ItemType Directory -Path (Join-Path $deploymentDirectory 'Assets') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $repositoryRoot 'src\resources\icons\PasteOrbit.ico') `
     -Destination (Join-Path $deploymentDirectory 'Assets\PasteOrbit.ico') -Force
