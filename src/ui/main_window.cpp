@@ -105,10 +105,32 @@ QStyle *popupStyle() {
     return style;
 }
 
+class PopupMenuFrame final : public QObject {
+public:
+    using QObject::QObject;
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override {
+        if (event->type() == QEvent::Show || event->type() == QEvent::Resize) {
+            auto *menu = static_cast<QMenu *>(watched);
+            // 异步追加菜单项会改变尺寸，窗口形状随之更新，避免圆角外残留直角边框。
+            QPainterPath shape;
+            shape.addRoundedRect(QRectF(menu->rect()), 8, 8);
+            menu->setMask(QRegion(shape.toFillPolygon().toPolygon()));
+        }
+        return QObject::eventFilter(watched, event);
+    }
+};
+
 void stylePopupMenu(QMenu *menu, const QPalette &palette) {
     menu->setStyle(popupStyle());
     menu->setAttribute(Qt::WA_TranslucentBackground);
     menu->setWindowFlag(Qt::FramelessWindowHint);
+    menu->setWindowFlag(Qt::NoDropShadowWindowHint);
+    menu->setAutoFillBackground(false);
+    if (!menu->property("roundedPopupFrame").toBool()) {
+        menu->installEventFilter(new PopupMenuFrame(menu));
+        menu->setProperty("roundedPopupFrame", true);
+    }
     menu->setPalette(palette);
     menu->setStyleSheet(QStringLiteral(
         "QMenu{background:%1;color:%2;border:1px solid %3;border-radius:8px;padding:4px;}"

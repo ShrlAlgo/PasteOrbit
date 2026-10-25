@@ -289,7 +289,7 @@
   <data name="SettingsMaxEntriesCardHeader" xml:space="preserve"><value>最多记录数</value></data>
   <data name="SettingsMaxEntriesCardDescription" xml:space="preserve"><value>超出时清理未收藏记录</value></data>
   <data name="SettingsExcludedAppsCardHeader" xml:space="preserve"><value>忽略应用</value></data>
-  <data name="SettingsExcludedAppsCardDescription" xml:space="preserve"><value>进程名用分号分隔</value></data>
+  <data name="SettingsExcludedAppsCardDescription" xml:space="preserve"><value>搜索运行中的应用，或输入进程名后回车添加</value></data>
   <data name="SettingsBackupCardHeader" xml:space="preserve"><value>本地加密备份</value></data>
   <data name="SettingsBackupCardDescription" xml:space="preserve"><value>仅当前账户可恢复</value></data>
   <data name="ThemeSystemOptionContent" xml:space="preserve"><value>跟随系统</value></data>
@@ -302,7 +302,7 @@
   <data name="ToggleOffContent" xml:space="preserve"><value>关闭</value></data>
   <data name="SettingsShortcutHintText" xml:space="preserve"><value>Esc 隐藏面板，方向键用于列表导航，这些系统操作保持固定。</value></data>
   <data name="SettingsPinnedRetentionHintText" xml:space="preserve"><value>收藏不自动清理</value></data>
-  <data name="ExcludedApplicationsTextBoxPlaceholder" xml:space="preserve"><value>进程名，回车添加</value></data>
+  <data name="ExcludedApplicationsTextBoxPlaceholder" xml:space="preserve"><value>搜索或输入进程名</value></data>
   <data name="SelectProcessButtonContent" xml:space="preserve"><value>选择进程</value></data>
   <data name="ExportBackupButtonContent" xml:space="preserve"><value>导出备份</value></data>
   <data name="RestoreBackupButtonContent" xml:space="preserve"><value>恢复备份</value></data>

@@ -25,6 +25,7 @@
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QMessageBox>
+#include <QMouseEvent>
 #include <QKeyEvent>
 #include <QKeySequence>
 #include <QShortcut>
@@ -35,6 +36,7 @@
 #include <QSet>
 #include <QSignalBlocker>
 #include <QStackedWidget>
+#include <QWheelEvent>
 #include <QTabBar>
 #include <QToolButton>
 #include <QStyle>
@@ -64,6 +66,38 @@ QStringList processEntries(QString text) {
     text.replace(QLatin1Char('\n'), QLatin1Char(';'));
     return text.split(QLatin1Char(';'), Qt::SkipEmptyParts);
 }
+
+class ProcessList final : public QListWidget {
+public:
+    using QListWidget::QListWidget;
+protected:
+    // 鼠标统一按整行处理，避免原生勾选框和行点击分别切换一次；保留键盘与无障碍勾选。
+    void mousePressEvent(QMouseEvent *event) override {
+        if (event->button() != Qt::LeftButton) { QListWidget::mousePressEvent(event); return; }
+        pressed_ = indexAt(event->position().toPoint());
+        if (pressed_.isValid()) {
+            setCurrentIndex(pressed_);
+            setFocus(Qt::MouseFocusReason);
+        }
+        event->accept();
+    }
+    void mouseReleaseEvent(QMouseEvent *event) override {
+        if (event->button() != Qt::LeftButton) { QListWidget::mouseReleaseEvent(event); return; }
+        if (pressed_.isValid() && pressed_ == indexAt(event->position().toPoint())) {
+            auto *item = itemFromIndex(pressed_);
+            item->setCheckState(item->checkState() == Qt::Checked ? Qt::Unchecked : Qt::Checked);
+        }
+        pressed_ = QPersistentModelIndex();
+        event->accept();
+    }
+    void wheelEvent(QWheelEvent *event) override {
+        QListWidget::wheelEvent(event);
+        // 列表滚动到边界仍消耗滚轮，避免同一次操作继续滚动外层设置页。
+        event->accept();
+    }
+private:
+    QPersistentModelIndex pressed_;
+};
 
 QIcon processRemoveIcon(const QWidget *widget, const QColor &color) {
     // 标准关闭图标在深色主题下仍可能是黑色，按主题前景色着色并保留高 DPI 尺寸。
@@ -262,7 +296,7 @@ protected:
     }
 
 private:
-    friend class SettingsDialog;
+    friend class ::SettingsDialog;
     bool needsModifier_ = false;
     QShortcut *contextShortcut_ = nullptr;
     bool capturing_ = false;
@@ -453,51 +487,40 @@ SettingsDialog::SettingsDialog(AppSettings settings, QString databasePath, QStri
     processTags_ = new ProcessTagArea(excludedRow);
     processTags_->setObjectName(QStringLiteral("SelectedProcessTags"));
     excludedLayout->addWidget(processTags_);
-    auto *inputRow = new QHBoxLayout();
     excludedApplications_ = new QLineEdit(excludedRow);
+    excludedApplications_->setObjectName(QStringLiteral("ExcludedProcessInput"));
     excludedApplications_->setPlaceholderText(AppLocalization::get(QStringLiteral("ExcludedApplicationsTextBoxPlaceholder")));
     excludedApplications_->setAccessibleName(excludedApplications_->placeholderText());
-    inputRow->addWidget(excludedApplications_, 1);
     auto *addProcess = new QPushButton(AppLocalization::get(QStringLiteral("AddExcludedProcess")), excludedRow);
     addProcess->setObjectName(QStringLiteral("AddExcludedProcess"));
     addProcess->setProperty("LocalizationKey", QStringLiteral("AddExcludedProcess"));
     addProcess->setAutoDefault(false);
     addProcess->setEnabled(false);
-    inputRow->addWidget(addProcess);
-    excludedLayout->addLayout(inputRow);
     connect(addProcess, &QPushButton::clicked, this, &SettingsDialog::addExcludedProcesses);
     connect(excludedApplications_, &QLineEdit::returnPressed, this, &SettingsDialog::addExcludedProcesses);
     connect(excludedApplications_, &QLineEdit::textChanged, addProcess, [addProcess](const QString &text) {
         addProcess->setEnabled(!text.trimmed().isEmpty());
     });
-    auto *processHeader = new QHBoxLayout();
-    // 带文字的折叠操作使用普通按钮，由主题统一处理文字与图标的内部居中。
-    auto *processButton = new QPushButton(excludedRow);
+    connect(excludedApplications_, &QLineEdit::textChanged, this, &SettingsDialog::filterProcesses);
+    auto *processButton = new QPushButton(AppLocalization::get(QStringLiteral("SelectProcessButtonContent")), excludedRow);
     processButton->setObjectName(QStringLiteral("ProcessPickerToggle"));
-    processButton->setText(AppLocalization::get(QStringLiteral("SelectProcessButtonContent")));
+    processButton->setProperty("LocalizationKey", QStringLiteral("SelectProcessButtonContent"));
     processButton->setAutoDefault(false);
-    processButton->setIcon(style()->standardIcon(QStyle::SP_ArrowRight, nullptr, processButton));
     processButton->setCheckable(true);
-    auto *processSearch = new QLineEdit(excludedRow);
-    processSearch->setObjectName(QStringLiteral("ProcessPickerSearch"));
-    processSearch->setPlaceholderText(AppLocalization::get(QStringLiteral("ProcessSearchPlaceholder")));
-    processSearch->setAccessibleName(processSearch->placeholderText());
-    processSearch->hide();
-    processHeader->addWidget(processSearch, 1);
-    processHeader->addWidget(processButton, 0, Qt::AlignRight | Qt::AlignVCenter);
-    excludedLayout->addLayout(processHeader);
-    addCard(privacy, QStringLiteral("SettingsExcludedAppsCardHeader"), {}, excludedRow);
-    connect(processButton, &QPushButton::toggled, this, [this, processButton, processSearch](bool expanded) {
-        processButton->setIcon(style()->standardIcon(expanded ? QStyle::SP_ArrowDown : QStyle::SP_ArrowRight, nullptr, processButton));
-        processSearch->setVisible(expanded);
+    auto *actionsRow = new QHBoxLayout();
+    actionsRow->addWidget(excludedApplications_, 1);
+    actionsRow->addWidget(processButton);
+    actionsRow->addWidget(addProcess);
+    excludedLayout->addLayout(actionsRow);
+    connect(processButton, &QPushButton::toggled, this, [this](bool expanded) {
         if (expanded) chooseProcesses();
-        else {
-            processList_ = nullptr;
-            delete processPicker_;
-            processPicker_ = nullptr;
-            processSearch->clear();
-        }
+        if (processPicker_) processPicker_->setVisible(expanded);
     });
+    connect(excludedApplications_, &QLineEdit::textEdited, processButton, [processButton](const QString &) {
+        processButton->setChecked(true);
+    });
+    addCard(privacy, QStringLiteral("SettingsExcludedAppsCardHeader"),
+            QStringLiteral("SettingsExcludedAppsCardDescription"), excludedRow);
     auto *backupRow = new QWidget(privacy);
     auto *backupLayout = new QVBoxLayout(backupRow);
     backupLayout->setContentsMargins(0, 0, 0, 0);
@@ -579,8 +602,6 @@ void SettingsDialog::applyTheme() {
     setPalette(palette);
     if (auto *back = findChild<QToolButton *>(QStringLiteral("SettingsBackToHistory")))
         back->setIcon(this->style()->standardIcon(QStyle::SP_ArrowBack, nullptr, back));
-    if (auto *toggle = findChild<QPushButton *>(QStringLiteral("ProcessPickerToggle")))
-        toggle->setIcon(this->style()->standardIcon(toggle->isChecked() ? QStyle::SP_ArrowDown : QStyle::SP_ArrowRight, nullptr, toggle));
     // 弹层是独立窗口；仅其表面颜色随主题重绘，选项颜色由调色板直接提供。
     for (auto *combo : {theme_, language_, retention_, maximumEntries_}) {
         combo->setPalette(palette);
@@ -789,15 +810,8 @@ void SettingsDialog::refreshLocalization() {
     excludedApplications_->setPlaceholderText(AppLocalization::get(QStringLiteral("ExcludedApplicationsTextBoxPlaceholder")));
     excludedApplications_->setAccessibleName(excludedApplications_->placeholderText());
     syncProcessTags();
-    if (auto *toggle = findChild<QPushButton *>(QStringLiteral("ProcessPickerToggle")))
-        toggle->setText(AppLocalization::get(QStringLiteral("SelectProcessButtonContent")));
-    if (auto *search = findChild<QLineEdit *>(QStringLiteral("ProcessPickerSearch"))) {
-        search->setPlaceholderText(AppLocalization::get(QStringLiteral("ProcessSearchPlaceholder")));
-        search->setAccessibleName(search->placeholderText());
-    }
-    if (processList_) {
+    if (processList_)
         processList_->setAccessibleName(AppLocalization::get(QStringLiteral("SelectExcludedAppsTitle")));
-    }
     if (auto *back = findChild<QToolButton *>(QStringLiteral("SettingsBackToHistory"))) {
         back->setToolTip(AppLocalization::get(QStringLiteral("SettingsBackToHistory")));
         back->setAccessibleName(back->toolTip());
@@ -810,60 +824,23 @@ void SettingsDialog::refreshLocalization() {
 
 void SettingsDialog::chooseProcesses() {
     if (processPicker_) return;
-    // 展开时才枚举窗口；列表嵌入原卡片，收起即释放，避免常驻进程元数据。
     auto *host = excludedApplications_->parentWidget();
     processPicker_ = new QWidget(host);
     processPicker_->setObjectName(QStringLiteral("ProcessPicker"));
     auto *layout = new QVBoxLayout(processPicker_);
     layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(6);
-    auto *search = findChild<QLineEdit *>(QStringLiteral("ProcessPickerSearch"));
-    auto *list = new QListWidget(processPicker_);
+    auto *list = new ProcessList(processPicker_);
     processList_ = list;
     list->setObjectName(QStringLiteral("ProcessSelectionList"));
     list->setAccessibleName(AppLocalization::get(QStringLiteral("SelectExcludedAppsTitle")));
     list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    list->setSelectionMode(QAbstractItemView::NoSelection);
     list->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    list->setUniformItemSizes(true);
     list->setTextElideMode(Qt::ElideRight);
-    layout->addWidget(list, 1);
-    QHash<QString, QString> windows;
-    EnumWindows([](HWND window, LPARAM parameter) -> BOOL {
-        if (!IsWindowVisible(window) || GetWindow(window, GW_OWNER)) return TRUE;
-        wchar_t title[256]{};
-        if (!GetWindowTextW(window, title, 256)) return TRUE;
-        DWORD processId = 0;
-        GetWindowThreadProcessId(window, &processId);
-        HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
-        if (!process) return TRUE;
-        wchar_t path[MAX_PATH]{};
-        DWORD length = MAX_PATH;
-        const bool ok = QueryFullProcessImageNameW(process, 0, path, &length) != FALSE;
-        CloseHandle(process);
-        if (!ok) return TRUE;
-        const QString executable = QString::fromWCharArray(path, static_cast<int>(length));
-        const QString name = executable.mid(executable.lastIndexOf(QLatin1Char('\\')) + 1);
-        const QString display = QStringLiteral("%1 (%2)").arg(QString::fromWCharArray(title), name);
-        static_cast<QHash<QString, QString> *>(reinterpret_cast<void *>(parameter))->insert(name, display);
-        return TRUE;
-    }, reinterpret_cast<LPARAM>(&windows));
-    QStringList names = windows.keys();
-    names.sort(Qt::CaseInsensitive);
-    for (const auto &name : names) {
-        auto *item = new QListWidgetItem(name, list);
-        item->setToolTip(windows.value(name));
-        item->setData(Qt::UserRole, name);
-        item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
-        item->setSizeHint(QSize(0, 28));
-    }
-    list->setFixedHeight(qBound(60, list->count() * 28 + 2, 156));
-    syncProcessSelection();
-    connect(search, &QLineEdit::textChanged, list, [list](const QString &text) {
-        for (int i = 0; i < list->count(); ++i) {
-            auto *item = list->item(i);
-            item->setHidden(!item->text().contains(text, Qt::CaseInsensitive)
-                && !item->toolTip().contains(text, Qt::CaseInsensitive));
-        }
-    });
+    list->setFixedHeight(66);
+    layout->addWidget(list);
+    qobject_cast<QVBoxLayout *>(host->layout())->addWidget(processPicker_);
     connect(list, &QListWidget::itemChanged, this, [this](QListWidgetItem *item) {
         const QString changed = processKey(item->data(Qt::UserRole).toString());
         const auto existing = processEntries(settings_.excludedApplications);
@@ -873,21 +850,74 @@ void SettingsDialog::chooseProcesses() {
         if (changed.isEmpty() || wasExcluded == (item->checkState() == Qt::Checked)) return;
         QStringList values;
         QSet<QString> known;
-        // 每次只修改当前项；过滤中的勾选和未运行的手动排除项都必须保留。
+        // 筛选只改变可见项，不丢失其他勾选和未运行的手动排除项。
         for (const auto &entry : existing) {
             const QString key = processKey(entry);
             if (key.isEmpty() || key == changed || known.contains(key)) continue;
             known.insert(key);
             values.push_back(entry.trimmed());
         }
-        if (item->checkState() == Qt::Checked && !changed.isEmpty()) values.push_back(changed);
+        if (item->checkState() == Qt::Checked) values.push_back(changed);
         settings_.excludedApplications = values.join(QStringLiteral("; "));
         syncProcessTags();
         syncProcessSelection();
         if (!loading_) persist();
     });
-    qobject_cast<QVBoxLayout *>(host->layout())->addWidget(processPicker_);
-    search->setFocus(Qt::OtherFocusReason);
+    auto *watcher = new QFutureWatcher<QHash<QString, QString>>(this);
+    connect(watcher, &QFutureWatcher<QHash<QString, QString>>::finished, this, [this, watcher, list] {
+        const auto windows = watcher->result();
+        watcher->deleteLater();
+        const QSignalBlocker blocker(list);
+        QStringList names = windows.keys();
+        names.sort(Qt::CaseInsensitive);
+        for (const auto &name : names) {
+            auto *item = new QListWidgetItem(name, list);
+            item->setToolTip(windows.value(name));
+            item->setData(Qt::UserRole, name);
+            item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+            item->setSizeHint(QSize(0, 32));
+        }
+        syncProcessSelection();
+        filterProcesses(excludedApplications_->text());
+    });
+    // 窗口与进程查询放到后台；同一设置页会话复用候选，不随每次输入重新枚举。
+    watcher->setFuture(QtConcurrent::run([] {
+        QHash<QString, QString> windows;
+        EnumWindows([](HWND window, LPARAM parameter) -> BOOL {
+            if (!IsWindowVisible(window) || GetWindow(window, GW_OWNER)) return TRUE;
+            wchar_t title[256]{};
+            if (!GetWindowTextW(window, title, 256)) return TRUE;
+            DWORD processId = 0;
+            GetWindowThreadProcessId(window, &processId);
+            HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
+            if (!process) return TRUE;
+            wchar_t path[MAX_PATH]{};
+            DWORD length = MAX_PATH;
+            const bool ok = QueryFullProcessImageNameW(process, 0, path, &length) != FALSE;
+            CloseHandle(process);
+            if (!ok) return TRUE;
+            const QString executable = QString::fromWCharArray(path, static_cast<int>(length));
+            const QString name = executable.mid(executable.lastIndexOf(QLatin1Char('\\')) + 1);
+            static_cast<QHash<QString, QString> *>(reinterpret_cast<void *>(parameter))->insert(
+                name, QStringLiteral("%1 (%2)").arg(QString::fromWCharArray(title), name));
+            return TRUE;
+        }, reinterpret_cast<LPARAM>(&windows));
+        return windows;
+    }));
+}
+
+void SettingsDialog::filterProcesses(const QString &text) {
+    if (!processList_) return;
+    const QString query = text.trimmed();
+    int visible = 0;
+    for (int row = 0; row < processList_->count(); ++row) {
+        auto *item = processList_->item(row);
+        const bool matches = item->text().contains(query, Qt::CaseInsensitive)
+            || item->toolTip().contains(query, Qt::CaseInsensitive);
+        item->setHidden(!matches);
+        if (matches) ++visible;
+    }
+    processList_->setFixedHeight(qBound(66, visible * 32 + 2, 162));
 }
 
 void SettingsDialog::syncProcessSelection() {
@@ -895,16 +925,16 @@ void SettingsDialog::syncProcessSelection() {
     QSet<QString> selected;
     for (const auto &entry : processEntries(settings_.excludedApplications)) selected.insert(processKey(entry));
     const QSignalBlocker blocker(processList_);
-    for (int i = 0; i < processList_->count(); ++i) {
-        auto *item = processList_->item(i);
+    for (int row = 0; row < processList_->count(); ++row) {
+        auto *item = processList_->item(row);
         item->setCheckState(selected.contains(processKey(item->data(Qt::UserRole).toString())) ? Qt::Checked : Qt::Unchecked);
     }
 }
 
 void SettingsDialog::syncProcessTags() {
+    QHash<QString, QWidget *> tags;
     for (auto *tag : processTags_->findChildren<QWidget *>(QString(), Qt::FindDirectChildrenOnly)) {
-        tag->hide();
-        tag->deleteLater();
+        if (!tag->isHidden()) tags.insert(tag->property("ExcludedProcessKey").toString(), tag);
     }
     QSet<QString> known;
     // 同一批标签共享关闭图标，不为每个进程重复生成和着色位图。
@@ -915,8 +945,18 @@ void SettingsDialog::syncProcessTags() {
         known.insert(key);
         QString text = entry.trimmed();
         if (text.endsWith(QStringLiteral(".exe"), Qt::CaseInsensitive)) text.chop(4);
+        // 保留未变化的标签，避免每次选择进程都重建整组控件和布局。
+        if (auto *tag = tags.take(key)) {
+            tag->setProperty("ProcessTagText", text);
+            tag->setToolTip(entry.trimmed());
+            auto *remove = tag->findChild<QToolButton *>();
+            remove->setToolTip(AppLocalization::format(QStringLiteral("RemoveExcludedProcess"), {text}));
+            remove->setAccessibleName(remove->toolTip());
+            continue;
+        }
         auto *tag = new QFrame(processTags_);
         tag->setObjectName(QStringLiteral("ProcessTag"));
+        tag->setProperty("ExcludedProcessKey", key);
         tag->setProperty("ProcessTagText", text);
         tag->setToolTip(entry.trimmed());
         auto *row = new QHBoxLayout(tag);
@@ -950,6 +990,10 @@ void SettingsDialog::syncProcessTags() {
         });
         tag->show();
     }
+    for (auto *tag : tags) {
+        tag->hide();
+        tag->deleteLater();
+    }
     processTags_->setVisible(!known.isEmpty());
     static_cast<ProcessTagArea *>(processTags_)->refresh();
 }
@@ -957,7 +1001,10 @@ void SettingsDialog::syncProcessTags() {
 void SettingsDialog::addExcludedProcesses() {
     QStringList values = processEntries(settings_.excludedApplications);
     QSet<QString> known;
-    for (const auto &value : values) known.insert(processKey(value));
+    for (auto &value : values) {
+        value = value.trimmed();
+        known.insert(processKey(value));
+    }
     bool changed = false;
     // 手动输入仅在添加或回车时提交，未提交的输入不覆盖已有标签与排除配置。
     for (auto value : processEntries(excludedApplications_->text())) {

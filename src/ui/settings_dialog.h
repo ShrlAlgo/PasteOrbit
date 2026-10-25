@@ -37,6 +37,7 @@ private:
     void saveControls();
     void persist(bool preserveSkippedVersion = true);
     void chooseProcesses();
+    void filterProcesses(const QString &text);
     void syncProcessSelection();
     void syncProcessTags();
     void addExcludedProcesses();

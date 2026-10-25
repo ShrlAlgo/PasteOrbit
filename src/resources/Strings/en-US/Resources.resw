@@ -289,7 +289,7 @@
   <data name="SettingsMaxEntriesCardHeader" xml:space="preserve"><value>Maximum entries</value></data>
   <data name="SettingsMaxEntriesCardDescription" xml:space="preserve"><value>Remove excess non-favorites</value></data>
   <data name="SettingsExcludedAppsCardHeader" xml:space="preserve"><value>Ignored applications</value></data>
-  <data name="SettingsExcludedAppsCardDescription" xml:space="preserve"><value>Separate process names with semicolons</value></data>
+  <data name="SettingsExcludedAppsCardDescription" xml:space="preserve"><value>Search running apps or enter a process name and press Enter</value></data>
   <data name="SettingsBackupCardHeader" xml:space="preserve"><value>Encrypted local backup</value></data>
   <data name="SettingsBackupCardDescription" xml:space="preserve"><value>Only this Windows user can restore</value></data>
   <data name="ThemeSystemOptionContent" xml:space="preserve"><value>Use system setting</value></data>
@@ -302,7 +302,7 @@
   <data name="ToggleOffContent" xml:space="preserve"><value>Off</value></data>
   <data name="SettingsShortcutHintText" xml:space="preserve"><value>Esc hides the panel, and arrow keys navigate the list. These system actions stay fixed.</value></data>
   <data name="SettingsPinnedRetentionHintText" xml:space="preserve"><value>Auto-cleanup skips favorites</value></data>
-  <data name="ExcludedApplicationsTextBoxPlaceholder" xml:space="preserve"><value>Process name, Enter to add</value></data>
+  <data name="ExcludedApplicationsTextBoxPlaceholder" xml:space="preserve"><value>Search or enter a process name</value></data>
   <data name="SelectProcessButtonContent" xml:space="preserve"><value>Processes</value></data>
   <data name="ExportBackupButtonContent" xml:space="preserve"><value>Export</value></data>
   <data name="RestoreBackupButtonContent" xml:space="preserve"><value>Restore</value></data>
