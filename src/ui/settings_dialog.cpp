@@ -43,6 +43,7 @@
 #include <QStyleFactory>
 #include <QStyledItemDelegate>
 #include <QPainter>
+#include <QPainterPath>
 #include <QResizeEvent>
 #include <QScreen>
 #include <QUrl>
@@ -106,6 +107,29 @@ QIcon processRemoveIcon(const QWidget *widget, const QColor &color) {
     QPainter painter(&pixmap);
     painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
     painter.fillRect(pixmap.rect(), color);
+    return QIcon(pixmap);
+}
+
+QIcon restoreDefaultsIcon(const QToolButton *button, const QColor &color) {
+    const QSize size = button->iconSize();
+    const qreal scale = button->devicePixelRatioF();
+    QPixmap pixmap(qRound(size.width() * scale), qRound(size.height() * scale));
+    pixmap.setDevicePixelRatio(scale);
+    pixmap.fill(Qt::transparent);
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.scale(size.width() / 24.0, size.height() / 24.0);
+    painter.setPen(QPen(color, 1.8, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    // 细线回转箭头按设备像素比绘制，不使用带实心底的系统图标。
+    QPainterPath path;
+    path.moveTo(3, 12);
+    path.cubicTo(3, 17, 7, 21, 12, 21);
+    path.cubicTo(17, 21, 21, 17, 21, 12);
+    path.cubicTo(21, 7, 17, 3, 12, 3);
+    path.cubicTo(8.5, 3, 5.5, 5, 3, 8);
+    painter.drawPath(path);
+    painter.drawPolyline(QPolygonF{QPointF(3, 3), QPointF(3, 8), QPointF(8, 8)});
+    painter.end();
     return QIcon(pixmap);
 }
 
@@ -354,6 +378,18 @@ SettingsDialog::SettingsDialog(AppSettings settings, QString databasePath, QStri
     auto *title = new QLabel(windowTitle(), header);
     title->setProperty("LocalizationKey", QStringLiteral("SettingsWindowTitle"));
     headerLayout->addWidget(title);
+    auto *defaults = new QToolButton(header);
+    defaults->setObjectName(QStringLiteral("SettingsRestoreDefaults"));
+    defaults->setToolTip(AppLocalization::get(QStringLiteral("RestoreDefaultsButtonContent")));
+    defaults->setAccessibleName(defaults->toolTip());
+    defaults->setProperty("TooltipLocalizationKey", QStringLiteral("RestoreDefaultsButtonContent"));
+    defaults->setProperty("AccessibleLocalizationKey", QStringLiteral("RestoreDefaultsButtonContent"));
+    defaults->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    defaults->setIconSize(QSize(18, 18));
+    defaults->setFixedSize(28, 28);
+    defaults->setAutoRaise(true);
+    connect(defaults, &QToolButton::clicked, this, &SettingsDialog::restoreDefaults);
+    headerLayout->addWidget(defaults);
     headerLayout->addStretch();
     auto *close = new QToolButton(header);
     close->setText(QString(QChar(0x00D7)));
@@ -474,10 +510,6 @@ SettingsDialog::SettingsDialog(AppSettings settings, QString databasePath, QStri
     cleanupHint->setWordWrap(true);
     cleanupHint->setProperty("LocalizationKey", QStringLiteral("SettingsPinnedRetentionHintText"));
     pageLayout(history)->addWidget(cleanupHint);
-    auto *defaults = new QPushButton(AppLocalization::get(QStringLiteral("RestoreDefaultsButtonContent")), history);
-    defaults->setProperty("LocalizationKey", QStringLiteral("RestoreDefaultsButtonContent"));
-    connect(defaults, &QPushButton::clicked, this, &SettingsDialog::restoreDefaults);
-    pageLayout(history)->addWidget(defaults, 0, Qt::AlignRight);
     addTab(history, QStringLiteral("SettingsHistoryNavigationContent"));
 
     auto *privacy = createPage(QStringLiteral("SettingsPrivacySectionText"));
@@ -509,8 +541,8 @@ SettingsDialog::SettingsDialog(AppSettings settings, QString databasePath, QStri
     processButton->setCheckable(true);
     auto *actionsRow = new QHBoxLayout();
     actionsRow->addWidget(excludedApplications_, 1);
-    actionsRow->addWidget(processButton);
     actionsRow->addWidget(addProcess);
+    actionsRow->addWidget(processButton);
     excludedLayout->addLayout(actionsRow);
     connect(processButton, &QPushButton::toggled, this, [this](bool expanded) {
         if (expanded) chooseProcesses();
@@ -602,6 +634,9 @@ void SettingsDialog::applyTheme() {
     setPalette(palette);
     if (auto *back = findChild<QToolButton *>(QStringLiteral("SettingsBackToHistory")))
         back->setIcon(this->style()->standardIcon(QStyle::SP_ArrowBack, nullptr, back));
+    if (auto *defaults = findChild<QToolButton *>(QStringLiteral("SettingsRestoreDefaults"))) {
+        defaults->setIcon(restoreDefaultsIcon(defaults, palette.color(QPalette::PlaceholderText)));
+    }
     // 弹层是独立窗口；仅其表面颜色随主题重绘，选项颜色由调色板直接提供。
     for (auto *combo : {theme_, language_, retention_, maximumEntries_}) {
         combo->setPalette(palette);
@@ -1026,8 +1061,10 @@ void SettingsDialog::addExcludedProcesses() {
 
 void SettingsDialog::restoreDefaults() {
     const auto answer = QMessageBox::question(this, AppLocalization::get(QStringLiteral("RestoreDefaultsTitle")),
-                                              AppLocalization::get(QStringLiteral("RestoreDefaultsMessage")));
+                                              AppLocalization::get(QStringLiteral("RestoreDefaultsMessage")),
+                                              QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
     if (answer != QMessageBox::Yes) return;
+    // 统一重置全部配置并同步各页控件，不局限于当前选项卡。
     settings_ = AppSettings{};
     loadControls(settings_);
     persist(false);

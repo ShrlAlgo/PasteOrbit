@@ -112,10 +112,34 @@ protected:
     bool eventFilter(QObject *watched, QEvent *event) override {
         if (event->type() == QEvent::Show || event->type() == QEvent::Resize) {
             auto *menu = static_cast<QMenu *>(watched);
-            // 异步追加菜单项会改变尺寸，窗口形状随之更新，避免圆角外残留直角边框。
-            QPainterPath shape;
-            shape.addRoundedRect(QRectF(menu->rect()), 8, 8);
-            menu->setMask(QRegion(shape.toFillPolygon().toPolygon()));
+            const QRect anchor = menu->property("rowMenuAnchor").toRect();
+            if (anchor.isValid() && menu->isVisible() && menu->screen()) {
+                // 异步追加项目改变菜单大小后，仍固定对齐同一个按钮；空间不足时向上展开。
+                const auto *screen = QGuiApplication::screenAt(anchor.center());
+                const QRect available = (screen ? screen : menu->screen())->availableGeometry();
+                const int x = qBound(available.left(), anchor.right() - menu->width() + 1,
+                                     qMax(available.left(), available.right() - menu->width() + 1));
+                int y = anchor.bottom() + 3;
+                if (y + menu->height() > available.bottom() + 1) y = anchor.top() - menu->height() - 2;
+                y = qBound(available.top(), y, qMax(available.top(), available.bottom() - menu->height() + 1));
+                if (menu->pos() != QPoint(x, y)) menu->move(x, y);
+            }
+            auto *parentMenu = qobject_cast<QMenu *>(menu->parentWidget());
+            if (parentMenu && parentMenu->isVisible() && menu->isVisible() && menu->screen()) {
+                // Qt 按菜单项边缘定位会盖住外边框；改按窗口边缘留缝，仍遵守屏幕边界。
+                const QRect parentRect = parentMenu->frameGeometry();
+                const QRect menuRect = menu->frameGeometry();
+                const QRect available = menu->screen()->availableGeometry();
+                const int left = parentRect.left() - menuRect.width() - 2;
+                const int right = parentRect.right() + 1 + 2;
+                const auto fits = [&](int x) {
+                    return x >= available.left() && x + menuRect.width() <= available.right() + 1;
+                };
+                const bool opensLeft = menuRect.center().x() < parentRect.center().x();
+                int x = opensLeft ? left : right;
+                if (!fits(x)) x = opensLeft ? right : left;
+                if (fits(x) && x != menu->x()) menu->move(x, menu->y());
+            }
         }
         return QObject::eventFilter(watched, event);
     }
@@ -157,6 +181,15 @@ QIcon headerGlyphIcon(QChar glyph, const QColor &color, const QWidget *widget) {
     painter.setPen(color);
     painter.drawText(QRect(0, 0, 20, 20), Qt::AlignCenter, QString(glyph));
     return QIcon(pixmap);
+}
+
+QLabel *createSettingsSnapshot(QWidget *page, QWidget *parent, const QPoint &position) {
+    auto *snapshot = new QLabel(parent);
+    snapshot->setPixmap(page->grab());
+    snapshot->setFixedSize(page->size());
+    snapshot->move(position);
+    snapshot->show();
+    return snapshot;
 }
 
 QByteArray encodePng(const QImage &image) {
@@ -820,8 +853,7 @@ void MainWindow::buildUi() {
     connect(moreShortcut_, &QShortcut::activated, this, [this] {
         const auto current = historyList_->currentIndex();
         if (!current.isValid()) return;
-        openRowMenu(current.data(HistoryModel::IdRole).toString(),
-                    historyList_->viewport()->mapToGlobal(historyList_->visualRect(current).topRight()));
+        openRowMenu(current.data(HistoryModel::IdRole).toString());
     });
     connect(model_, &QAbstractItemModel::modelAboutToBeReset, this, [this] { closeHoverPreview(); });
     connect(delegate_, &HistoryDelegate::actionTriggered, this, [this](const QString &id, int action) {
@@ -906,6 +938,9 @@ void MainWindow::applyTheme() {
         auto theme = dark ? oclero::qlementine::Theme::makeDark()
                            : oclero::qlementine::Theme::makeLight();
         theme.primaryColor = QColor("#0078D4");
+        // 关闭控件外圈泛光及其动画，保留普通边框和键盘焦点。
+        theme.focusBorderWidth = 0;
+        theme.focusAnimationDuration = 0;
         theme.backgroundColorMain1 = surface;
         theme.backgroundColorMain2 = page;
         theme.backgroundColorMain3 = hover;
@@ -1114,11 +1149,11 @@ void MainWindow::leaveSettings() {
     if (!settingsPage_) return;
     ++panelShowGeneration_;
     // 设置页返回后即销毁；只保留一张短暂快照滑出，不延迟备份、提权等原有收尾流程。
-    auto *outgoing = new QLabel(drawerHost_);
-    outgoing->setPixmap(settingsPage_->grab());
-    outgoing->setFixedSize(settingsPage_->size());
-    outgoing->move(settingsPage_->pos());
-    outgoing->show();
+    QPoint position = settingsPage_->pos();
+    if (pageAnimation_) {
+        if (auto *moving = qobject_cast<QWidget *>(pageAnimation_->targetObject())) position = moving->pos();
+    }
+    auto *outgoing = createSettingsSnapshot(settingsPage_, drawerHost_, position);
     settingsPage_ = nullptr;
     if (historyFocus_) historyFocus_->setFocus(Qt::OtherFocusReason);
     else historyStack_->currentWidget()->setFocus(Qt::OtherFocusReason);
@@ -1131,9 +1166,14 @@ void MainWindow::leaveSettings() {
 void MainWindow::animatePage(QWidget *page, bool opening) {
     // 快速往返先停止旧动画；关闭宿主时立即释放抽屉及返回快照。
     if (pageAnimation_) {
+        auto *previous = qobject_cast<QWidget *>(pageAnimation_->targetObject());
         pageAnimation_->stop();
         pageAnimation_->deleteLater();
         pageAnimation_.clear();
+        if (previous && previous != page && previous != settingsPage_) {
+            previous->hide();
+            previous->deleteLater();
+        }
     }
     if (!page) {
         delete drawerHost_;
@@ -1142,26 +1182,35 @@ void MainWindow::animatePage(QWidget *page, bool opening) {
     }
     BOOL enabled = TRUE;
     SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &enabled, 0);
-    if (!enabled || !isVisible()) {
+    const QPoint end = opening ? QPoint(0, 0) : QPoint(-drawerHost_->width(), 0);
+    if (!enabled || !isVisible() || page->pos() == end) {
         if (opening) page->move(0, 0);
         else {
-            delete drawerHost_;
+            // 保持当前 finished 回调中的对话框有效，离开调用栈后再释放宿主。
+            drawerHost_->hide();
+            drawerHost_->deleteLater();
             drawerHost_ = nullptr;
         }
         return;
     }
-    // 仅移动固定尺寸的抽屉，不做整页透明合成或窗口尺寸动画。
-    auto *animation = new QPropertyAnimation(page, "pos", this);
+    // 打开前完成排版绘制，逐帧只平移快照，避免首帧准备和整页控件重绘造成跳帧。
+    QWidget *animated = opening ? createSettingsSnapshot(page, drawerHost_, page->pos()) : page;
+    auto *animation = new QPropertyAnimation(animated, "pos", this);
     pageAnimation_ = animation;
-    animation->setDuration(opening ? 180 : 140);
-    animation->setStartValue(page->pos());
-    animation->setEndValue(opening ? QPoint(0, 0) : QPoint(-drawerHost_->width(), 0));
-    animation->setEasingCurve(QEasingCurve::OutCubic);
-    connect(animation, &QPropertyAnimation::finished, this, [this, opening, animation] {
+    animation->setDuration(opening ? 280 : 240);
+    animation->setStartValue(animated->pos());
+    animation->setEndValue(end);
+    animation->setEasingCurve(QEasingCurve::InOutCubic);
+    connect(animation, &QPropertyAnimation::valueChanged, this, [this] { update(); });
+    connect(animation, &QPropertyAnimation::finished, this, [this, opening, animation, page, animated] {
         if (pageAnimation_ != animation) return;
         pageAnimation_.clear();
         animation->deleteLater();
-        if (!opening) {
+        if (opening) {
+            if (settingsPage_ == page) page->move(0, 0);
+            animated->hide();
+            animated->deleteLater();
+        } else {
             delete drawerHost_;
             drawerHost_ = nullptr;
         }
@@ -1574,8 +1623,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
             pressed.replace(QStringLiteral("Return"), QStringLiteral("Enter"), Qt::CaseInsensitive);
             const auto normalized = AppSettings::normalizedShortcut(pressed);
             if (key->key() == Qt::Key_Menu || normalized == AppSettings::normalizedShortcut(settings_.moreShortcut)) {
-                const QRect card = historyList_->visualRect(historyList_->currentIndex());
-                openRowMenu(id, historyList_->viewport()->mapToGlobal(card.topRight()));
+                openRowMenu(id);
                 return true;
             }
             if (normalized == AppSettings::normalizedShortcut(settings_.plainTextPasteShortcut)) {
@@ -1820,17 +1868,20 @@ void MainWindow::openRecord(const QString &id) {
     }));
 }
 
-void MainWindow::openRowMenu(const QString &id, std::optional<QPoint> position) {
+void MainWindow::openRowMenu(const QString &id) {
     if (loadingPage_ || QApplication::activePopupWidget()) return;
     ++openGeneration_;
-    const auto *item = model_->itemAt(model_->rowForId(id));
+    const int row = model_->rowForId(id);
+    const auto *item = model_->itemAt(row);
     if (!item) return;
     const int kind = item->kind;
     const int generation = panelShowGeneration_;
-    const QPoint popupPosition = position.value_or(QCursor::pos());
+    const QRect button = delegate_->actionGeometry(historyList_->visualRect(model_->index(row)), HistoryDelegate::More);
+    const QRect anchor(historyList_->viewport()->mapToGlobal(button.topLeft()), button.size());
     // 常用操作立即显示，不等待数据库读取和富文本链接解析。
     auto *menu = new QMenu();
     stylePopupMenu(menu, qApp->palette());
+    menu->setProperty("rowMenuAnchor", anchor);
     connect(this, &QObject::destroyed, menu, &QObject::deleteLater);
     QAction *plain = nullptr;
     QAction *asFile = nullptr;
@@ -1848,7 +1899,7 @@ void MainWindow::openRowMenu(const QString &id, std::optional<QPoint> position) 
     connect(menu, &QMenu::aboutToHide, this, &MainWindow::scheduleAutoHide);
     connect(menu, &QMenu::aboutToHide, menu, &QObject::deleteLater);
     preparePanelMenu(menu);
-    menu->popup(popupPosition);
+    menu->popup(anchor.bottomLeft() + QPoint(0, 3));
     if (kind == 1) return;
     const QString path = databasePath_;
     const auto cancelled = QSharedPointer<QAtomicInteger<bool>>::create(false);

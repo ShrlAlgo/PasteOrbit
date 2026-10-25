@@ -42,7 +42,7 @@
   <data name="PasteAsFileMenuItem.Text" xml:space="preserve"><value>粘贴为文件</value></data>
   <data name="DeleteRecordMenuItem.Text" xml:space="preserve"><value>删除记录</value></data>
   <data name="EmptyHistoryText.Text" xml:space="preserve"><value>暂无剪切板记录</value></data>
-  <data name="SettingsWindowTitle" xml:space="preserve"><value>贴环 设置</value></data>
+  <data name="SettingsWindowTitle" xml:space="preserve"><value>设置</value></data>
   <data name="SettingsTitleBar.Title" xml:space="preserve"><value>贴环 设置</value></data>
   <data name="SettingsTitleBar.[using:Microsoft.UI.Xaml.Automation]AutomationProperties.Name" xml:space="preserve"><value>贴环 设置标题栏</value></data>
   <data name="SettingsGeneralNavigation.Content" xml:space="preserve"><value>常规</value></data>
@@ -308,7 +308,7 @@
   <data name="RestoreBackupButtonContent" xml:space="preserve"><value>恢复备份</value></data>
   <data name="SettingsProtectionTitleText" xml:space="preserve"><value>本地数据保护已启用</value></data>
   <data name="SettingsProtectionDescriptionText" xml:space="preserve"><value>剪切板正文使用当前 Windows 用户凭据加密，其他用户无法直接读取。</value></data>
-  <data name="RestoreDefaultsButtonContent" xml:space="preserve"><value>恢复默认</value></data>
+  <data name="RestoreDefaultsButtonContent" xml:space="preserve"><value>恢复所有设置的默认值</value></data>
   <data name="AppIconAutomationName" xml:space="preserve"><value>贴环 应用图标</value></data>
   <data name="MainSettingsButtonAutomationName" xml:space="preserve"><value>打开设置</value></data>
   <data name="MainSettingsButtonTooltip" xml:space="preserve"><value>设置</value></data>

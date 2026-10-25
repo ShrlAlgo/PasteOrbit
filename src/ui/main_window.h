@@ -95,7 +95,7 @@ private:
     void cleanupPasteFiles();
     void pasteRecord(const QString &id, bool plainText = false, bool asFile = false,
                      std::optional<QByteArray> editedContent = std::nullopt);
-    void openRowMenu(const QString &id, std::optional<QPoint> position = std::nullopt);
+    void openRowMenu(const QString &id);
     void openRecord(const QString &id);
     void addOpenTargets(QMenu *menu, const QStringList &targets);
     void openTarget(const QString &target);

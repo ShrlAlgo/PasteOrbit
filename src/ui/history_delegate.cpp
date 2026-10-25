@@ -191,6 +191,11 @@ void HistoryDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
     painter->restore();
 }
 
+QRect HistoryDelegate::actionGeometry(const QRect &itemRect, Action action) const {
+    // 菜单锚点复用绘制和命中测试的按钮边界，不另外维护一套坐标。
+    return actionRect(cardRect(itemRect), action);
+}
+
 int HistoryDelegate::actionAt(const QRect &itemRect, const QPoint &position) const {
     const auto card = cardRect(itemRect);
     for (int action = 0; action < 3; ++action) if (actionRect(card, action).contains(position)) return action;
