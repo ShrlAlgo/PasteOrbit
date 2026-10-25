@@ -1,5 +1,7 @@
 #pragma once
 
+#include "clipboard_content.h"
+
 #include <QByteArray>
 #include <QDateTime>
 #include <QString>
@@ -62,8 +64,8 @@ public:
     QString replaceText(const QString &id, const QByteArray &content, const QString &text) const;
     QByteArray content(const QString &id, bool preferPreview = false) const;
     QByteArray thumbnail(const QString &id) const;
-    // 旧记录首次可见时补算标签；仅在内容未变化时回写。
-    QString formatLabel(const QString &id) const;
+    // 旧记录按需补算格式和打开目标；仅在内容未变化时回写。
+    ClipboardContent::ContentMetadata contentMetadata(const QString &id) const;
     QString setPinned(const QString &id, bool pinned) const;
     QString touch(const QString &id) const;
     QString remove(const QString &id) const;

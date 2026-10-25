@@ -389,11 +389,12 @@ SettingsDialog::SettingsDialog(AppSettings settings, QString databasePath, QStri
     const struct { const char *name; const char *description; const char *key; bool global; } shortcutDefs[]{
         {"SettingsGlobalHotKeyCardHeader", "SettingsGlobalHotKeyCardDescription", "GlobalHotKey", true},
         {"SettingsPasteShortcutCardHeader", "", "PasteShortcut", false},
-        {"SettingsPlainTextShortcutCardHeader", "", "PlainTextPasteShortcut", false},
+        {"SettingsPlainTextShortcutCardHeader", "SettingsPlainTextShortcutCardDescription", "PlainTextPasteShortcut", false},
         {"SettingsPreviewShortcutCardHeader", "", "PreviewShortcut", false},
         {"SettingsPinShortcutCardHeader", "", "PinShortcut", false},
         {"SettingsPasteAsFileShortcutCardHeader", "", "PasteAsFileShortcut", false},
-        {"SettingsMoreShortcutCardHeader", "SettingsMoreShortcutCardDescription", "MoreShortcut", false}};
+        {"SettingsMoreShortcutCardHeader", "SettingsMoreShortcutCardDescription", "MoreShortcut", false},
+        {"SettingsOpenShortcutCardHeader", "SettingsOpenShortcutCardDescription", "OpenShortcut", false}};
     for (const auto &definition : shortcutDefs) {
         auto *button = new ShortcutButton(definition.global, hotkeys);
         button->setObjectName(QString::fromLatin1(definition.key));
@@ -407,13 +408,20 @@ SettingsDialog::SettingsDialog(AppSettings settings, QString databasePath, QStri
         connect(button, &QPushButton::clicked, button, [button] {
             button->beginCapture();
         });
-        connect(button, &ShortcutButton::valueCaptured, this, [this, key = QString::fromLatin1(definition.key)](const QString &value) {
+        connect(button, &ShortcutButton::valueCaptured, this, [this, button, key = QString::fromLatin1(definition.key)](const QString &value) {
+            if (settings_.shortcutConflicts(value, key)) {
+                button->setText(button->previous_);
+                QMessageBox::warning(this, AppLocalization::get(QStringLiteral("ShortcutConflictTitle")),
+                    AppLocalization::format(QStringLiteral("ShortcutConflictMessage"), {value}));
+                return;
+            }
             if (key == QStringLiteral("GlobalHotKey")) settings_.globalHotKey = value;
             else if (key == QStringLiteral("PasteShortcut")) settings_.pasteShortcut = value;
             else if (key == QStringLiteral("PlainTextPasteShortcut")) settings_.plainTextPasteShortcut = value;
             else if (key == QStringLiteral("PreviewShortcut")) settings_.previewShortcut = value;
             else if (key == QStringLiteral("PinShortcut")) settings_.pinShortcut = value;
             else if (key == QStringLiteral("PasteAsFileShortcut")) settings_.pasteAsFileShortcut = value;
+            else if (key == QStringLiteral("OpenShortcut")) settings_.openShortcut = value;
             else settings_.moreShortcut = value;
             persist();
         });
@@ -708,8 +716,8 @@ void SettingsDialog::loadControls(const AppSettings &settings) {
     const QHash<QString, QString> values{{"GlobalHotKey", settings.globalHotKey}, {"PasteShortcut", settings.pasteShortcut},
         {"PlainTextPasteShortcut", settings.plainTextPasteShortcut}, {"PreviewShortcut", settings.previewShortcut},
         {"PinShortcut", settings.pinShortcut}, {"PasteAsFileShortcut", settings.pasteAsFileShortcut},
-        {"MoreShortcut", settings.moreShortcut}};
-    for (auto it = values.cbegin(); it != values.cend(); ++it) if (shortcuts_.contains(it.key())) shortcuts_[it.key()]->setText(it.value());
+        {"MoreShortcut", settings.moreShortcut}, {"OpenShortcut", settings.openShortcut}};
+    for (auto it = values.cbegin(); it != values.cend(); ++it) if (shortcuts_.contains(it.key())) shortcuts_[it.key()]->setText(it.value().isEmpty() ? AppLocalization::get(QStringLiteral("ShortcutNotSet")) : it.value());
     loading_ = false;
 }
 
@@ -753,6 +761,8 @@ void SettingsDialog::persist(bool preserveSkippedVersion) {
 
 void SettingsDialog::refreshLocalization() {
     setWindowTitle(AppLocalization::get(QStringLiteral("SettingsWindowTitle")));
+    if (settings_.openShortcut.isEmpty())
+        shortcuts_[QStringLiteral("OpenShortcut")]->setText(AppLocalization::get(QStringLiteral("ShortcutNotSet")));
     for (auto *label : findChildren<QLabel *>()) {
         const auto key = label->property("LocalizationKey").toString();
         if (!key.isEmpty()) label->setText(AppLocalization::get(key));

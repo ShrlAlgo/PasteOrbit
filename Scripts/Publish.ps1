@@ -146,6 +146,7 @@ if (-not $NoArchive) { Remove-PackagePath -Path $archivePath }
 New-Item -ItemType Directory -Path $publishDirectory -Force | Out-Null
 $stagedExecutable = Join-Path $deploymentDirectory 'PasteOrbit.exe'
 Copy-Item -LiteralPath $builtExecutable -Destination $stagedExecutable
+Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE.txt') -Destination $deploymentDirectory
 # Widgets 使用光栅绘制，无需部署 Direct3D 着色器编译器。
 # 使用 Windows 原生网络后端；不部署 TUIO、GLib 和应用未使用的数据库驱动。
 # 必须先筛选插件，再收集动态依赖，避免把 GLib 的整条 DLL 依赖链带入发布包。

@@ -196,6 +196,7 @@ void MainWindow::closeHoverPreview(bool restoreFocus) {
 void MainWindow::toggleHoverPreview(QString id) {
     // 按值保存 ID；关闭旧浮层会清空待预览成员，引用传参会导致首次加载空记录。
     if (loadingPage_ || id.isEmpty()) return;
+    ++openGeneration_;
     // 点击和快捷键共用状态：同一卡片关闭预览，另一卡片切换预览。
     if (hoverPreview_ && hoverPreviewId_ == id) {
         closeHoverPreview(true);

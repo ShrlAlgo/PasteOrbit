@@ -12,6 +12,7 @@ struct AppSettings {
     QString pinShortcut = QStringLiteral("Ctrl + D");
     QString pasteAsFileShortcut = QStringLiteral("Ctrl + Shift + S");
     QString moreShortcut = QStringLiteral("Shift + F10");
+    QString openShortcut = QStringLiteral("Ctrl + O");
     bool startWithWindows = false;
     bool runAsAdministrator = false;
     bool monitorText = true;
@@ -24,6 +25,8 @@ struct AppSettings {
     QString skippedUpdateVersion;
 
     static AppSettings load(const QString &path);
+    static QString normalizedShortcut(QString value);
+    bool shortcutConflicts(const QString &value, const QString &bindingKey) const;
     bool save(const QString &path) const;
     bool applyWindowsStartup() const;
 };

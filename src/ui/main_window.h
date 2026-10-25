@@ -96,6 +96,9 @@ private:
     void pasteRecord(const QString &id, bool plainText = false, bool asFile = false,
                      std::optional<QByteArray> editedContent = std::nullopt);
     void openRowMenu(const QString &id, std::optional<QPoint> position = std::nullopt);
+    void openRecord(const QString &id);
+    void addOpenTargets(QMenu *menu, const QStringList &targets);
+    void openTarget(const QString &target);
     void toggleHoverPreview(QString id);
     void closeHoverPreview(bool restoreFocus = false);
     void updateHoverPreviewImage();
@@ -188,6 +191,7 @@ private:
     QRect hoveredHistoryRow_;
     bool restoreWasPaused_ = false;
     int panelShowGeneration_ = 0;
+    int openGeneration_ = 0;
     QSharedPointer<QAtomicInteger<int>> pasteGeneration_ = QSharedPointer<QAtomicInteger<int>>::create(0);
     QThreadPool readPool_;
     QThreadPool contentPool_;

@@ -12,6 +12,7 @@ PasteOrbit is a Windows desktop clipboard history manager.
 - Displays clipboard history near the active input position.
 - Supports filtering by content type or source application and full-text search.
 - Displays format labels for plain text, Markdown, HTML, and RTF records.
+- Opens detected web links in a browser and paths in the file manager.
 - Supports pasting as original content, plain text, or files.
 - Supports previews for text, images, and file records.
 - Supports editing text in previews, pasting edited content, and replacing the original record.
@@ -25,6 +26,8 @@ PasteOrbit is a Windows desktop clipboard history manager.
 - Supports checking for updates, downloading installers, and upgrading in place.
 - Supports Chinese and English interfaces, plus light and dark themes.
 - Uses a compact layout by default and supports configurable shortcuts, retention days, and history limits.
+
+Default shortcuts for a selected history item: `Enter` pastes, `Shift+Enter` pastes as plain text, `Space` toggles the preview, and `Ctrl+O` opens a detected target or a list of targets.
 
 ## System Requirements
 
@@ -59,5 +62,10 @@ Windows platform implementations reside in `src/platform/windows`.
 - Applications can be excluded from clipboard monitoring.
 - Local backups are protected by the current Windows user credentials.
 - Text format labels are stored with each record; existing records receive labels when first displayed.
-- Since v2.5.11, startup automatically upgrades history databases from schema v4 to v5, and restoring a v4 backup upgrades a temporary database before replacing local data.
+- Supported older history databases are upgraded at startup; older backups are upgraded during restore.
 - Older application versions cannot open the upgraded database directly; retain a backup made before upgrading when planning a downgrade.
+
+## License
+
+PasteOrbit is licensed under the [Apache License 2.0](LICENSE.txt).
+Third-party dependencies retain their respective licenses.

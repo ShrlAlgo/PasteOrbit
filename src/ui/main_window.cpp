@@ -52,7 +52,6 @@
 #include <QPropertyAnimation>
 #include <QPushButton>
 #include <QFontDatabase>
-#include <QRegularExpression>
 #include <QSettings>
 #include <QShortcut>
 #include <QSet>
@@ -62,10 +61,8 @@
 #include <QStyle>
 #include <QStyleFactory>
 #include <QStackedLayout>
-#include <QTextDocument>
 #include <QTextLayout>
 #include <QScreen>
-#include <QTextBlock>
 #include <QSignalBlocker>
 #include <QStandardPaths>
 #include <QToolButton>
@@ -215,12 +212,6 @@ void prepareImageCapture(ClipboardCapture &capture, const QImage &fallback) {
     }
 }
 
-QString normalizedShortcut(const QString &value) {
-    QString result = value;
-    result.remove(QLatin1Char(' '));
-    return result.toLower();
-}
-
 MainWindow *winVHookTarget = nullptr;
 MainWindow *passivePanelTarget = nullptr;
 
@@ -316,47 +307,6 @@ struct PasteResult {
     QPair<QString, QByteArray> file;
 };
 
-QStringList webLinks(const QByteArray &content) {
-    const auto text = decodeTextContent(content);
-    QStringList links;
-    QSet<QString> seen;
-    const auto append = [&links, &seen](const QString &value) {
-        const QUrl url(value, QUrl::StrictMode);
-        // 剪切板是不可信输入，仅允许网页协议，不执行文件或自定义协议。
-        if (!url.isValid() || url.host().isEmpty()
-            || (url.scheme() != QStringLiteral("http") && url.scheme() != QStringLiteral("https"))) return;
-        const QString encoded = url.toString(QUrl::FullyEncoded);
-        if (!seen.contains(encoded)) { seen.insert(encoded); links.append(encoded); }
-    };
-    static const QRegularExpression pattern(QStringLiteral(R"(https?://[^\s<>"'\x{3000}-\x{303f}\x{ff00}-\x{ffef}]+)"),
-                                             QRegularExpression::CaseInsensitiveOption);
-    auto matches = pattern.globalMatch(text.text);
-    while (matches.hasNext()) {
-        QString value = matches.next().captured();
-        while (!value.isEmpty()) {
-            const QChar last = value.back();
-            const bool extraBracket = (last == QLatin1Char(')') && value.count(')') > value.count('('))
-                || (last == QLatin1Char(']') && value.count(']') > value.count('['))
-                || (last == QLatin1Char('}') && value.count('}') > value.count('{'));
-            if (!extraBracket && !QStringLiteral(".,;!?").contains(last)) break;
-            value.chop(1);
-        }
-        append(value);
-    }
-    if (!text.html.isEmpty()) {
-        class LinkDocument final : public QTextDocument {
-            QVariant loadResource(int, const QUrl &) override { return {}; }
-        } document;
-        // 读取富文本锚点，但不下载图片、样式或读取本地资源。
-        document.setHtml(text.html);
-        for (auto block = document.begin(); block.isValid(); block = block.next()) {
-            for (auto it = block.begin(); !it.atEnd(); ++it)
-                append(it.fragment().charFormat().anchorHref());
-        }
-    }
-    return links;
-}
-
 bool revealFile(const QString &path) {
     if (!QDir::isAbsolutePath(path)) return false;
     const HRESULT initialized = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
@@ -364,6 +314,10 @@ bool revealFile(const QString &path) {
     const auto uninitialize = qScopeGuard([] { CoUninitialize(); });
     PIDLIST_ABSOLUTE item = nullptr;
     const QString nativePath = QDir::toNativeSeparators(path);
+    // 文件夹直接打开；普通文件只定位，绝不按关联程序执行文件。
+    if (QFileInfo(path).isDir())
+        return reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open",
+            reinterpret_cast<LPCWSTR>(nativePath.utf16()), nullptr, nullptr, SW_SHOWNORMAL)) > 32;
     const HRESULT parsed = SHParseDisplayName(reinterpret_cast<LPCWSTR>(nativePath.utf16()), nullptr, &item, 0, nullptr);
     const auto freeItem = qScopeGuard([&] { CoTaskMemFree(item); });
     return SUCCEEDED(parsed) && SUCCEEDED(SHOpenFolderAndSelectItems(item, 0, nullptr, 0));
@@ -405,11 +359,11 @@ LRESULT CALLBACK MainWindow::panelKeyboardProc(int code, WPARAM message, LPARAM 
     if (!handled && key) {
         QString pressed = QKeySequence(modifiers | key).toString(QKeySequence::PortableText);
         pressed.replace(QStringLiteral("Return"), QStringLiteral("Enter"), Qt::CaseInsensitive);
-        const auto normalized = normalizedShortcut(pressed);
+        const auto normalized = AppSettings::normalizedShortcut(pressed);
         for (const auto *shortcut : {&panel->settings_.pasteShortcut, &panel->settings_.plainTextPasteShortcut,
                                     &panel->settings_.previewShortcut, &panel->settings_.pinShortcut,
-                                    &panel->settings_.pasteAsFileShortcut, &panel->settings_.moreShortcut})
-            handled = handled || normalized == normalizedShortcut(*shortcut);
+                                    &panel->settings_.pasteAsFileShortcut, &panel->settings_.moreShortcut, &panel->settings_.openShortcut})
+            handled = handled || normalized == AppSettings::normalizedShortcut(*shortcut);
     }
     if (!handled) return CallNextHookEx(nullptr, code, message, data);
     const bool repeat = panel->swallowedPanelKeys_.test(vk);
@@ -1596,28 +1550,32 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
             const auto id = historyList_->currentIndex().data(HistoryModel::IdRole).toString();
             QString pressed = QKeySequence(key->modifiers() | key->key()).toString(QKeySequence::PortableText);
             pressed.replace(QStringLiteral("Return"), QStringLiteral("Enter"), Qt::CaseInsensitive);
-            const auto normalized = normalizedShortcut(pressed);
-            if (key->key() == Qt::Key_Menu || normalized == normalizedShortcut(settings_.moreShortcut)) {
+            const auto normalized = AppSettings::normalizedShortcut(pressed);
+            if (key->key() == Qt::Key_Menu || normalized == AppSettings::normalizedShortcut(settings_.moreShortcut)) {
                 const QRect card = historyList_->visualRect(historyList_->currentIndex());
                 openRowMenu(id, historyList_->viewport()->mapToGlobal(card.topRight()));
                 return true;
             }
-            if (normalized == normalizedShortcut(settings_.plainTextPasteShortcut)) {
+            if (normalized == AppSettings::normalizedShortcut(settings_.plainTextPasteShortcut)) {
                 pasteRecord(id, true); return true;
             }
-            if (normalized == normalizedShortcut(settings_.pasteShortcut)) {
+            if (normalized == AppSettings::normalizedShortcut(settings_.pasteShortcut)) {
                 pasteRecord(id); return true;
             }
-            if (normalized == normalizedShortcut(settings_.previewShortcut)) {
+            if (!settings_.openShortcut.isEmpty() && normalized == AppSettings::normalizedShortcut(settings_.openShortcut)) {
+                if (!key->isAutoRepeat()) openRecord(id);
+                return true;
+            }
+            if (normalized == AppSettings::normalizedShortcut(settings_.previewShortcut)) {
                 // 再次按预览快捷键关闭当前预览，忽略长按产生的重复事件。
                 if (key->isAutoRepeat()) return true;
                 toggleHoverPreview(id);
                 return true;
             }
-            if (normalized == normalizedShortcut(settings_.pinShortcut)) {
+            if (normalized == AppSettings::normalizedShortcut(settings_.pinShortcut)) {
                 setPinned(id); return true;
             }
-            if (normalized == normalizedShortcut(settings_.pasteAsFileShortcut)) {
+            if (normalized == AppSettings::normalizedShortcut(settings_.pasteAsFileShortcut)) {
                 pasteRecord(id, false, true); return true;
             }
         }
@@ -1767,8 +1725,82 @@ void MainWindow::clearCurrentList() {
     }));
 }
 
+void MainWindow::openTarget(const QString &target) {
+    // 打开和粘贴互斥，避免较早的异步粘贴在浏览器或资源管理器出现后才执行。
+    pasteGeneration_->fetchAndAddRelaxed(1);
+    const QUrl url(target, QUrl::StrictMode);
+    if (!isPinned_) hidePanel();
+    if (!url.isLocalFile()) {
+        if (!url.isValid() || url.host().isEmpty()
+            || (url.scheme() != QStringLiteral("http") && url.scheme() != QStringLiteral("https"))
+            || !QDesktopServices::openUrl(url))
+            showStatus(AppLocalization::get(QStringLiteral("OpenLinkFailed")));
+        return;
+    }
+    auto *watcher = new QFutureWatcher<bool>(this);
+    connect(watcher, &QFutureWatcher<bool>::finished, this, [this, watcher] {
+        const bool opened = watcher->result();
+        watcher->deleteLater();
+        if (!opened) showStatus(AppLocalization::get(QStringLiteral("RevealFileFailed")));
+    });
+    const QString location = url.toLocalFile();
+    // 网络路径、Shell 扩展只在用户确认打开后由后台访问。
+    watcher->setFuture(QtConcurrent::run(&contentPool_, [location] { return revealFile(location); }));
+}
+
+void MainWindow::addOpenTargets(QMenu *menu, const QStringList &targets) {
+    menu->setToolTipsVisible(true);
+    for (const auto &target : targets) {
+        const QUrl url(target, QUrl::StrictMode);
+        const QString label = url.isLocalFile() ? QDir::toNativeSeparators(url.toLocalFile()) : url.toDisplayString();
+        auto *action = menu->addAction(targets.size() == 1
+            ? AppLocalization::get(QStringLiteral("OpenTargetMenuItemText"))
+            : menu->fontMetrics().elidedText(label, Qt::ElideMiddle, 360).replace(QLatin1Char('&'), QStringLiteral("&&")));
+        action->setToolTip(label);
+        connect(action, &QAction::triggered, this, [this, target] { openTarget(target); });
+    }
+}
+
+void MainWindow::openRecord(const QString &id) {
+    if (loadingPage_ || settingsPage_ || QApplication::activePopupWidget()) return;
+    pasteGeneration_->fetchAndAddRelaxed(1);
+    const int generation = ++openGeneration_;
+    const int panelGeneration = panelShowGeneration_;
+    const int historyGeneration = historyGeneration_->loadRelaxed();
+    const HWND foreground = GetForegroundWindow();
+    auto *watcher = new QFutureWatcher<QStringList>(this);
+    connect(watcher, &QFutureWatcher<QStringList>::finished, this,
+            [this, watcher, id, generation, panelGeneration, historyGeneration, foreground] {
+        const auto targets = watcher->result();
+        watcher->deleteLater();
+        // 读取期间切换记录、筛选、窗口或其他操作后，不再打开旧请求的目标。
+        if (generation != openGeneration_ || panelGeneration != panelShowGeneration_
+            || historyGeneration != historyGeneration_->loadRelaxed() || !isVisible() || settingsPage_
+            || GetForegroundWindow() != foreground
+            || historyList_->currentIndex().data(HistoryModel::IdRole).toString() != id) return;
+        if (targets.isEmpty()) {
+            showStatus(AppLocalization::get(QStringLiteral("NoOpenTarget")));
+            return;
+        }
+        if (targets.size() == 1) { openTarget(targets.first()); return; }
+        auto *menu = new QMenu(this);
+        stylePopupMenu(menu, qApp->palette());
+        addOpenTargets(menu, targets);
+        connect(menu, &QMenu::aboutToHide, this, &MainWindow::scheduleAutoHide);
+        connect(menu, &QMenu::aboutToHide, menu, &QObject::deleteLater);
+        preparePanelMenu(menu);
+        const QRect card = historyList_->visualRect(historyList_->currentIndex());
+        menu->popup(historyList_->viewport()->mapToGlobal(card.topRight()));
+    });
+    const QString path = databasePath_;
+    watcher->setFuture(QtConcurrent::run(&contentPool_, [path, id] {
+        return HistoryStore(path).contentMetadata(id).openTargets;
+    }));
+}
+
 void MainWindow::openRowMenu(const QString &id, std::optional<QPoint> position) {
     if (loadingPage_ || QApplication::activePopupWidget()) return;
+    ++openGeneration_;
     const auto *item = model_->itemAt(model_->rowForId(id));
     if (!item) return;
     const int kind = item->kind;
@@ -1802,59 +1834,25 @@ void MainWindow::openRowMenu(const QString &id, std::optional<QPoint> position) 
     connect(menu, &QObject::destroyed, this, [cancelled] { cancelled->storeRelaxed(true); });
     auto *watcher = new QFutureWatcher<QStringList>(this);
     connect(watcher, &QFutureWatcher<QStringList>::finished, this,
-            [this, watcher, menu = QPointer<QMenu>(menu), kind, generation] {
+            [this, watcher, menu = QPointer<QMenu>(menu), generation] {
         const auto targets = watcher->result();
         watcher->deleteLater();
         if (!menu || !menu->isVisible() || generation != panelShowGeneration_ || targets.isEmpty()) return;
         // 可选操作追加到底部，不移动用户正在选择的常用操作。
         menu->addSeparator();
-        const QString title = AppLocalization::get(kind == 0
-            ? QStringLiteral("OpenLinkMenuItemText") : QStringLiteral("RevealFileMenuItemText"));
+        const QString title = AppLocalization::get(QStringLiteral("OpenTargetMenuItemText"));
         QMenu *choices = menu;
         if (targets.size() > 1) {
             choices = menu->addMenu(title);
             stylePopupMenu(choices, qApp->palette());
             preparePanelMenu(choices);
         }
-        choices->setToolTipsVisible(true);
-        for (const auto &target : targets) {
-            const QString label = kind == 0 ? QUrl(target).toDisplayString() : QDir::toNativeSeparators(target);
-            auto *action = choices->addAction(targets.size() == 1 ? title
-                : choices->fontMetrics().elidedText(label, Qt::ElideMiddle, 360).replace(QLatin1Char('&'), QStringLiteral("&&")));
-            action->setToolTip(label);
-            connect(action, &QAction::triggered, this, [this, kind, target] {
-                if (kind == 0) {
-                    if (!QDesktopServices::openUrl(QUrl(target)))
-                        showStatus(AppLocalization::get(QStringLiteral("OpenLinkFailed")));
-                    return;
-                }
-                auto *watcher = new QFutureWatcher<bool>(this);
-                connect(watcher, &QFutureWatcher<bool>::finished, this, [this, watcher] {
-                    const bool opened = watcher->result();
-                    watcher->deleteLater();
-                    if (!opened) showStatus(AppLocalization::get(QStringLiteral("RevealFileFailed")));
-                });
-                // 网络路径、Shell 扩展可能很慢，只在用户选择后由后台访问。
-                watcher->setFuture(QtConcurrent::run(&contentPool_, [target] { return revealFile(target); }));
-            });
-        }
+        addOpenTargets(choices, targets);
     });
-    // 关闭菜单后跳过尚未开始的读取和解析，避免挤占缩略图的后台队列。
-    watcher->setFuture(QtConcurrent::run([path, id, kind, cancelled] {
+    // 新记录只读取缓存；旧记录首次打开菜单时补算，关闭菜单后跳过排队任务。
+    watcher->setFuture(QtConcurrent::run(&contentPool_, [path, id, cancelled] {
         if (cancelled->loadRelaxed()) return QStringList{};
-        const QByteArray content = HistoryStore(path).content(id);
-        if (cancelled->loadRelaxed()) return QStringList{};
-        if (kind == 0) return webLinks(content);
-        QStringList paths;
-        QSet<QString> seen;
-        for (const auto &entry : QJsonDocument::fromJson(content).array()) {
-            const QString path = entry.toString();
-            if (QDir::isAbsolutePath(path) && !seen.contains(path)) {
-                seen.insert(path);
-                paths.append(path);
-            }
-        }
-        return paths;
+        return HistoryStore(path).contentMetadata(id).openTargets;
     }));
 }
 
@@ -2011,6 +2009,7 @@ void MainWindow::cleanupPasteFiles() {
 
 void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile, std::optional<QByteArray> editedContent) {
     if (loadingPage_) return;
+    ++openGeneration_;
     const int row = model_->rowForId(id);
     const auto *itemPointer = model_->itemAt(row);
     if (!itemPointer) return;

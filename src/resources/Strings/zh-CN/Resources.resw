@@ -336,6 +336,7 @@
   <data name="PastePlainTextMenuItemText" xml:space="preserve"><value>粘贴为纯文本</value></data>
   <data name="PasteAsFileMenuItemText" xml:space="preserve"><value>粘贴为文件</value></data>
   <data name="DeleteRecordMenuItemText" xml:space="preserve"><value>删除记录</value></data>
+  <data name="OpenTargetMenuItemText" xml:space="preserve"><value>打开</value></data>
   <data name="OpenLinkMenuItemText" xml:space="preserve"><value>打开链接</value></data>
   <data name="RevealFileMenuItemText" xml:space="preserve"><value>打开所在位置</value></data>
   <data name="OpenLinkFailed" xml:space="preserve"><value>无法打开链接，请检查默认浏览器设置。</value></data>
@@ -369,4 +370,11 @@
   <data name="PlainTextFormat" xml:space="preserve"><value>纯文本</value></data>
   <data name="HistoryToday" xml:space="preserve"><value>今天</value></data>
   <data name="HistoryYesterday" xml:space="preserve"><value>昨天</value></data>
+  <data name="NoOpenTarget" xml:space="preserve"><value>此记录没有可打开的链接或绝对路径。</value></data>
+  <data name="SettingsOpenShortcutCardDescription" xml:space="preserve"><value>单个目标直接打开，多个目标显示列表；仅在历史列表中使用</value></data>
+  <data name="SettingsOpenShortcutCardHeader" xml:space="preserve"><value>打开链接或路径</value></data>
+  <data name="SettingsPlainTextShortcutCardDescription" xml:space="preserve"><value>富文本仅粘贴正文，不附带 HTML、RTF 等格式；普通文本内容不变</value></data>
+  <data name="ShortcutConflictMessage" xml:space="preserve"><value>快捷键 {0} 已被其他操作使用，或与固定导航按键冲突，请使用其他组合。</value></data>
+  <data name="ShortcutConflictTitle" xml:space="preserve"><value>快捷键不可用</value></data>
+  <data name="ShortcutNotSet" xml:space="preserve"><value>未设置</value></data>
 </root>

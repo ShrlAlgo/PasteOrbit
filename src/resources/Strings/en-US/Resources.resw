@@ -336,6 +336,7 @@
   <data name="PastePlainTextMenuItemText" xml:space="preserve"><value>Paste as plain text</value></data>
   <data name="PasteAsFileMenuItemText" xml:space="preserve"><value>Paste as file</value></data>
   <data name="DeleteRecordMenuItemText" xml:space="preserve"><value>Delete item</value></data>
+  <data name="OpenTargetMenuItemText" xml:space="preserve"><value>Open</value></data>
   <data name="OpenLinkMenuItemText" xml:space="preserve"><value>Open link</value></data>
   <data name="RevealFileMenuItemText" xml:space="preserve"><value>Show in folder</value></data>
   <data name="OpenLinkFailed" xml:space="preserve"><value>Could not open the link. Check your default browser settings.</value></data>
@@ -369,4 +370,11 @@
   <data name="PlainTextFormat" xml:space="preserve"><value>Plain text</value></data>
   <data name="HistoryToday" xml:space="preserve"><value>Today</value></data>
   <data name="HistoryYesterday" xml:space="preserve"><value>Yesterday</value></data>
+  <data name="NoOpenTarget" xml:space="preserve"><value>This item has no link or absolute path to open.</value></data>
+  <data name="SettingsOpenShortcutCardDescription" xml:space="preserve"><value>Opens one target directly or lists multiple targets; available in the history list</value></data>
+  <data name="SettingsOpenShortcutCardHeader" xml:space="preserve"><value>Open link or path</value></data>
+  <data name="SettingsPlainTextShortcutCardDescription" xml:space="preserve"><value>Pastes rich text without HTML or RTF formatting; plain text stays unchanged</value></data>
+  <data name="ShortcutConflictMessage" xml:space="preserve"><value>Shortcut {0} is already assigned or conflicts with fixed navigation keys. Choose another combination.</value></data>
+  <data name="ShortcutConflictTitle" xml:space="preserve"><value>Shortcut unavailable</value></data>
+  <data name="ShortcutNotSet" xml:space="preserve"><value>Not set</value></data>
 </root>

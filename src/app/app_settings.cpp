@@ -5,6 +5,8 @@
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QKeySequence>
+#include <QStringList>
 #include <QSaveFile>
 #include <QSettings>
 
@@ -25,6 +27,38 @@ bool AppSettings::applyWindowsStartup() const {
         && startup.value(QStringLiteral("PasteOrbit")).toString() == command;
 }
 
+QString AppSettings::normalizedShortcut(QString value) {
+    value.remove(QLatin1Char(' '));
+    value.replace(QStringLiteral("Return"), QStringLiteral("Enter"), Qt::CaseInsensitive);
+    return QKeySequence(value).toString(QKeySequence::PortableText).toCaseFolded();
+}
+
+bool AppSettings::shortcutConflicts(const QString &value, const QString &bindingKey) const {
+    const QString normalized = normalizedShortcut(value);
+    if (normalized.isEmpty()) return true;
+    const struct { const char *key; const QString *value; } bindings[]{
+        {"GlobalHotKey", &globalHotKey}, {"PasteShortcut", &pasteShortcut},
+        {"PlainTextPasteShortcut", &plainTextPasteShortcut}, {"PreviewShortcut", &previewShortcut},
+        {"PinShortcut", &pinShortcut}, {"PasteAsFileShortcut", &pasteAsFileShortcut},
+        {"MoreShortcut", &moreShortcut}, {"OpenShortcut", &openShortcut}};
+    for (const auto &binding : bindings)
+        if (bindingKey != QLatin1String(binding.key) && normalizedShortcut(*binding.value) == normalized) return true;
+    // 固定导航和搜索先于记录快捷键处理，不能录成无法触发的绑定。
+    const QStringList reserved{QStringLiteral("Esc"), QStringLiteral("Tab"), QStringLiteral("Shift+Tab"),
+        QStringLiteral("Left"), QStringLiteral("Right"), QStringLiteral("Up"), QStringLiteral("Down"),
+        QStringLiteral("Home"), QStringLiteral("End"), QStringLiteral("PgUp"), QStringLiteral("PgDown"),
+        QStringLiteral("Delete"), QStringLiteral("Menu"), QStringLiteral("Ctrl+F")};
+    for (const auto &shortcut : reserved)
+        if (normalizedShortcut(shortcut) == normalized) return true;
+    const auto combination = QKeySequence(value)[0];
+    const auto modifiers = combination.keyboardModifiers();
+    if (bindingKey == QStringLiteral("GlobalHotKey")) return modifiers == Qt::NoModifier;
+    return modifiers.testFlag(Qt::MetaModifier) || combination.key() == Qt::Key_Escape
+        || combination.key() == Qt::Key_Menu || combination.key() == Qt::Key_Up
+        || (modifiers == Qt::NoModifier
+        && combination.key() >= Qt::Key_1 && combination.key() <= Qt::Key_9);
+}
+
 AppSettings AppSettings::load(const QString &path) {
     AppSettings settings;
     QFile file(path);
@@ -42,6 +76,10 @@ AppSettings AppSettings::load(const QString &path) {
     settings.pinShortcut = json.value(QStringLiteral("PinShortcut")).toString(settings.pinShortcut);
     settings.pasteAsFileShortcut = json.value(QStringLiteral("PasteAsFileShortcut")).toString(settings.pasteAsFileShortcut);
     settings.moreShortcut = json.value(QStringLiteral("MoreShortcut")).toString(settings.moreShortcut);
+    settings.openShortcut = json.value(QStringLiteral("OpenShortcut")).toString(settings.openShortcut);
+    // 旧配置可能已把 Ctrl+O 用于其他操作，升级时保留原绑定，不抢占按键。
+    if (!json.contains(QStringLiteral("OpenShortcut"))
+        && settings.shortcutConflicts(settings.openShortcut, QStringLiteral("OpenShortcut"))) settings.openShortcut.clear();
     settings.startWithWindows = json.value(QStringLiteral("StartWithWindows")).toBool();
     settings.runAsAdministrator = json.value(QStringLiteral("RunAsAdministrator")).toBool();
     settings.monitorText = json.value(QStringLiteral("MonitorText")).toBool(true);
@@ -76,6 +114,7 @@ bool AppSettings::save(const QString &path) const {
     json.insert(QStringLiteral("PinShortcut"), pinShortcut);
     json.insert(QStringLiteral("PasteAsFileShortcut"), pasteAsFileShortcut);
     json.insert(QStringLiteral("MoreShortcut"), moreShortcut);
+    json.insert(QStringLiteral("OpenShortcut"), openShortcut);
     json.insert(QStringLiteral("StartWithWindows"), startWithWindows);
     json.insert(QStringLiteral("RunAsAdministrator"), runAsAdministrator);
     json.insert(QStringLiteral("MonitorText"), monitorText);

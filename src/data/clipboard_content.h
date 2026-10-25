@@ -24,6 +24,14 @@ struct TextContent {
     bool markdown = false;
 };
 
+struct ContentMetadata {
+    QString formatLabel;
+    QStringList openTargets;
+};
+
+// 只识别内容，不访问文件或网络；打开目标统一保存为编码后的 URL。
+ContentMetadata contentMetadata(const QByteArray &content, int kind);
+
 QString firstUnavailableFilePath(const QStringList &paths);
 QSize boundedSize(QSize size, int maxWidth, int maxHeight, qint64 maxPixels);
 ImageContent decodeImageContent(const QByteArray &content);

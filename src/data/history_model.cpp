@@ -210,7 +210,7 @@ void HistoryModel::setVisibleRows(int first, int last) {
         watcher->setFuture(QtConcurrent::run([path, id, cancelled, kind] {
             if (cancelled->loadRelaxed()) return ThumbnailResult{id, {}};
             if (kind == 0) {
-                return ThumbnailResult{id, {}, HistoryStore(path).formatLabel(id)};
+                return ThumbnailResult{id, {}, HistoryStore(path).contentMetadata(id).formatLabel};
             }
             if (kind == 2) {
                 const auto content = HistoryStore(path).content(id);

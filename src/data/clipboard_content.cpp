@@ -6,7 +6,13 @@
 #include <QDataStream>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
 #include <QRegularExpression>
+#include <QSet>
+#include <QTextBlock>
+#include <QTextDocument>
+#include <QTextFragment>
+#include <QUrl>
 #include <QXmlStreamReader>
 #include <QtMath>
 
@@ -65,6 +71,80 @@ QString textFormatLabel(const TextContent &content, bool markdown) {
     if (markdown || content.markdown) return QStringLiteral("Markdown");
     if (!content.html.isEmpty()) return content.rtf.isEmpty() ? QStringLiteral("HTML") : QStringLiteral("HTML · RTF");
     return content.rtf.isEmpty() ? QString{} : QStringLiteral("RTF");
+}
+
+ContentMetadata contentMetadata(const QByteArray &content, int kind) {
+    ContentMetadata result;
+    QSet<QString> seen;
+    const auto appendUrl = [&result, &seen](const QUrl &url) {
+        // 不允许执行自定义协议；file 目标始终由文件管理器处理。
+        const auto scheme = url.scheme().toLower();
+        if (!url.isValid() || url.host().isEmpty()
+            || (scheme != QStringLiteral("http") && scheme != QStringLiteral("https"))) return;
+        const QString encoded = url.toString(QUrl::FullyEncoded);
+        if (!seen.contains(encoded)) { seen.insert(encoded); result.openTargets.append(encoded); }
+    };
+    const auto appendPath = [&result, &seen](QStringView path) {
+        path = path.trimmed();
+        if (path.size() >= 2 && ((path.front() == QLatin1Char('"') && path.back() == QLatin1Char('"'))
+            || (path.front() == QLatin1Char('\'') && path.back() == QLatin1Char('\''))))
+            path = path.mid(1, path.size() - 2);
+        QString localPath;
+        if (path.startsWith(QStringLiteral("file:"), Qt::CaseInsensitive)) {
+            const QUrl url(path.toString(), QUrl::StrictMode);
+            if (!url.isValid() || !url.isLocalFile()) return;
+            localPath = url.toLocalFile();
+            path = localPath;
+        }
+        // 仅接受完整绝对路径，避免把普通文本、相对路径或网页地址当成文件。
+        static const QRegularExpression absolute(QStringLiteral(R"(^(?:[A-Za-z]:[/\\]|\\\\[^\\/]+[\\/][^\\/]+|/(?!/)))"));
+        if (!absolute.matchView(path).hasMatch() || path.contains(QChar::Null)
+            || path.contains(QLatin1Char('\n')) || path.contains(QLatin1Char('\r'))) return;
+        const QString encoded = QUrl::fromLocalFile(QDir::fromNativeSeparators(path.toString())).toString(QUrl::FullyEncoded);
+        if (!seen.contains(encoded)) { seen.insert(encoded); result.openTargets.append(encoded); }
+    };
+    if (kind == 2) {
+        for (const auto &entry : QJsonDocument::fromJson(content).array())
+            if (entry.isString()) appendPath(entry.toString());
+        return result;
+    }
+    if (kind != 0) return result;
+    const auto text = decodeTextContent(content);
+    result.formatLabel = textFormatLabel(text);
+    if (result.formatLabel.isEmpty()) result.formatLabel = QStringLiteral("PlainTextFormat");
+    static const QRegularExpression links(QStringLiteral(R"(https?://[^\s<>"'\x{3000}-\x{303f}\x{ff00}-\x{ffef}]+)"),
+                                         QRegularExpression::CaseInsensitiveOption);
+    auto matches = links.globalMatch(text.text);
+    while (matches.hasNext()) {
+        QString value = matches.next().captured();
+        while (!value.isEmpty()) {
+            const QChar last = value.back();
+            const bool extraBracket = (last == QLatin1Char(')') && value.count(')') > value.count('('))
+                || (last == QLatin1Char(']') && value.count(']') > value.count('['))
+                || (last == QLatin1Char('}') && value.count('}') > value.count('{'));
+            if (!extraBracket && !QStringLiteral(".,;!?").contains(last)) break;
+            value.chop(1);
+        }
+        appendUrl(QUrl(value, QUrl::StrictMode));
+    }
+    // 一行一个路径，允许空格和引号；不猜测正文中未加引号的路径边界。
+    for (const auto line : QStringView(text.text).tokenize(QLatin1Char('\n')))
+        appendPath(line);
+    if (!text.html.isEmpty()) {
+        class LinkDocument final : public QTextDocument {
+            QVariant loadResource(int, const QUrl &) override { return {}; }
+        } document;
+        document.setHtml(text.html);
+        for (auto block = document.begin(); block.isValid(); block = block.next()) {
+            for (auto it = block.begin(); !it.atEnd(); ++it) {
+                const QString href = it.fragment().charFormat().anchorHref();
+                const QUrl url(href, QUrl::StrictMode);
+                if (url.isLocalFile()) appendPath(href);
+                else appendUrl(url);
+            }
+        }
+    }
+    return result;
 }
 
 bool isMarkdownContent(const TextContent &content) {
