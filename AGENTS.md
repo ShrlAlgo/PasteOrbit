@@ -9,7 +9,7 @@ PasteOrbit is a Windows x64 clipboard manager using C++17 and Qt 6.
 - `src/resources/`: icons, localized strings, and `resources.qrc`.
 - `Scripts/`: publishing script and installer definition; `.github/workflows/`: build and release automation.
 
-Register application sources in `src/CMakeLists.txt`. Generated output belongs in ignored `build/` and `dist/` directories. Temporary verification builds must reuse the configured output directory (`build/windows-msvc` locally); do not create separate check build trees or temporary test projects. Publishing uses `build/publish-msvc` or `build/publish-ucrt64` and deploys directly to `dist/PasteOrbit-win-x64`.
+Register application sources in `src/CMakeLists.txt`. Generated output belongs in ignored `build/` and `dist/` directories. Temporary verification builds must reuse the configured output directory (`build/windows-msvc` locally); do not create separate check build trees or temporary test projects. Local publishing reuses the Release configuration in `build/windows-msvc`; MinGW CI uses `build/publish-ucrt64`. Both deploy directly to `dist/PasteOrbit-win-x64`.
 
 ## Build, Test, and Development Commands
 Use CMake 3.21+, Visual Studio 2026 with C++/CMake tools, and Qt 6.11.1 MSVC x64 including Svg at `C:\Qt`. Configuration fetches pinned Qlementine sources.

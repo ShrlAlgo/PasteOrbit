@@ -145,18 +145,26 @@ struct PreviewResult {
     QString unavailablePath;
     QString formatLabel;
     QImage image;
+    QHash<QString, QImage> htmlImages;
+    QHash<QString, QByteArray> htmlImageBytes;
     int kind = 0;
 };
 
 class PreviewTextEdit final : public QTextEdit {
 public:
     using QTextEdit::QTextEdit;
+    void setImages(QHash<QString, QImage> images) { images_ = std::move(images); }
 
 protected:
-    QVariant loadResource(int, const QUrl &) override {
-        // 历史中的 HTML 不自动读取本地或远程资源，避免预览触发额外 I/O。
+    QVariant loadResource(int type, const QUrl &url) override {
+        // 只使用后台已解码的图片，预览不读取本地或远程资源。
+        if (type == QTextDocument::ImageResource && images_.contains(url.toString()))
+            return images_.value(url.toString());
         return {};
     }
+
+private:
+    QHash<QString, QImage> images_;
 };
 
 class HoverPreviewFrame final : public QFrame {
@@ -379,6 +387,7 @@ void MainWindow::toggleHoverPreview(QString id) {
             }
         } else {
             auto *preview = new PreviewTextEdit(content);
+            preview->setImages(result.htmlImages);
             preview->setReadOnly(true);
             preview->setUndoRedoEnabled(false);
             preview->setAcceptDrops(false);
@@ -545,9 +554,17 @@ void MainWindow::toggleHoverPreview(QString id) {
                 };
                 connect(preview, &QTextEdit::textChanged, replace, updateReplace);
                 connect(preview->document(), &QTextDocument::modificationChanged, replace, updateReplace);
-                const auto editedContent = [preview, markdown, html] {
+                const auto editedContent = [preview, markdown, html, images = result.htmlImageBytes] {
                     QJsonObject payload{{QStringLiteral("Text"), preview->toPlainText()}, {QStringLiteral("Markdown"), markdown}};
-                    if (html) payload.insert(QStringLiteral("Html"), editedHtml(preview->document()));
+                    if (html) {
+                        payload.insert(QStringLiteral("Html"), editedHtml(preview->document()));
+                        if (!images.isEmpty()) {
+                            QJsonObject encoded;
+                            for (auto it = images.begin(); it != images.end(); ++it)
+                                encoded.insert(it.key(), QString::fromLatin1(it.value().toBase64()));
+                            payload.insert(QStringLiteral("HtmlImages"), encoded);
+                        }
+                    }
                     return QByteArray(TextPayloadPrefix) + QJsonDocument(payload).toJson(QJsonDocument::Compact);
                 };
                 connect(paste, &QPushButton::clicked, this, [this, id, generation, editedContent] {
@@ -631,12 +648,14 @@ void MainWindow::toggleHoverPreview(QString id) {
                 if (!result.image.isNull()) break;
             }
         } else if (kind == 0) {
-            const auto text = decodeTextContent(content);
+            const auto text = decodeTextContent(content, true);
             result.text = text.text;
             result.html = text.html;
+            result.htmlImages = previewHtmlImages(text.html, text.htmlImages);
+            result.htmlImageBytes = text.htmlImages;
             result.sourceMarkdown = text.markdown;
             if (!text.markdown) result.table = clipboardTable(text.text, text.html);
-            result.markdown = result.table.isEmpty() && isMarkdownContent(text);
+            result.markdown = result.table.isEmpty() && (text.markdown || result.htmlImages.isEmpty()) && isMarkdownContent(text);
             result.formatLabel = textFormatLabel(text, result.markdown);
         } else {
             const auto paths = QJsonDocument::fromJson(content).array();

@@ -45,7 +45,7 @@ PasteOrbit 是一款 Windows 桌面剪切板历史工具。
 - 可运行程序及 Qt 依赖位于 `build\windows-msvc\bin\Debug` 或 `bin\Release`。
 - `Scripts\Publish.ps1` 将发布文件写入 `dist\PasteOrbit-win-x64`，ZIP 输出到 `dist`。
 - 使用 Inno Setup 6 编译 `Scripts\Installer.iss`，安装程序输出到 `dist`。
-- 本机发布优先使用 `C:\Qt` 和 VS 工具；CI 保留 MinGW 构建路径。
+- 本机发布使用 `C:\Qt` 和 VS 工具，复用 `build/windows-msvc` 的 Release 构建；CI 保留 MinGW 构建路径。
 
 源码位于 `src`：`app` 放入口、设置和本地化，`data` 放历史存储与模型，`services` 放备份与更新，`ui` 放窗口和卡片界面，`platform` 放数据保护、全局快捷键和目标窗口粘贴交互，`resources` 放图标、资源清单和中英文字符串。
 Windows 平台实现位于 `src/platform/windows`。

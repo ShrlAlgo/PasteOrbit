@@ -2022,6 +2022,7 @@ void MainWindow::captureClipboard() {
 
 void MainWindow::saveCapture(ClipboardCapture capture, QImage fallbackImage, DWORD sequence) {
     captureSaving_ = true;
+    const bool normalizeUnicode = settings_.normalizeUnicodeText;
     const int retention = settings_.retentionDays;
     const int maximum = settings_.maxHistoryEntries;
     auto *watcher = new QFutureWatcher<QString>(this);
@@ -2040,8 +2041,28 @@ void MainWindow::saveCapture(ClipboardCapture capture, QImage fallbackImage, DWO
         if (GetClipboardSequenceNumber() != lastClipboardSequence_) scheduleCapture();
     });
     const QString path = databasePath_;
-    watcher->setFuture(QtConcurrent::run(&writePool_, [path, retention, maximum, capture = std::move(capture),
+    watcher->setFuture(QtConcurrent::run(&writePool_, [path, retention, maximum, normalizeUnicode, capture = std::move(capture),
                                                         fallback = std::move(fallbackImage)]() mutable {
+        if (capture.kind == 0) {
+            auto payload = QJsonDocument::fromJson(capture.content.mid(qstrlen(TextPayloadPrefix))).object();
+            // 图文和富文本必须保留原始格式；仅规范化纯文本和 Markdown，不丢弃嵌入图片。
+            if (normalizeUnicode && payload.value(QStringLiteral("Html")).toString().isEmpty()
+                && payload.value(QStringLiteral("RtfBase64")).toString().isEmpty()) {
+                const QString normalized = capture.searchText.normalized(QString::NormalizationForm_C);
+                if (normalized != capture.searchText) {
+                    payload.insert(QStringLiteral("Text"), normalized);
+                    capture.searchText = normalized;
+                }
+            }
+            const auto images = captureHtmlImages(payload.value(QStringLiteral("Html")).toString());
+            if (!images.isEmpty()) {
+                QJsonObject encoded;
+                for (auto it = images.begin(); it != images.end(); ++it)
+                    encoded.insert(it.key(), QString::fromLatin1(it.value().toBase64()));
+                payload.insert(QStringLiteral("HtmlImages"), encoded);
+            }
+            capture.content = QByteArray(TextPayloadPrefix) + QJsonDocument(payload).toJson(QJsonDocument::Compact);
+        }
         if (capture.kind == 1) {
             prepareImageCapture(capture, fallback);
             encodeMixedImage(capture);

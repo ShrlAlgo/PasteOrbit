@@ -83,6 +83,7 @@ AppSettings AppSettings::load(const QString &path) {
     settings.startWithWindows = json.value(QStringLiteral("StartWithWindows")).toBool();
     settings.runAsAdministrator = json.value(QStringLiteral("RunAsAdministrator")).toBool();
     settings.monitorText = json.value(QStringLiteral("MonitorText")).toBool(true);
+    settings.normalizeUnicodeText = json.value(QStringLiteral("NormalizeUnicodeText")).toBool(false);
     settings.monitorImages = json.value(QStringLiteral("MonitorImages")).toBool(true);
     settings.monitorFiles = json.value(QStringLiteral("MonitorFiles")).toBool(true);
     settings.excludedApplications = json.value(QStringLiteral("ExcludedApplications")).toString(settings.excludedApplications);
@@ -118,6 +119,7 @@ bool AppSettings::save(const QString &path) const {
     json.insert(QStringLiteral("StartWithWindows"), startWithWindows);
     json.insert(QStringLiteral("RunAsAdministrator"), runAsAdministrator);
     json.insert(QStringLiteral("MonitorText"), monitorText);
+    json.insert(QStringLiteral("NormalizeUnicodeText"), normalizeUnicodeText);
     json.insert(QStringLiteral("MonitorImages"), monitorImages);
     json.insert(QStringLiteral("MonitorFiles"), monitorFiles);
     json.insert(QStringLiteral("ExcludedApplications"), excludedApplications);

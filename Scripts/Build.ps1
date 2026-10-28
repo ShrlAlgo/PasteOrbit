@@ -1,7 +1,10 @@
 ﻿[CmdletBinding()]
 param(
     [ValidateSet('Debug', 'Release')]
-    [string]$Configuration = 'Debug'
+    [string]$Configuration = 'Debug',
+
+    [ValidatePattern('^\d+\.\d+\.\d+(?:\.\d+)?$')]
+    [string]$Version
 )
 
 $ErrorActionPreference = 'Stop'
@@ -39,7 +42,9 @@ $previousNodeReuse = $env:MSBUILDDISABLENODEREUSE
 Push-Location -LiteralPath $repositoryRoot
 try {
     $env:MSBUILDDISABLENODEREUSE = '1'
-    & $cmakePath --preset windows-msvc
+    $configureArguments = @('--preset', 'windows-msvc')
+    if ($Version) { $configureArguments += "-DPASTEORBIT_VERSION=$Version" }
+    & $cmakePath @configureArguments
     if ($LASTEXITCODE -ne 0) { throw "CMake 配置失败，退出代码：$LASTEXITCODE" }
     & $cmakePath --build --preset "windows-$($Configuration.ToLowerInvariant())" -- /nodeReuse:false
     if ($LASTEXITCODE -ne 0) { throw "构建失败，退出代码：$LASTEXITCODE" }

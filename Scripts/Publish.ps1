@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [ValidatePattern('^\d+\.\d+\.\d+(?:\.\d+)?$')]
     [string]$Version,
@@ -28,7 +28,7 @@ if ($useMsvc) {
     $deployToolPath = Join-Path $toolchainDirectory 'windeployqt.exe'
     $dependencyToolPath = Join-Path $env:VCToolsInstallDir 'bin\Hostx64\x64\dumpbin.exe'
 }
-$buildDirectory = Join-Path $repositoryRoot $(if ($useMsvc) { 'build\publish-msvc' } else { 'build\publish-ucrt64' })
+$buildDirectory = Join-Path $repositoryRoot $(if ($useMsvc) { 'build\windows-msvc' } else { 'build\publish-ucrt64' })
 $artifactsDirectory = Join-Path $repositoryRoot 'dist'
 $publishDirectory = Join-Path $artifactsDirectory 'PasteOrbit-win-x64'
 $deploymentDirectory = $publishDirectory
@@ -115,25 +115,23 @@ if ((-not (Test-Path -LiteralPath $cmakePath -PathType Leaf)) -or (-not (Test-Pa
 $env:PATH = "$toolchainDirectory;$env:PATH"
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
-    $Version = '2.5.16'
+    $Version = '2.5.17'
 }
-$configureArguments = @(
-    '-S', $repositoryRoot,
-    '-B', $buildDirectory,
-    '-G', 'Ninja',
-    '-DCMAKE_BUILD_TYPE=Release',
-    "-DPASTEORBIT_VERSION=$Version"
-)
-if ($useMsvc) { $configureArguments += '-DCMAKE_PREFIX_PATH=C:/Qt', '-DCMAKE_CXX_COMPILER=cl' }
-else { $configureArguments += "-DCMAKE_PREFIX_PATH=$ucrtPrefix", "-DCMAKE_CXX_COMPILER=$(Join-Path $toolchainDirectory 'g++.exe')" }
-& $cmakePath @configureArguments
-if ($LASTEXITCODE -ne 0) {
-    throw "CMake 配置失败，退出代码：$LASTEXITCODE"
-}
+if ($useMsvc) {
+    # 本地发布复用日常 Release 构建及目标进程处理，不再维护第二份 MSVC 缓存。
+    & (Join-Path $PSScriptRoot 'Build.ps1') -Configuration Release -Version $Version
+} else {
+    & $cmakePath -S $repositoryRoot -B $buildDirectory -G Ninja -DCMAKE_BUILD_TYPE=Release `
+        "-DPASTEORBIT_VERSION=$Version" "-DCMAKE_PREFIX_PATH=$ucrtPrefix" `
+        "-DCMAKE_CXX_COMPILER=$(Join-Path $toolchainDirectory 'g++.exe')"
+    if ($LASTEXITCODE -ne 0) {
+        throw "CMake 配置失败，退出代码：$LASTEXITCODE"
+    }
 
-& $cmakePath --build $buildDirectory --parallel 4
-if ($LASTEXITCODE -ne 0) {
-    throw "Qt Release 构建失败，退出代码：$LASTEXITCODE"
+    & $cmakePath --build $buildDirectory --parallel 4
+    if ($LASTEXITCODE -ne 0) {
+        throw "Qt Release 构建失败，退出代码：$LASTEXITCODE"
+    }
 }
 
 $builtExecutable = Join-Path $buildDirectory 'bin\Release\PasteOrbit.exe'

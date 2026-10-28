@@ -435,9 +435,11 @@ SettingsDialog::SettingsDialog(AppSettings settings, QString databasePath, QStri
     monitorText_ = new oclero::qlementine::Switch(general);
     monitorImages_ = new oclero::qlementine::Switch(general);
     monitorFiles_ = new oclero::qlementine::Switch(general);
+    normalizeUnicodeText_ = new oclero::qlementine::Switch(general);
     addCard(general, QStringLiteral("SettingsMonitorTextCardHeader"), {}, monitorText_);
     addCard(general, QStringLiteral("SettingsMonitorImagesCardHeader"), {}, monitorImages_);
     addCard(general, QStringLiteral("SettingsMonitorFilesCardHeader"), {}, monitorFiles_);
+    addCard(general, QStringLiteral("SettingsNormalizeUnicodeHeader"), QStringLiteral("SettingsNormalizeUnicodeDescription"), normalizeUnicodeText_);
     auto *appearanceHeading = new QLabel(AppLocalization::get(QStringLiteral("SettingsAppearanceSectionText")), general);
     appearanceHeading->setObjectName(QStringLiteral("SectionHeading"));
     pageLayout(general)->addWidget(appearanceHeading);
@@ -594,7 +596,7 @@ SettingsDialog::SettingsDialog(AppSettings settings, QString databasePath, QStri
     navigation_->setCurrentIndex(0);
     loadControls(settings_);
 
-    for (auto *check : {startup_, administrator_, monitorText_, monitorImages_, monitorFiles_, interceptWinV_}) {
+    for (auto *check : {startup_, administrator_, monitorText_, monitorImages_, monitorFiles_, normalizeUnicodeText_, interceptWinV_}) {
         connect(check, &QAbstractButton::toggled, this, [this] { if (!loading_) persist(); });
     }
     for (auto *combo : {theme_, language_, retention_, maximumEntries_}) {
@@ -753,6 +755,7 @@ void SettingsDialog::loadControls(const AppSettings &settings) {
     startup_->setChecked(settings.startWithWindows);
     administrator_->setChecked(settings.runAsAdministrator);
     monitorText_->setChecked(settings.monitorText);
+    normalizeUnicodeText_->setChecked(settings.normalizeUnicodeText);
     monitorImages_->setChecked(settings.monitorImages);
     monitorFiles_->setChecked(settings.monitorFiles);
     interceptWinV_->setChecked(settings.interceptWindowsClipboardShortcut);
@@ -781,6 +784,7 @@ void SettingsDialog::saveControls() {
     settings_.startWithWindows = startup_->isChecked();
     settings_.runAsAdministrator = administrator_->isChecked();
     settings_.monitorText = monitorText_->isChecked();
+    settings_.normalizeUnicodeText = normalizeUnicodeText_->isChecked();
     settings_.monitorImages = monitorImages_->isChecked();
     settings_.monitorFiles = monitorFiles_->isChecked();
     settings_.interceptWindowsClipboardShortcut = interceptWinV_->isChecked();

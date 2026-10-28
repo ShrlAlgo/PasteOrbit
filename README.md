@@ -44,7 +44,7 @@ Default shortcuts for a selected history item: `Enter` pastes, `Shift+Enter` pas
 - The executable and Qt dependencies reside in `build\windows-msvc\bin\Debug` or `bin\Release`.
 - `Scripts\Publish.ps1` writes the unpacked release to `dist\PasteOrbit-win-x64` and the ZIP to `dist`.
 - Inno Setup 6 builds the installer from `Scripts\Installer.iss` and writes it to `dist`.
-- Local publishing prefers `C:\Qt` and VS tools; CI retains its MinGW build path.
+- Local publishing reuses the Release build in `build/windows-msvc` with `C:\Qt` and VS tools; CI retains its MinGW build path.
 
 Sources in `src` are grouped into `app` (startup, settings, localization), `data` (history storage and model), `services` (backup and updates), `ui` (windows and cards), `platform` (data protection, global hotkeys, and paste target interaction), and `resources` (icons, resource manifest, and localized strings).
 Windows platform implementations reside in `src/platform/windows`.

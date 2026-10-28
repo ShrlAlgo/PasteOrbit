@@ -52,6 +52,7 @@ private:
     QAbstractButton *startup_ = nullptr;
     QAbstractButton *administrator_ = nullptr;
     QAbstractButton *monitorText_ = nullptr;
+    QAbstractButton *normalizeUnicodeText_ = nullptr;
     QAbstractButton *monitorImages_ = nullptr;
     QAbstractButton *monitorFiles_ = nullptr;
     QAbstractButton *interceptWinV_ = nullptr;

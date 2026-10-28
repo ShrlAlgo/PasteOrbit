@@ -16,6 +16,7 @@ struct AppSettings {
     bool startWithWindows = false;
     bool runAsAdministrator = false;
     bool monitorText = true;
+    bool normalizeUnicodeText = false;
     bool monitorImages = true;
     bool monitorFiles = true;
     QString excludedApplications = QStringLiteral("1Password; Bitwarden; KeePass; KeePassXC; mstsc; msrdc; Windows365");

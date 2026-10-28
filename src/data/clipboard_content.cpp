@@ -1,6 +1,8 @@
 #include "clipboard_content.h"
 
 #include <QBuffer>
+#include <QFile>
+#include <QImageReader>
 #include <QFileInfo>
 #include <QDir>
 #include <QDataStream>
@@ -48,7 +50,7 @@ ImageContent decodeImageContent(const QByteArray &content) {
     return stream.status() == QDataStream::Ok && buffer.atEnd() ? result : ImageContent{};
 }
 
-TextContent decodeTextContent(const QByteArray &content) {
+TextContent decodeTextContent(const QByteArray &content, bool includeImages) {
     TextContent result;
     const QByteArray prefix(TextPayloadPrefix);
     if (!content.startsWith(prefix)) {
@@ -63,6 +65,97 @@ TextContent decodeTextContent(const QByteArray &content) {
         ? QByteArray::fromBase64(json.value(QStringLiteral("RtfBase64")).toString().toLatin1())
         : json.value(QStringLiteral("Rtf")).toString().toUtf8();
     result.markdown = json.value(QStringLiteral("Markdown")).toBool();
+    // 仅预览读取图片快照，格式识别和普通粘贴不额外展开图片数据。
+    if (includeImages) {
+        const auto images = json.value(QStringLiteral("HtmlImages")).toObject();
+        for (auto it = images.begin(); it != images.end(); ++it)
+            result.htmlImages.insert(it.key(), QByteArray::fromBase64(it.value().toString().toLatin1()));
+    }
+    return result;
+}
+
+namespace {
+constexpr qsizetype HtmlImageByteLimit = 8 * 1024 * 1024;
+constexpr qsizetype HtmlImagesByteLimit = 32 * 1024 * 1024;
+
+QStringList htmlImageSources(const QString &html) {
+    class ImageDocument final : public QTextDocument {
+        QVariant loadResource(int, const QUrl &) override { return {}; }
+    } document;
+    document.setHtml(html);
+    QStringList sources;
+    QSet<QString> seen;
+    for (auto block = document.begin(); block.isValid(); block = block.next()) {
+        for (auto it = block.begin(); !it.atEnd(); ++it) {
+            const auto format = it.fragment().charFormat();
+            if (!format.isImageFormat()) continue;
+            const QString source = format.toImageFormat().name();
+            if (!source.isEmpty() && !seen.contains(source)) {
+                seen.insert(source);
+                sources.append(source);
+            }
+        }
+    }
+    return sources;
+}
+}
+
+QHash<QString, QByteArray> captureHtmlImages(const QString &html) {
+    if (html.isEmpty()) return {};
+    QHash<QString, QByteArray> images;
+    qsizetype total = 0;
+    for (const auto &source : htmlImageSources(html)) {
+        const QUrl url(source);
+        // 不请求网页、网络共享或任意相对路径；Word 通常使用本地临时图片的 file URL。
+        if (!url.isLocalFile() || !url.host().isEmpty()) continue;
+        const QString path = url.toLocalFile();
+        if (!QDir::isAbsolutePath(path) || path.startsWith(QStringLiteral("//"))
+            || path.startsWith(QStringLiteral("\\"))) continue;
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly) || file.size() > HtmlImageByteLimit) continue;
+        const QByteArray bytes = file.read(HtmlImageByteLimit + 1);
+        if (file.error() != QFileDevice::NoError || bytes.isEmpty() || bytes.size() > HtmlImageByteLimit
+            || total + bytes.size() > HtmlImagesByteLimit) continue;
+        QBuffer buffer;
+        buffer.setData(bytes);
+        buffer.open(QIODevice::ReadOnly);
+        const QByteArray format = QImageReader::imageFormat(&buffer);
+        if (format != "png" && format != "jpeg" && format != "bmp" && format != "gif" && format != "webp") continue;
+        total += bytes.size();
+        images.insert(source, bytes);
+    }
+    return images;
+}
+
+QHash<QString, QImage> previewHtmlImages(const QString &html, const QHash<QString, QByteArray> &images) {
+    if (html.isEmpty()) return {};
+    QHash<QString, QImage> result;
+    qint64 remainingPixels = 4'000'000;
+    for (const auto &source : htmlImageSources(html)) {
+        if (remainingPixels <= 0) break;
+        QByteArray bytes = images.value(source);
+        if (bytes.isEmpty() && source.startsWith(QLatin1String("data:image/"), Qt::CaseInsensitive)) {
+            const auto comma = source.indexOf(QLatin1Char(','));
+            if (comma < 0 || !source.left(comma).endsWith(QLatin1String(";base64"), Qt::CaseInsensitive)
+                || source.size() - comma - 1 > (HtmlImageByteLimit + 2) / 3 * 4) continue;
+            bytes = QByteArray::fromBase64(source.mid(comma + 1).toLatin1());
+        }
+        if (bytes.isEmpty() || bytes.size() > HtmlImageByteLimit) continue;
+        QBuffer buffer;
+        buffer.setData(bytes);
+        buffer.open(QIODevice::ReadOnly);
+        QImageReader reader(&buffer);
+        const auto format = reader.format();
+        if (format != "png" && format != "jpeg" && format != "bmp" && format != "gif" && format != "webp") continue;
+        const QSize size = reader.size();
+        if (!size.isValid() || qint64(size.width()) * size.height() > 16'000'000) continue;
+        reader.setScaledSize(boundedSize(size, 1600, 1600, qMin<qint64>(remainingPixels, 1'000'000)));
+        reader.setAutoTransform(true);
+        QImage image = reader.read();
+        if (image.isNull()) continue;
+        remainingPixels -= qint64(image.width()) * image.height();
+        result.insert(QUrl(source).toString(), std::move(image));
+    }
     return result;
 }
 
