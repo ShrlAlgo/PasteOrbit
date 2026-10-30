@@ -30,7 +30,7 @@ jobs:
           host: mac
           target: desktop
           arch: clang_64
-          modules: qtsvg
+          # QtSvg 已包含在基础安装包中，不能作为额外模块安装。
           cache: true
       - name: Configure and build
         run: |
