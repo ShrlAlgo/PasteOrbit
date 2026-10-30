@@ -21,6 +21,7 @@
 #include <windows.h>
 #include <bcrypt.h>
 #else
+#include <cstdio>
 #include <CommonCrypto/CommonCryptor.h>
 #include <CommonCrypto/CommonHMAC.h>
 #include <Security/Security.h>
@@ -363,14 +364,27 @@ bool extractPayload(const QString &payloadPath, const QString &databasePath,
 }
 
 bool replaceFile(const QString &source, const QString &destination) {
+#ifdef Q_OS_WIN
     return MoveFileExW(reinterpret_cast<LPCWSTR>(source.utf16()),
                        reinterpret_cast<LPCWSTR>(destination.utf16()),
                        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
+#else
+    // 恢复临时文件位于数据目录内；POSIX rename 可原子覆盖目标，无需先删旧文件。
+    return std::rename(QFile::encodeName(source).constData(), QFile::encodeName(destination).constData()) == 0;
+#endif
 }
 
 bool copyFile(const QString &source, const QString &destination) {
+#ifdef Q_OS_WIN
     return CopyFileW(reinterpret_cast<LPCWSTR>(source.utf16()),
                      reinterpret_cast<LPCWSTR>(destination.utf16()), FALSE) != FALSE;
+#else
+    QFile input(source);
+    QSaveFile output(destination);
+    // 复用固定大小的流式复制；写入失败时不破坏恢复副本或回滚目标。
+    return input.open(QIODevice::ReadOnly) && output.open(QIODevice::WriteOnly)
+        && copyExactly(input, output, input.size()) && output.commit();
+#endif
 }
 
 QString replaceLocalData(const QString &temporaryDatabase, const QString &temporarySettings,
