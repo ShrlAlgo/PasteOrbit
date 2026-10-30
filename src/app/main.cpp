@@ -3,6 +3,9 @@
 #include "main_window.h"
 #include "settings_dialog.h"
 #include "update_service.h"
+#ifdef Q_OS_MACOS
+#include "macos/desktop_integration.h"
+#endif
 
 #include <QApplication>
 #include <QDir>
@@ -18,12 +21,15 @@
 #include <QPixmapCache>
 #include <QScopeGuard>
 #include <QSettings>
+#include <QLockFile>
 #include <QStyleOption>
 #include <QStandardPaths>
 #include <QTimer>
 
+#ifdef Q_OS_WIN
 #include <shellapi.h>
 #include <windows.h>
+#endif
 
 #include <oclero/qlementine/style/QlementineStyle.hpp>
 
@@ -60,6 +66,7 @@ public:
     }
 };
 
+#ifdef Q_OS_WIN
 bool isAdministrator() {
     BOOL member = FALSE;
     SID_IDENTIFIER_AUTHORITY authority = SECURITY_NT_AUTHORITY;
@@ -86,6 +93,7 @@ bool startElevated() {
     if (info.hProcess) CloseHandle(info.hProcess);
     return started;
 }
+#endif
 }
 
 int main(int argc, char *argv[]) {
@@ -93,7 +101,11 @@ int main(int argc, char *argv[]) {
     // Qlementine 统一绘制控件，主题色由主窗口根据用户设置切换。
     QApplication::setStyle(new PasteOrbitStyle(&application));
     application.setWindowIcon(QIcon(QStringLiteral(":/PasteOrbit.ico")));
+#ifdef Q_OS_WIN
     QFont uiFont(QStringLiteral("Microsoft YaHei UI"));
+#else
+    QFont uiFont = application.font();
+#endif
     uiFont.setPixelSize(14);
     application.setFont(uiFont);
     QApplication::setApplicationName(QStringLiteral("PasteOrbit"));
@@ -101,11 +113,19 @@ int main(int argc, char *argv[]) {
     QApplication::setApplicationVersion(QStringLiteral(PASTEORBIT_VERSION));
     application.setQuitOnLastWindowClosed(false);
     QPixmapCache::setCacheLimit(2048);
+#ifdef Q_OS_MACOS
+    if (application.arguments().contains(QStringLiteral("--platform-check")))
+        return MacIntegration::runPlatformChecks();
+#endif
 
+#ifdef Q_OS_WIN
     QString localAppData = qEnvironmentVariable("LOCALAPPDATA");
     if (localAppData.isEmpty())
         localAppData = QStandardPaths::writableLocation(QStandardPaths::HomeLocation) + QStringLiteral("/AppData/Local");
     const QString dataDirectory = localAppData + QStringLiteral("/PasteOrbit");
+#else
+    const QString dataDirectory = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+#endif
     QDir().mkpath(dataDirectory);
     AppSettings settings = AppSettings::load(dataDirectory + QStringLiteral("/settings.json"));
     QString language = settings.language;
@@ -114,6 +134,7 @@ int main(int argc, char *argv[]) {
     AppLocalization::load(language);
     application.setApplicationDisplayName(AppLocalization::get(QStringLiteral("ApplicationDisplayName")));
 
+#ifdef Q_OS_WIN
     const bool elevatedRestart = application.arguments().contains(QStringLiteral("--elevated-restart"), Qt::CaseInsensitive);
     // 互斥锁负责跨权限级别的单实例约束；本地消息通道只用于唤起已有窗口。
     HANDLE singletonMutex = CreateMutexW(nullptr, TRUE, L"Local\\PasteOrbit.Native.SingleInstance");
@@ -133,6 +154,16 @@ int main(int argc, char *argv[]) {
         const DWORD waitResult = WaitForSingleObject(singletonMutex, 10000);
         ownsMutex = waitResult == WAIT_OBJECT_0 || waitResult == WAIT_ABANDONED;
     }
+#else
+    // 锁文件覆盖进程整个生命周期，QLocalServer 仅用于唤起已有实例。
+    QLockFile instanceLock(dataDirectory + QStringLiteral("/instance.lock"));
+    const bool ownsMutex = instanceLock.tryLock();
+    if (!ownsMutex && instanceLock.error() != QLockFile::LockFailedError) {
+        QMessageBox::critical(nullptr, QApplication::applicationDisplayName(),
+                              QStringLiteral("Cannot lock the PasteOrbit data directory."));
+        return 1;
+    }
+#endif
     if (!ownsMutex) {
         QLocalSocket existingInstance;
         existingInstance.connectToServer(QString::fromLatin1(ServerName));
@@ -145,9 +176,11 @@ int main(int argc, char *argv[]) {
 
     // 更新卸载可能删除启动项；以保存的设置修复当前程序的注册路径。
     if (settings.startWithWindows && !settings.applyWindowsStartup())
-        qWarning("Could not synchronize PasteOrbit Windows startup registration");
+        qWarning("Could not synchronize PasteOrbit login startup registration");
 
+#ifdef Q_OS_WIN
     if (settings.runAsAdministrator && !isAdministrator() && !elevatedRestart && startElevated()) return 0;
+#endif
 
     QLocalServer::removeServer(QString::fromLatin1(ServerName));
     QLocalServer server;
@@ -196,6 +229,7 @@ int main(int argc, char *argv[]) {
             settingsDialog = nullptr;
             window.leaveSettings();
             dialog->deleteLater();
+#ifdef Q_OS_WIN
             if (!wasAdministrator && window.settings().runAsAdministrator) {
                 server.close();
                 QLocalServer::removeServer(QString::fromLatin1(ServerName));
@@ -211,6 +245,7 @@ int main(int argc, char *argv[]) {
                     QMessageBox::critical(&window, QApplication::applicationDisplayName(), server.errorString());
                 }
             }
+#endif
         });
         window.showSettings(dialog);
     });
@@ -221,8 +256,8 @@ int main(int argc, char *argv[]) {
         updateService.check(&window, window.settingsPath(), true);
     });
     QObject::connect(&window, &MainWindow::exitRequested, &application, &QApplication::quit);
-#ifndef NDEBUG
-    // 调试版启动时直接显示面板，F5 不再看起来像进程立即退出。
+#if !defined(NDEBUG) || defined(Q_OS_MACOS)
+    // 调试版和 macOS 启动时显示面板，方便调试及首次配置权限。
     QTimer::singleShot(0, &window, [&window] { window.showPanel(true); });
 #endif
     return application.exec();

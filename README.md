@@ -4,7 +4,7 @@
 
 <img width="360" height="500" alt="PixPin_2026-10-07_09-00-09" src="https://github.com/user-attachments/assets/a42bc60b-c55e-460a-a24e-49d2e35cdcd0" />
 
-PasteOrbit is a Windows desktop clipboard history manager.
+PasteOrbit is a Qt Widgets desktop clipboard history manager with a Windows release and initial macOS support.
 
 ## Features
 
@@ -47,8 +47,35 @@ Default shortcuts for a selected history item: `Enter` pastes, `Shift+Enter` pas
 - Local publishing reuses the Release build in `build/windows-msvc` with `C:\Qt` and VS tools; CI retains its MinGW build path.
 
 Sources in `src` are grouped into `app` (startup, settings, localization), `data` (history storage and model), `services` (backup and updates), `ui` (windows and cards), `platform` (data protection, global hotkeys, and paste target interaction), and `resources` (icons, resource manifest, and localized strings).
-Windows platform implementations reside in `src/platform/windows`.
+Platform implementations reside in `src/platform/windows` and `src/platform/macos`.
 `build/windows-msvc` contains the CMake-generated Visual Studio solution, project files, and build output; these files are not source files and are not committed.
+
+## Building and using on macOS
+
+The macOS port awaits verification on a Mac and targets macOS 13 or later.
+Install Xcode Command Line Tools, CMake, Ninja, and Qt 6.11.1 with Qt Svg on a Mac, then run:
+
+```sh
+cmake --preset macos -DCMAKE_PREFIX_PATH="$HOME/Qt/6.11.1/macos"
+cmake --build --preset macos-release
+ctest --test-dir build/macos --output-on-failure
+open build/macos/bin/Release/PasteOrbit.app
+```
+
+Set `CMAKE_PREFIX_PATH` to the actual Qt installation directory.
+The build targets the current Apple Silicon or Intel architecture; Windows Qt and MSVC cannot build the Mac application.
+The self-check covers key encryption, tamper rejection, encrypted history, and backup restore in a temporary directory inside the build output.
+
+Automatic pasting requires permission in System Settings → Privacy & Security → Accessibility; manual pasting remains available without permission.
+The default global shortcut is Option+V; `Ctrl` in shortcut settings denotes Command through Qt's macOS mapping.
+The macOS panel activates normally and omits Win+V interception and administrator settings.
+Clipboard source attribution uses the foreground application and may be inaccurate for background clipboard writers.
+Login startup uses a per-user LaunchAgent and takes effect at the next login.
+Update notifications open the release download page instead of running the Windows installer.
+
+Run `macdeployqt build/macos/bin/Release/PasteOrbit.app -always-overwrite -codesign=-` before distribution to bundle Qt libraries.
+The macOS workflow builds separate Apple Silicon and Intel ZIPs on manual runs and version tags.
+Packages use ad-hoc signing; Developer ID signing and notarization are not configured.
 
 ## GitHub Actions
 
@@ -60,7 +87,8 @@ Windows platform implementations reside in `src/platform/windows`.
 - Clipboard history and application settings remain on the local device.
 - File records store file or folder paths without copying the original files.
 - Applications can be excluded from clipboard monitoring.
-- Local backups are protected by the current Windows user credentials.
+- Windows protects content and backup keys with DPAPI; macOS stores AES/HMAC keys in the system Keychain.
+- Backups depend on the system user key and cannot be transferred directly between Windows and macOS.
 - Text format labels are stored with each record; existing records receive labels when first displayed.
 - Supported older history databases are upgraded at startup; older backups are upgraded during restore.
 - Older application versions cannot open the upgraded database directly; retain a backup made before upgrading when planning a downgrade.

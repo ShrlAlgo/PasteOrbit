@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-PasteOrbit is a Windows x64 clipboard manager using C++17 and Qt 6.
+PasteOrbit is a C++17 and Qt 6 clipboard manager for Windows x64, with an initial macOS port.
 - `src/app/`: startup, settings, localization, and Windows resources.
 - `src/data/`: history storage and list model.
 - `src/services/`: backup and updates.
@@ -10,6 +10,8 @@ PasteOrbit is a Windows x64 clipboard manager using C++17 and Qt 6.
 - `Scripts/`: publishing script and installer definition; `.github/workflows/`: build and release automation.
 
 Register application sources in `src/CMakeLists.txt`. Generated output belongs in ignored `build/` and `dist/` directories. Temporary verification builds must reuse the configured output directory (`build/windows-msvc` locally); do not create separate check build trees or temporary test projects. Local publishing reuses the Release configuration in `build/windows-msvc`; MinGW CI uses `build/publish-ucrt64`. Both deploy directly to `dist/PasteOrbit-win-x64`.
+
+macOS builds reuse `build/macos` with the `macos` configure preset and `macos-release` build preset.
 
 ## Build, Test, and Development Commands
 Use CMake 3.21+, Visual Studio 2026 with C++/CMake tools, and Qt 6.11.1 MSVC x64 including Svg at `C:\Qt`. Configuration fetches pinned Qlementine sources.
@@ -27,7 +29,7 @@ Visual Studio debugging uses the `PasteOrbitNative` target and F5.
 Use UTF-8, CRLF, four-space indentation, and opening braces on the declaration line. Follow existing C++ style: `snake_case.cpp/.h` filenames, PascalCase types, camelCase methods, and trailing underscores for private members. Add concise Chinese comments to important methods and complex flows. No formatter or linter is configured in the build.
 
 ## Testing Guidelines
-No automated test framework, test target, naming convention, or coverage threshold is configured. Build the affected target and manually verify clipboard capture, history navigation, paste shortcuts, and changed behavior. Check UI changes in light/dark themes and both supported languages. Record verification results in the PR.
+On macOS, `ctest --test-dir build/macos --output-on-failure` runs the encryption, storage, and backup platform check. No general automated UI test framework or coverage threshold is configured. Build the affected target and manually verify clipboard capture, history navigation, paste shortcuts, and changed behavior. Check UI changes in light/dark themes and both supported languages. Record verification results in the PR.
 
 ## Commit & Pull Request Guidelines
 Recent commits commonly use `fix: ...`, alongside plain English and Chinese summaries. Write concise, action-focused subjects. PRs should explain the problem, resulting behavior, relevant issue, and verification; include screenshots for visible UI changes. Exclude generated files and personal clipboard data.

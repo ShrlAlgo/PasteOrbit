@@ -5,6 +5,7 @@
 
 #include <QAbstractButton>
 #include <QApplication>
+#include <QDesktopServices>
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
@@ -25,7 +26,9 @@
 #include <QVersionNumber>
 #include <QUuid>
 
+#ifdef Q_OS_WIN
 #include <windows.h>
+#endif
 
 namespace {
 constexpr auto LatestReleaseEndpoint = "https://api.github.com/repos/ShrlAlgo/PasteOrbit/releases/latest";
@@ -97,12 +100,14 @@ void UpdateService::handleCheckFinished(QNetworkReply *reply) {
         const auto asset = assetValue.toObject();
         const QString name = asset.value(QStringLiteral("name")).toString();
         const QUrl url(asset.value(QStringLiteral("browser_download_url")).toString());
+#ifdef Q_OS_WIN
         if (name.endsWith(QStringLiteral("-Setup.exe"), Qt::CaseInsensitive) && isHttpsUrl(url)) {
             installerName_ = name;
             installerUrl_ = url;
             installerSize_ = asset.value(QStringLiteral("size")).toVariant().toLongLong();
             break;
         }
+#endif
     }
 
     if (latestVersion <= currentVersion) {
@@ -142,6 +147,9 @@ void UpdateService::showResult() {
 
     QAbstractButton *primary = nullptr;
     QAbstractButton *skip = nullptr;
+#ifdef Q_OS_MACOS
+    primary = dialog.addButton(localized(QStringLiteral("DownloadUpdateButton")), QMessageBox::AcceptRole);
+#endif
     if (!installerUrl_.isEmpty()) {
         primary = dialog.addButton(localized(QStringLiteral("DownloadUpdateButton")), QMessageBox::AcceptRole);
         skip = dialog.addButton(localized(QStringLiteral("DoNotRemindUpdateButton")), QMessageBox::DestructiveRole);
@@ -154,7 +162,13 @@ void UpdateService::showResult() {
     if (primary) buttonSize = buttonSize.expandedTo(primary->sizeHint());
     for (auto *button : dialog.findChildren<QPushButton *>()) button->setFixedSize(buttonSize);
     dialog.exec();
-    if (dialog.clickedButton() == primary && primary) startDownload();
+    if (dialog.clickedButton() == primary && primary) {
+#ifdef Q_OS_MACOS
+        QDesktopServices::openUrl(releaseUrl_);
+#else
+        startDownload();
+#endif
+    }
     else if (dialog.clickedButton() == skip) ignoreCurrentVersion();
 }
 
@@ -281,6 +295,7 @@ void UpdateService::showDownloadFailure() {
 }
 
 bool UpdateService::startInstaller() {
+#ifdef Q_OS_WIN
     const QString applicationPath = QCoreApplication::applicationFilePath();
     const QString applicationDirectory = QFileInfo(applicationPath).absolutePath();
     const QString scriptPath = QDir(QDir::tempPath()).filePath(
@@ -385,4 +400,7 @@ try {
     if (launcher.startDetached()) return true;
     QFile::remove(scriptPath);
     return false;
+#else
+    return false;
+#endif
 }

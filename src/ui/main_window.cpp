@@ -7,6 +7,7 @@
 #include "clipboard_content.h"
 #include "paste_target.h"
 #include "global_hotkey.h"
+#include "portable_icons.h"
 
 
 #include <oclero/qlementine/style/QlementineStyle.hpp>
@@ -53,6 +54,7 @@
 #include <QPushButton>
 #include <QFontDatabase>
 #include <QSettings>
+#include <QStyleHints>
 #include <QShortcut>
 #include <QSet>
 #include <QScrollBar>
@@ -77,15 +79,19 @@
 #include <cmath>
 #include <functional>
 #include <memory>
+#ifdef Q_OS_WIN
 #include <shlobj.h>
 #include <windows.h>
+#else
+#include "macos/desktop_integration.h"
+#endif
 
 using namespace ClipboardContent;
 
 namespace {
 constexpr int HotkeyId = 0x504F;
 constexpr int HistoryPageSize = 30;
-constexpr UINT TrayResumeMilliseconds = 10 * 60 * 1000;
+constexpr int TrayResumeMilliseconds = 10 * 60 * 1000;
 const QString WindowsRtfMime = QStringLiteral("application/x-qt-windows-mime;value=\"Rich Text Format\"");
 
 QByteArray clipboardRtf(const QMimeData *mime) {
@@ -174,12 +180,16 @@ QIcon headerGlyphIcon(QChar glyph, const QColor &color, const QWidget *widget) {
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
     painter.setRenderHint(QPainter::Antialiasing);
+#ifdef Q_OS_WIN
     QFont font;
     font.setFamilies({QStringLiteral("Segoe Fluent Icons"), QStringLiteral("Segoe MDL2 Assets")});
     font.setPixelSize(16);
     painter.setFont(font);
     painter.setPen(color);
     painter.drawText(QRect(0, 0, 20, 20), Qt::AlignCenter, QString(glyph));
+#else
+    drawPortableIcon(&painter, QRectF(0, 0, 20, 20), glyph, color);
+#endif
     return QIcon(pixmap);
 }
 
@@ -267,6 +277,7 @@ void prepareImageCapture(ClipboardCapture &capture, const QImage &fallback) {
     }
 }
 
+#ifdef Q_OS_WIN
 MainWindow *winVHookTarget = nullptr;
 MainWindow *passivePanelTarget = nullptr;
 
@@ -353,6 +364,24 @@ QString processName(HWND window) {
     return fullPath.mid(fullPath.lastIndexOf(QLatin1Char('\\')) + 1, fullPath.size()).toCaseFolded();
 }
 
+#endif
+
+PanelTarget foregroundTarget() {
+#ifdef Q_OS_WIN
+    return GetForegroundWindow();
+#else
+    return MacIntegration::foregroundApplication();
+#endif
+}
+
+quint32 clipboardSequence() {
+#ifdef Q_OS_WIN
+    return GetClipboardSequenceNumber();
+#else
+    return MacIntegration::clipboardSequence();
+#endif
+}
+
 struct PasteResult {
     QString unavailablePath;
     HistoryItem item;
@@ -362,6 +391,7 @@ struct PasteResult {
     QPair<QString, QByteArray> file;
 };
 
+#ifdef Q_OS_WIN
 bool revealFile(const QString &path) {
     if (!QDir::isAbsolutePath(path)) return false;
     const HRESULT initialized = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
@@ -377,8 +407,12 @@ bool revealFile(const QString &path) {
     const auto freeItem = qScopeGuard([&] { CoTaskMemFree(item); });
     return SUCCEEDED(parsed) && SUCCEEDED(SHOpenFolderAndSelectItems(item, 0, nullptr, 0));
 }
+#else
+bool revealFile(const QString &path) { return MacIntegration::revealFile(path); }
+#endif
 }
 
+#ifdef Q_OS_WIN
 // 不激活浏览时只接管面板操作键，普通输入仍交给原应用；吞掉的按键成对释放。
 LRESULT CALLBACK MainWindow::panelKeyboardProc(int code, WPARAM message, LPARAM data) {
     auto *panel = passivePanelTarget;
@@ -398,7 +432,7 @@ LRESULT CALLBACK MainWindow::panelKeyboardProc(int code, WPARAM message, LPARAM 
     auto *popup = QApplication::activePopupWidget();
     if ((message != WM_KEYDOWN && message != WM_SYSKEYDOWN) || !panel->passiveBrowsing_
         || !panel->isVisible() || panel->settingsPage_ || QApplication::activeModalWidget()
-        || (popup && !panel->isPanelWindow(reinterpret_cast<HWND>(popup->internalWinId())))
+        || (popup && !panel->isPanelWindow((PanelTarget)popup->internalWinId()))
         || GetForegroundWindow() != panel->targetWindow_)
         return CallNextHookEx(nullptr, code, message, data);
     const auto modifiers = panelKeyModifiers();
@@ -448,7 +482,7 @@ LRESULT CALLBACK MainWindow::panelMouseProc(int code, WPARAM message, LPARAM dat
         || QApplication::activeModalWidget())
         return CallNextHookEx(nullptr, code, message, data);
     auto *popup = QApplication::activePopupWidget();
-    if (popup && !panel->isPanelWindow(reinterpret_cast<HWND>(popup->internalWinId())))
+    if (popup && !panel->isPanelWindow((PanelTarget)popup->internalWinId()))
         return CallNextHookEx(nullptr, code, message, data);
     const bool inside = panel->isPanelWindow(WindowFromPoint(input->pt));
     const bool pressed = message == WM_LBUTTONDOWN || message == WM_RBUTTONDOWN
@@ -557,6 +591,34 @@ void MainWindow::activatePanel(QWidget *focus) {
     if (focus) focus->setFocus(Qt::ShortcutFocusReason);
 }
 
+#else
+bool MainWindow::isPanelWindow(PanelTarget window) const {
+    auto *widget = QWidget::find(static_cast<WId>(window));
+    return widget && (widget == this || widget == hoverPreview_ || isAncestorOf(widget)
+                      || widget->property("pasteOrbitMenu").toBool());
+}
+
+void MainWindow::preparePanelMenu(QMenu *menu) {
+    menu->setProperty("pasteOrbitMenu", true);
+    for (auto *child : menu->findChildren<QMenu *>()) child->setProperty("pasteOrbitMenu", true);
+}
+void MainWindow::updatePanelInputHooks() {}
+
+bool MainWindow::setPassiveBrowsing(bool) {
+    passiveBrowsing_ = false;
+    return true;
+}
+
+void MainWindow::activatePanel(QWidget *focus) {
+    MacIntegration::activateApplication();
+    auto *window = focus ? focus->window() : this;
+    window->raise();
+    window->activateWindow();
+    if (focus) focus->setFocus(Qt::ShortcutFocusReason);
+}
+
+#endif
+
 MainWindow::MainWindow(QString dataDirectory, AppSettings settings)
     : dataDirectory_(std::move(dataDirectory)),
       databasePath_(dataDirectory_ + QStringLiteral("/history.db")),
@@ -574,13 +636,21 @@ MainWindow::MainWindow(QString dataDirectory, AppSettings settings)
     createWinId();
     registerHotkey();
     updateWinVHook();
+#ifdef Q_OS_WIN
     clipboardNotificationsAvailable_ = AddClipboardFormatListener(reinterpret_cast<HWND>(winId())) != FALSE;
-    lastClipboardSequence_ = GetClipboardSequenceNumber();
+#endif
+    lastClipboardSequence_ = clipboardSequence();
+#ifdef Q_OS_MACOS
+    connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this, [this] {
+        if (settings_.themeMode == QStringLiteral("System")) applyTheme();
+    });
+#endif
     connect(QApplication::clipboard(), &QClipboard::dataChanged, this, &MainWindow::scheduleCapture);
     // 系统通知负责即时捕获，隐藏时只保留低频漏通知补偿。
     clipboardPollTimer_.setInterval(clipboardNotificationsAvailable_ ? 2000 : 250);
     connect(&clipboardPollTimer_, &QTimer::timeout, this, [this] {
         if (isVisible() && dateIndicatorDay_ != QDate::currentDate()) updateDateIndicator();
+#ifdef Q_OS_WIN
         if (passiveBrowsing_ && isVisible()) {
             const HWND foreground = GetForegroundWindow();
             if (foreground && !isPanelWindow(foreground) && foreground != targetWindow_) {
@@ -588,7 +658,8 @@ MainWindow::MainWindow(QString dataDirectory, AppSettings settings)
                 else hidePanel();
             }
         }
-        const DWORD sequence = GetClipboardSequenceNumber();
+#endif
+        const quint32 sequence = clipboardSequence();
         if (sequence && sequence != lastClipboardSequence_) scheduleCapture();
     });
     clipboardPollTimer_.start();
@@ -619,19 +690,25 @@ MainWindow::MainWindow(QString dataDirectory, AppSettings settings)
 }
 
 MainWindow::~MainWindow() {
+#ifdef Q_OS_WIN
     if (panelKeyboardHook_) UnhookWindowsHookEx(panelKeyboardHook_);
     if (panelMouseHook_) UnhookWindowsHookEx(panelMouseHook_);
     if (passivePanelTarget == this) passivePanelTarget = nullptr;
+#endif
     closeHoverPreview();
     closingForExit_ = true;
     qApp->removeNativeEventFilter(this);
+#ifdef Q_OS_WIN
     if (winVHook_) {
         UnhookWindowsHookEx(winVHook_);
         winVHook_ = nullptr;
     }
     if (winVHookTarget == this) winVHookTarget = nullptr;
+#endif
     GlobalHotkey::remove(winId(), HotkeyId);
+#ifdef Q_OS_WIN
     RemoveClipboardFormatListener(reinterpret_cast<HWND>(winId()));
+#endif
     trayIcon_->hide();
     trayIcon_->setContextMenu(nullptr);
     delete trayMenu_;
@@ -661,7 +738,7 @@ void MainWindow::beginStorageOperation() {
 void MainWindow::finishStorageOperation(bool restored) {
     suppressClipboardCapture_ = false;
     paused_ = restoreWasPaused_;
-    lastClipboardSequence_ = GetClipboardSequenceNumber();
+    lastClipboardSequence_ = clipboardSequence();
     if (restored) {
         const AppSettings restoredSettings = AppSettings::load(settingsPath_);
         QString language = restoredSettings.language;
@@ -678,6 +755,9 @@ void MainWindow::buildUi() {
     setAttribute(Qt::WA_TranslucentBackground);
     setWindowTitle(AppLocalization::get(QStringLiteral("ApplicationDisplayName")));
     setWindowFlags(Qt::Tool | Qt::FramelessWindowHint);
+#ifdef Q_OS_MACOS
+    setAttribute(Qt::WA_MacAlwaysShowToolWindow);
+#endif
     setFixedSize(360, 500);
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(1, 1, 1, 1);
@@ -733,8 +813,12 @@ void MainWindow::buildUi() {
         pinButton_->setText(pinned ? QChar(0xE77A) : QChar(0xE718));
         pinButton_->setIcon(headerGlyphIcon(pinned ? QChar(0xE77A) : QChar(0xE718),
                                             qApp->palette().color(QPalette::Text), pinButton_));
+#ifdef Q_OS_WIN
         if (isVisible()) SetWindowPos(reinterpret_cast<HWND>(winId()), pinned || passiveBrowsing_ ? HWND_TOPMOST : HWND_NOTOPMOST,
                                       0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+#else
+        MacIntegration::setAlwaysOnTop(winId(), pinned);
+#endif
     });
     headerLayout->addWidget(settingsButton_);
     headerLayout->addWidget(pinButton_);
@@ -923,9 +1007,13 @@ void MainWindow::applyTheme() {
     QToolTip::hideText();
     bool dark = settings_.themeMode == QStringLiteral("Dark");
     if (settings_.themeMode == QStringLiteral("System")) {
+#ifdef Q_OS_WIN
         QSettings system(QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"),
                          QSettings::NativeFormat);
         dark = system.value(QStringLiteral("AppsUseLightTheme"), 1).toInt() == 0;
+#else
+        dark = QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Dark;
+#endif
     }
     const QColor page(dark ? QStringLiteral("#202020") : QStringLiteral("#F3F3F3"));
     const QColor surface(dark ? QStringLiteral("#2B2B2B") : QStringLiteral("#FFFFFF"));
@@ -986,6 +1074,15 @@ void MainWindow::applyTheme() {
         QToolTip::setPalette(palette);
         if (trayMenu_) stylePopupMenu(trayMenu_, palette);
     }
+#ifdef Q_OS_MACOS
+    const ushort glyphs[]{0xE8A9, 0xE8D2, 0xE8B9, 0xE8B7, 0xE734};
+    for (int i = 0; i < 5; ++i) {
+        auto *button = filterButtons_->button(i);
+        button->setIcon(headerGlyphIcon(QChar(glyphs[i]), text, button));
+        button->setIconSize(QSize(18, 18));
+        button->setText(QString{});
+    }
+#endif
     settingsButton_->setIcon(headerGlyphIcon(QChar(0xE713), text, settingsButton_));
     pinButton_->setIcon(headerGlyphIcon(isPinned_ ? QChar(0xE77A) : QChar(0xE718), text, pinButton_));
     clearButton_->setIcon(headerGlyphIcon(QChar(0xE75C), text, clearButton_));
@@ -1055,13 +1152,14 @@ void MainWindow::applySettings(const AppSettings &settings) {
 }
 
 void MainWindow::registerHotkey() {
-    if (!GlobalHotkey::replace(winId(), HotkeyId, settings_.globalHotKey)) {
+    if (!GlobalHotkey::replace(winId(), HotkeyId, settings_.globalHotKey, [this] { showPanel(); })) {
         showStatus(AppLocalization::format(QStringLiteral("GlobalHotKeyRegistrationFailed"),
                                            {settings_.globalHotKey}));
     }
 }
 
 void MainWindow::updateWinVHook() {
+#ifdef Q_OS_WIN
     if (settings_.interceptWindowsClipboardShortcut) {
         if (winVHook_) return;
         winVHookTarget = this;
@@ -1072,6 +1170,7 @@ void MainWindow::updateWinVHook() {
         winVHook_ = nullptr;
         if (winVHookTarget == this) winVHookTarget = nullptr;
     }
+#endif
 }
 
 void MainWindow::updateTrayTooltip() {
@@ -1089,7 +1188,7 @@ void MainWindow::setTrayPaused(bool paused) {
         pauseTimer_.start(TrayResumeMilliseconds);
     } else {
         pauseTimer_.stop();
-        lastClipboardSequence_ = GetClipboardSequenceNumber();
+        lastClipboardSequence_ = clipboardSequence();
     }
     updateTrayTooltip();
 }
@@ -1103,7 +1202,7 @@ void MainWindow::hidePanel() {
     ++panelShowGeneration_;
     pasteGeneration_->fetchAndAddRelaxed(1);
     while (auto *popup = QApplication::activePopupWidget()) {
-        if (!isPanelWindow(reinterpret_cast<HWND>(popup->internalWinId()))) break;
+        if (!isPanelWindow((PanelTarget)popup->internalWinId())) break;
         popup->close();
     }
     setPassiveBrowsing(false);
@@ -1112,8 +1211,8 @@ void MainWindow::hidePanel() {
     // 保留分页、筛选和选择，仅释放可重新加载的图片资源。
     closeHoverPreview();
     model_->releaseThumbnails();
-    targetWindow_ = nullptr;
-    targetFocusWindow_ = nullptr;
+    targetWindow_ = {};
+    targetFocusWindow_ = {};
 }
 
 void MainWindow::showSettings(SettingsDialog *page) {
@@ -1180,8 +1279,12 @@ void MainWindow::animatePage(QWidget *page, bool opening) {
         drawerHost_ = nullptr;
         return;
     }
+#ifdef Q_OS_WIN
     BOOL enabled = TRUE;
     SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &enabled, 0);
+#else
+    const bool enabled = MacIntegration::animationsEnabled();
+#endif
     const QPoint end = opening ? QPoint(0, 0) : QPoint(-drawerHost_->width(), 0);
     if (!enabled || !isVisible() || page->pos() == end) {
         if (opening) page->move(0, 0);
@@ -1441,6 +1544,7 @@ void MainWindow::showStatus(const QString &message) {
 }
 
 bool MainWindow::nativeEventFilter(const QByteArray &, void *message, qintptr *result) {
+#ifdef Q_OS_WIN
     const auto *native = static_cast<MSG *>(message);
     // 消息过滤期间不能用 winId() 创建窗口，否则窗口创建消息会递归进入过滤器。
     const HWND panel = reinterpret_cast<HWND>(internalWinId());
@@ -1476,6 +1580,10 @@ bool MainWindow::nativeEventFilter(const QByteArray &, void *message, qintptr *r
         if (result) *result = 0;
         return true;
     }
+#else
+    Q_UNUSED(message);
+    Q_UNUSED(result);
+#endif
     return false;
 }
 
@@ -1660,13 +1768,21 @@ bool MainWindow::event(QEvent *event) {
     // 托盘唤出的顶层窗口失去激活时不会触发 QWidget::focusOutEvent。
     if (event->type() == QEvent::WindowDeactivate && !passiveBrowsing_) {
         if (isPinned_ && !settingsPage_) {
+#ifdef Q_OS_WIN
             const HWND foreground = GetForegroundWindow();
             DWORD processId = 0;
             if (foreground) GetWindowThreadProcessId(foreground, &processId);
             if (processId && processId != GetCurrentProcessId()) {
-                targetFocusWindow_ = nullptr;
+                targetFocusWindow_ = {};
                 targetWindow_ = foreground;
             }
+#else
+            const auto foreground = foregroundTarget();
+            if (MacIntegration::isExternalApplication(foreground)) {
+                targetWindow_ = foreground;
+                targetFocusWindow_ = {};
+            }
+#endif
         }
         scheduleAutoHide();
     }
@@ -1837,7 +1953,7 @@ void MainWindow::openRecord(const QString &id) {
     const int generation = ++openGeneration_;
     const int panelGeneration = panelShowGeneration_;
     const int historyGeneration = historyGeneration_->loadRelaxed();
-    const HWND foreground = GetForegroundWindow();
+    const auto foreground = foregroundTarget();
     auto *watcher = new QFutureWatcher<QStringList>(this);
     connect(watcher, &QFutureWatcher<QStringList>::finished, this,
             [this, watcher, id, generation, panelGeneration, historyGeneration, foreground] {
@@ -1846,7 +1962,7 @@ void MainWindow::openRecord(const QString &id) {
         // 读取期间切换记录、筛选、窗口或其他操作后，不再打开旧请求的目标。
         if (generation != openGeneration_ || panelGeneration != panelShowGeneration_
             || historyGeneration != historyGeneration_->loadRelaxed() || !isVisible() || settingsPage_
-            || GetForegroundWindow() != foreground
+            || foregroundTarget() != foreground
             || historyList_->currentIndex().data(HistoryModel::IdRole).toString() != id) return;
         if (targets.isEmpty()) {
             showStatus(AppLocalization::get(QStringLiteral("NoOpenTarget")));
@@ -1931,7 +2047,7 @@ void MainWindow::openRowMenu(const QString &id) {
 
 void MainWindow::scheduleCapture() {
     if (paused_ || suppressClipboardCapture_) return;
-    const DWORD sequence = GetClipboardSequenceNumber();
+    const quint32 sequence = clipboardSequence();
     if (sequence && sequence == ownClipboardSequence_) {
         lastClipboardSequence_ = sequence;
         return;
@@ -1948,7 +2064,11 @@ bool MainWindow::sourceIsExcluded(const QString &source) const {
     const auto excluded = configured.split(QLatin1Char(';'), Qt::SkipEmptyParts);
     for (auto name : excluded) {
         name = name.trimmed().toCaseFolded();
+#ifdef Q_OS_WIN
         if (!name.isEmpty() && !name.endsWith(QStringLiteral(".exe"))) name.append(QStringLiteral(".exe"));
+#else
+        if (name.endsWith(QStringLiteral(".app"))) name.chop(4);
+#endif
         if (source == name) return true;
     }
     return false;
@@ -1956,10 +2076,14 @@ bool MainWindow::sourceIsExcluded(const QString &source) const {
 
 void MainWindow::captureClipboard() {
     if (paused_ || suppressClipboardCapture_ || captureSaving_) return;
-    const DWORD sequence = GetClipboardSequenceNumber();
+    const quint32 sequence = clipboardSequence();
     if (!sequence || sequence == lastClipboardSequence_ || sequence == ownClipboardSequence_) return;
     // 忽略规则与历史来源共用一次进程查询，避免重复打开源进程句柄。
+#ifdef Q_OS_WIN
     const QString source = processName(GetClipboardOwner());
+#else
+    const QString source = MacIntegration::clipboardSource();
+#endif
     if (sourceIsExcluded(source)) { lastClipboardSequence_ = sequence; return; }
     const QMimeData *mime = QApplication::clipboard()->mimeData();
     if (!mime) return;
@@ -2020,7 +2144,7 @@ void MainWindow::captureClipboard() {
     saveCapture(std::move(capture), std::move(fallback), sequence);
 }
 
-void MainWindow::saveCapture(ClipboardCapture capture, QImage fallbackImage, DWORD sequence) {
+void MainWindow::saveCapture(ClipboardCapture capture, QImage fallbackImage, quint32 sequence) {
     captureSaving_ = true;
     const bool normalizeUnicode = settings_.normalizeUnicodeText;
     const int retention = settings_.retentionDays;
@@ -2038,7 +2162,7 @@ void MainWindow::saveCapture(ClipboardCapture capture, QImage fallbackImage, DWO
             newHistoryAvailable_ = !isVisible();
             if (isVisible()) refreshHistory();
         }
-        if (GetClipboardSequenceNumber() != lastClipboardSequence_) scheduleCapture();
+        if (clipboardSequence() != lastClipboardSequence_) scheduleCapture();
     });
     const QString path = databasePath_;
     watcher->setFuture(QtConcurrent::run(&writePool_, [path, retention, maximum, normalizeUnicode, capture = std::move(capture),
@@ -2111,11 +2235,15 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile, std
     if (editedContent && item.kind != 0) return;
     if (asFile && item.kind == 2) return;
     const int generation = pasteGeneration_->fetchAndAddRelaxed(1) + 1;
-    HWND target = targetWindow_;
-    const HWND targetFocus = targetFocusWindow_;
+    auto target = targetWindow_;
+    const auto targetFocus = targetFocusWindow_;
     if (!target) {
-        const HWND foreground = GetForegroundWindow();
+        const auto foreground = foregroundTarget();
+#ifdef Q_OS_WIN
         if (foreground != reinterpret_cast<HWND>(winId())) target = foreground;
+#else
+        if (MacIntegration::isExternalApplication(foreground)) target = foreground;
+#endif
     }
     const QString path = databasePath_;
     auto *watcher = new QFutureWatcher<PasteResult>(this);
@@ -2190,15 +2318,19 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile, std
             mime->setUrls(urls);
         }
         QApplication::clipboard()->setMimeData(mime);
-        ownClipboardSequence_ = GetClipboardSequenceNumber();
+        ownClipboardSequence_ = clipboardSequence();
         lastClipboardSequence_ = ownClipboardSequence_;
-        const DWORD pasteSequence = ownClipboardSequence_;
+        const quint32 pasteSequence = ownClipboardSequence_;
         const bool keepPanel = isPinned_;
         // 浏览期间目标一直持有焦点，粘贴时不再发送额外的激活或恢复焦点消息。
-        const bool targetKeptFocus = passiveBrowsing_ && GetForegroundWindow() == target;
+        const bool targetKeptFocus = passiveBrowsing_ && foregroundTarget() == target;
         if (!keepPanel) hidePanel();
-        if (!PasteTarget::prepare(reinterpret_cast<quintptr>(target), targetKeptFocus)) {
+        if (!PasteTarget::prepare((quintptr)target, targetKeptFocus)) {
+#ifdef Q_OS_MACOS
+            showStatus(AppLocalization::get(QStringLiteral("MacManualPasteHint")));
+#else
             showStatus(AppLocalization::get(QStringLiteral("ContentRestoredManualPaste")));
+#endif
             return;
         }
         auto *timer = new QTimer(this);
@@ -2207,12 +2339,12 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile, std
         connect(timer, &QTimer::timeout, this, [this, timer, attempts, target, targetFocus, targetKeptFocus, id, keepPanel,
                                               directTextPaste = item.kind == 0 && !asFile,
                                               generation = pasteGeneration_->loadRelaxed(), pasteSequence] {
-            if (generation != pasteGeneration_->loadRelaxed() || GetClipboardSequenceNumber() != pasteSequence) {
+            if (generation != pasteGeneration_->loadRelaxed() || clipboardSequence() != pasteSequence) {
                 timer->stop(); timer->deleteLater();
                 return;
             }
-            const auto result = PasteTarget::send(reinterpret_cast<quintptr>(target),
-                reinterpret_cast<quintptr>(targetFocus), targetKeptFocus, directTextPaste);
+            const auto result = PasteTarget::send((quintptr)target,
+                (quintptr)targetFocus, targetKeptFocus, directTextPaste);
             if (result == PasteTarget::Result::WaitingForModifiers && ++*attempts < 100) return;
             timer->stop(); timer->deleteLater();
             if (result != PasteTarget::Result::Sent) {

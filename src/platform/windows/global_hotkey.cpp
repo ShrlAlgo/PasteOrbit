@@ -32,7 +32,7 @@ bool parseHotkey(const QString &shortcut, UINT &modifiers, UINT &key) {
 
 namespace GlobalHotkey {
 
-bool replace(quintptr window, int id, const QString &shortcut) {
+bool replace(quintptr window, int id, const QString &shortcut, std::function<void()>) {
     // 保持设置更新的原有语义：先注销旧组合，再尝试注册新组合。
     remove(window, id);
     UINT modifiers = 0;

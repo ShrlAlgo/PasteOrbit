@@ -1,0 +1,52 @@
+name: Build PasteOrbit for macOS
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    name: macOS ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.11.1'
+          host: mac
+          target: desktop
+          arch: clang_64
+          modules: qtsvg
+          cache: true
+      - name: Configure and build
+        run: |
+          cmake --preset macos -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }}
+          cmake --build --preset macos-release --parallel 3
+      - name: Verify encryption, storage and backup
+        run: ctest --test-dir build/macos --output-on-failure
+      - name: Deploy Qt and package
+        run: |
+          app="$PWD/build/macos/bin/Release/PasteOrbit.app"
+          macdeployqt "$app" -always-overwrite -codesign=-
+          codesign --verify --deep --strict "$app"
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent "$app" "dist/PasteOrbit-macos-${{ matrix.arch }}.zip"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: PasteOrbit-macos-${{ matrix.arch }}
+          path: dist/PasteOrbit-macos-${{ matrix.arch }}.zip
+          if-no-files-found: error

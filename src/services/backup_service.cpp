@@ -17,14 +17,20 @@
 #include <array>
 #include <cstring>
 #include <limits>
+#ifdef Q_OS_WIN
 #include <windows.h>
 #include <bcrypt.h>
+#else
+#include <CommonCrypto/CommonCryptor.h>
+#include <CommonCrypto/CommonHMAC.h>
+#include <Security/Security.h>
+#endif
 
 namespace {
 constexpr char BackupMagic[] = "PasteOrbit.Backup";
 constexpr qint32 BackupVersion = 1;
 constexpr qint64 AuthenticationTagLength = 32;
-constexpr ULONG CryptoChunkSize = 64 * 1024;
+constexpr quint32 CryptoChunkSize = 64 * 1024;
 
 QString localized(const QString &key) {
     return AppLocalization::get(key);
@@ -67,15 +73,30 @@ T readLittleEndian(const char *data) {
     return qFromLittleEndian<T>(reinterpret_cast<const uchar *>(data));
 }
 
+void wipe(QByteArray &bytes) {
+    volatile char *data = bytes.data();
+    for (qsizetype i = 0; i < bytes.size(); ++i) data[i] = 0;
+}
+
+bool randomBytes(QByteArray &bytes) {
+#ifdef Q_OS_WIN
+    return BCryptGenRandom(nullptr, reinterpret_cast<PUCHAR>(bytes.data()), static_cast<ULONG>(bytes.size()),
+                           BCRYPT_USE_SYSTEM_PREFERRED_RNG) >= 0;
+#else
+    return SecRandomCopyBytes(kSecRandomDefault, static_cast<size_t>(bytes.size()), bytes.data()) == errSecSuccess;
+#endif
+}
+
 class SecureBytes final {
 public:
     explicit SecureBytes(qsizetype size = 0) : bytes(size, Qt::Uninitialized) {}
     ~SecureBytes() {
-        if (!bytes.isEmpty()) SecureZeroMemory(bytes.data(), static_cast<SIZE_T>(bytes.size()));
+        wipe(bytes);
     }
     QByteArray bytes;
 };
 
+#ifdef Q_OS_WIN
 class HmacSha256 final {
 public:
     ~HmacSha256() {
@@ -167,6 +188,57 @@ private:
     QByteArray keyObject_;
     QByteArray iv_;
 };
+
+#else
+class HmacSha256 final {
+public:
+    ~HmacSha256() {
+        volatile unsigned char *data = reinterpret_cast<volatile unsigned char *>(&context_);
+        for (size_t i = 0; i < sizeof(context_); ++i) data[i] = 0;
+    }
+    bool initialize(const char *key, qsizetype length) {
+        CCHmacInit(&context_, kCCHmacAlgSHA256, key, static_cast<size_t>(length));
+        return true;
+    }
+    bool add(const char *data, qint64 length) {
+        CCHmacUpdate(&context_, data, static_cast<size_t>(length));
+        return true;
+    }
+    QByteArray finish() {
+        QByteArray result(32, Qt::Uninitialized);
+        CCHmacFinal(&context_, result.data());
+        return result;
+    }
+private:
+    CCHmacContext context_{};
+};
+
+class AesCbc final {
+public:
+    ~AesCbc() { wipe(key_); }
+    bool initialize(const char *key, const QByteArray &iv) {
+        if (iv.size() != 16) return false;
+        key_ = QByteArray(key, 32);
+        iv_ = iv;
+        return true;
+    }
+    bool transform(const QByteArray &input, QByteArray &output, bool encrypt) {
+        if (key_.size() != 32 || input.isEmpty() || input.size() % 16) return false;
+        output.resize(input.size());
+        size_t written = 0;
+        // 上层统一填充；每块保留 CBC 链，保持原备份文件格式及流式内存上限。
+        const auto status = CCCrypt(encrypt ? kCCEncrypt : kCCDecrypt, kCCAlgorithmAES, 0,
+            key_.constData(), 32, iv_.constData(), input.constData(), static_cast<size_t>(input.size()),
+            output.data(), static_cast<size_t>(output.size()), &written);
+        if (status != kCCSuccess || written != static_cast<size_t>(input.size())) return false;
+        iv_ = encrypt ? output.last(16) : input.last(16);
+        return true;
+    }
+private:
+    QByteArray key_;
+    QByteArray iv_;
+};
+#endif
 
 bool writeAuthenticated(QIODevice &output, HmacSha256 &hmac, const char *data, qint64 length) {
     return hmac.add(data, length) && writeExactly(output, data, length);
@@ -357,18 +429,14 @@ QString BackupService::exportToFile(const QString &databasePath, const QString &
     SecureBytes encryptionKey(32);
     SecureBytes authenticationKey(32);
     SecureBytes keyMaterial(64);
-    if (BCryptGenRandom(nullptr, reinterpret_cast<PUCHAR>(encryptionKey.bytes.data()), 32,
-                        BCRYPT_USE_SYSTEM_PREFERRED_RNG) < 0
-        || BCryptGenRandom(nullptr, reinterpret_cast<PUCHAR>(authenticationKey.bytes.data()), 32,
-                           BCRYPT_USE_SYSTEM_PREFERRED_RNG) < 0) return localized(QStringLiteral("BackupExportFailed"));
+    if (!randomBytes(encryptionKey.bytes) || !randomBytes(authenticationKey.bytes)) return localized(QStringLiteral("BackupExportFailed"));
     std::memcpy(keyMaterial.bytes.data(), encryptionKey.bytes.constData(), 32);
     std::memcpy(keyMaterial.bytes.data() + 32, authenticationKey.bytes.constData(), 32);
     const QByteArray protectedKeys = DataProtection::protect(keyMaterial.bytes).value_or(QByteArray{});
     if (protectedKeys.isEmpty() || protectedKeys.size() > 4096) return localized(QStringLiteral("BackupExportFailed"));
 
     QByteArray iv(16, Qt::Uninitialized);
-    if (BCryptGenRandom(nullptr, reinterpret_cast<PUCHAR>(iv.data()), static_cast<ULONG>(iv.size()),
-                        BCRYPT_USE_SYSTEM_PREFERRED_RNG) < 0) return localized(QStringLiteral("BackupExportFailed"));
+    if (!randomBytes(iv)) return localized(QStringLiteral("BackupExportFailed"));
     HmacSha256 hmac;
     AesCbc aes;
     if (!hmac.initialize(authenticationKey.bytes.constData(), authenticationKey.bytes.size())

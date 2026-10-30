@@ -49,7 +49,11 @@
 #include <QUrl>
 #include <QVBoxLayout>
 
+#ifdef Q_OS_WIN
 #include <windows.h>
+#else
+#include "macos/desktop_integration.h"
+#endif
 
 #include <QtConcurrent>
 
@@ -58,6 +62,9 @@ namespace {
 QString processKey(QString name) {
     name = name.trimmed();
     if (name.endsWith(QStringLiteral(".exe"), Qt::CaseInsensitive)) name.chop(4);
+#ifdef Q_OS_MACOS
+    if (name.endsWith(QStringLiteral(".app"), Qt::CaseInsensitive)) name.chop(4);
+#endif
     return name.toCaseFolded();
 }
 
@@ -428,7 +435,11 @@ SettingsDialog::SettingsDialog(AppSettings settings, QString databasePath, QStri
     startup_ = new oclero::qlementine::Switch(general);
     administrator_ = new oclero::qlementine::Switch(general);
     addCard(general, QStringLiteral("SettingsStartupCardHeader"), {}, startup_);
+#ifdef Q_OS_WIN
     addCard(general, QStringLiteral("SettingsRunAsAdministratorCardHeader"), QStringLiteral("SettingsRunAsAdministratorCardDescription"), administrator_);
+#else
+    administrator_->hide();
+#endif
     auto *monitorHeading = new QLabel(AppLocalization::get(QStringLiteral("SettingsMonitoringSectionText")), general);
     monitorHeading->setObjectName(QStringLiteral("SectionHeading"));
     pageLayout(general)->addWidget(monitorHeading);
@@ -457,7 +468,11 @@ SettingsDialog::SettingsDialog(AppSettings settings, QString databasePath, QStri
 
     auto *hotkeys = createPage(QStringLiteral("SettingsHotKeySectionText"));
     interceptWinV_ = new oclero::qlementine::Switch(hotkeys);
+#ifdef Q_OS_WIN
     addCard(hotkeys, QStringLiteral("SettingsInterceptWinVCardHeader"), QStringLiteral("SettingsInterceptWinVCardDescription"), interceptWinV_);
+#else
+    interceptWinV_->hide();
+#endif
     const struct { const char *name; const char *description; const char *key; bool global; } shortcutDefs[]{
         {"SettingsGlobalHotKeyCardHeader", "SettingsGlobalHotKeyCardDescription", "GlobalHotKey", true},
         {"SettingsPasteShortcutCardHeader", "", "PasteShortcut", false},
@@ -921,6 +936,7 @@ void SettingsDialog::chooseProcesses() {
     });
     // 窗口与进程查询放到后台；同一设置页会话复用候选，不随每次输入重新枚举。
     watcher->setFuture(QtConcurrent::run([] {
+#ifdef Q_OS_WIN
         QHash<QString, QString> windows;
         EnumWindows([](HWND window, LPARAM parameter) -> BOOL {
             if (!IsWindowVisible(window) || GetWindow(window, GW_OWNER)) return TRUE;
@@ -942,6 +958,9 @@ void SettingsDialog::chooseProcesses() {
             return TRUE;
         }, reinterpret_cast<LPARAM>(&windows));
         return windows;
+#else
+        return MacIntegration::runningApplications();
+#endif
     }));
 }
 

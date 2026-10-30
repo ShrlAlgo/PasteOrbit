@@ -8,21 +8,61 @@ add_executable(PasteOrbitNative WIN32
     data/text_formats.cpp
     services/backup_service.cpp
     services/update_service.cpp
+    ui/portable_icons.cpp
     ui/history_delegate.cpp
     ui/main_window.cpp
-    ui/main_window_position.cpp
     ui/main_window_preview.cpp
     ui/settings_dialog.cpp
-    app/app.rc
     resources/resources.qrc
 )
 target_include_directories(PasteOrbitNative PRIVATE app data services ui platform)
 # 平台实现由构建选择，存储层只依赖不含系统类型的接口。
 if(WIN32)
     target_sources(PasteOrbitNative PRIVATE
+        app/app.rc
+        ui/main_window_position.cpp
         platform/windows/data_protection.cpp
         platform/windows/paste_target.cpp
         platform/windows/global_hotkey.cpp)
+elseif(APPLE)
+    target_sources(PasteOrbitNative PRIVATE
+        platform/macos/desktop_integration.mm
+        platform/macos/platform_check.cpp
+        platform/macos/data_protection.cpp
+        platform/macos/global_hotkey.cpp
+        platform/macos/paste_target.mm
+        platform/macos/main_window_position.cpp)
+    target_compile_options(PasteOrbitNative PRIVATE "$<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>")
+    target_link_libraries(PasteOrbitNative PRIVATE
+        "-framework AppKit" "-framework Carbon" "-framework ApplicationServices" "-framework Security")
+    set_target_properties(PasteOrbitNative PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.pasteorbit.PasteOrbit"
+        MACOSX_BUNDLE_ICON_FILE "PasteOrbit.icns"
+        MACOSX_BUNDLE_BUNDLE_NAME "PasteOrbit"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PASTEORBIT_VERSION}"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${PASTEORBIT_VERSION}")
+    # Finder 和 Dock 使用 icns；图标转换只在 macOS 构建目录内进行。
+    set(iconset "${CMAKE_CURRENT_BINARY_DIR}/PasteOrbit.iconset")
+    set(icon_commands COMMAND "${CMAKE_COMMAND}" -E make_directory "${iconset}")
+    foreach(size 16 32 128 256 512)
+        math(EXPR doubled "${size} * 2")
+        list(APPEND icon_commands
+            COMMAND sips -z ${size} ${size} "${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/PasteOrbit.png"
+                --out "${iconset}/icon_${size}x${size}.png"
+            COMMAND sips -z ${doubled} ${doubled} "${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/PasteOrbit.png"
+                --out "${iconset}/icon_${size}x${size}@2x.png")
+    endforeach()
+    set(mac_icon "${CMAKE_CURRENT_BINARY_DIR}/PasteOrbit.icns")
+    add_custom_command(OUTPUT "${mac_icon}" ${icon_commands}
+        COMMAND iconutil -c icns "${iconset}" -o "${mac_icon}"
+        DEPENDS resources/icons/PasteOrbit.png VERBATIM)
+    set_source_files_properties("${mac_icon}" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+    target_sources(PasteOrbitNative PRIVATE "${mac_icon}")
+    add_test(NAME macos-platform COMMAND PasteOrbitNative --platform-check)
+    set_tests_properties(macos-platform PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60)
 endif()
 target_link_libraries(PasteOrbitNative PRIVATE
     Qt6::Widgets

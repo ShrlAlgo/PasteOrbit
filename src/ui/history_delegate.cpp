@@ -1,3 +1,4 @@
+#include "portable_icons.h"
 #include "history_delegate.h"
 
 #include "localization.h"
@@ -116,7 +117,12 @@ void HistoryDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
             fileFont.setPixelSize(24);
             painter->setFont(fileFont);
             painter->setPen(palette.color(QPalette::PlaceholderText));
+#ifdef Q_OS_WIN
             painter->drawText(QRect(left.left(), left.top(), 32, 50), Qt::AlignLeft | Qt::AlignVCenter, QChar(0xE8A5));
+#else
+            drawPortableIcon(painter, QRectF(left.left() + 2, left.top() + 16, 24, 24), QChar(0xE8A5),
+                             palette.color(QPalette::PlaceholderText));
+#endif
         }
         const QRect textRect(left.left() + 34, left.top(), left.width() - 34, 56);
         painter->setFont(option.font);
@@ -185,7 +191,11 @@ void HistoryDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
         const QChar glyph = action == Preview ? QChar(previewActive ? 0xED1A : 0xE890)
             : action == Pin ? QChar(index.data(HistoryModel::PinnedRole).toBool() ? 0xE735 : 0xE734)
                             : QChar(0xE712);
+#ifdef Q_OS_WIN
         painter->drawText(rect, Qt::AlignCenter, glyph);
+#else
+        drawPortableIcon(painter, QRectF(rect).adjusted(4, 4, -4, -4), glyph, iconColor);
+#endif
     }
 
     painter->restore();

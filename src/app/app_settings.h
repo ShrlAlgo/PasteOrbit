@@ -29,5 +29,6 @@ struct AppSettings {
     static QString normalizedShortcut(QString value);
     bool shortcutConflicts(const QString &value, const QString &bindingKey) const;
     bool save(const QString &path) const;
+    // 沿用已有接口名称：Windows 注册启动项，macOS 写入当前用户的 LaunchAgent。
     bool applyWindowsStartup() const;
 };

@@ -9,8 +9,12 @@
 #include <QStringList>
 #include <QSaveFile>
 #include <QSettings>
+#ifndef Q_OS_WIN
+#include <QXmlStreamWriter>
+#endif
 
 bool AppSettings::applyWindowsStartup() const {
+#ifdef Q_OS_WIN
     QSettings startup(QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"),
                       QSettings::NativeFormat);
     const QString command = startWithWindows
@@ -25,6 +29,33 @@ bool AppSettings::applyWindowsStartup() const {
     startup.sync();
     return startup.status() == QSettings::NoError
         && startup.value(QStringLiteral("PasteOrbit")).toString() == command;
+#else
+    // 保留既有配置字段；macOS 登录项使用当前用户的 LaunchAgent，不需要管理员权限。
+    const QString directory = QDir::homePath() + QStringLiteral("/Library/LaunchAgents");
+    const QString path = directory + QStringLiteral("/com.pasteorbit.PasteOrbit.plist");
+    if (!startWithWindows) return !QFile::exists(path) || QFile::remove(path);
+    if (!QDir().mkpath(directory)) return false;
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) return false;
+    QXmlStreamWriter xml(&file);
+    xml.writeStartDocument();
+    xml.writeDTD(QStringLiteral("<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">"));
+    xml.writeStartElement(QStringLiteral("plist"));
+    xml.writeAttribute(QStringLiteral("version"), QStringLiteral("1.0"));
+    xml.writeStartElement(QStringLiteral("dict"));
+    xml.writeTextElement(QStringLiteral("key"), QStringLiteral("Label"));
+    xml.writeTextElement(QStringLiteral("string"), QStringLiteral("com.pasteorbit.PasteOrbit"));
+    xml.writeTextElement(QStringLiteral("key"), QStringLiteral("ProgramArguments"));
+    xml.writeStartElement(QStringLiteral("array"));
+    xml.writeTextElement(QStringLiteral("string"), QCoreApplication::applicationFilePath());
+    xml.writeEndElement();
+    xml.writeTextElement(QStringLiteral("key"), QStringLiteral("RunAtLoad"));
+    xml.writeEmptyElement(QStringLiteral("true"));
+    xml.writeEndElement();
+    xml.writeEndElement();
+    xml.writeEndDocument();
+    return !xml.hasError() && file.commit();
+#endif
 }
 
 QString AppSettings::normalizedShortcut(QString value) {
@@ -53,7 +84,11 @@ bool AppSettings::shortcutConflicts(const QString &value, const QString &binding
     const auto combination = QKeySequence(value)[0];
     const auto modifiers = combination.keyboardModifiers();
     if (bindingKey == QStringLiteral("GlobalHotKey")) return modifiers == Qt::NoModifier;
-    return modifiers.testFlag(Qt::MetaModifier) || combination.key() == Qt::Key_Escape
+    return
+#ifdef Q_OS_WIN
+        modifiers.testFlag(Qt::MetaModifier) ||
+#endif
+        combination.key() == Qt::Key_Escape
         || combination.key() == Qt::Key_Menu || combination.key() == Qt::Key_Up
         || (modifiers == Qt::NoModifier
         && combination.key() >= Qt::Key_1 && combination.key() <= Qt::Key_9);

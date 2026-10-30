@@ -9,6 +9,26 @@
       "binaryDir": "${sourceDir}/build/windows-msvc",
       "cacheVariables": {
         "CMAKE_PREFIX_PATH": "C:/Qt"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
+      "name": "macos",
+      "displayName": "macOS Release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/macos",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "13.0"
       }
     }
   ],
@@ -23,6 +43,11 @@
       "name": "windows-release",
       "displayName": "Release",
       "configurePreset": "windows-msvc",
+      "configuration": "Release"
+    },
+    {
+      "name": "macos-release",
+      "configurePreset": "macos",
       "configuration": "Release"
     }
   ]

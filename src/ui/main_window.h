@@ -18,7 +18,14 @@
 #include <QThreadPool>
 #include <QTimer>
 #include <QWidget>
+#ifdef Q_OS_WIN
 #include <windows.h>
+using PanelTarget = HWND;
+using PanelBounds = RECT;
+#else
+using PanelTarget = quintptr;
+using PanelBounds = QRect;
+#endif
 
 #include <optional>
 #include <bitset>
@@ -44,7 +51,7 @@ public:
     MainWindow(QString dataDirectory, AppSettings settings);
     ~MainWindow() override;
 
-    void showPanel(bool fromTray = false, HWND requestedTarget = nullptr);
+    void showPanel(bool fromTray = false, PanelTarget requestedTarget = {});
     void hidePanel();
     void applySettings(const AppSettings &settings);
     void showSettings(SettingsDialog *page);
@@ -79,19 +86,21 @@ private:
     void updatePanelInputHooks();
     void activatePanel(QWidget *focus = nullptr);
     void preparePanelMenu(QMenu *menu);
-    bool isPanelWindow(HWND window) const;
+    bool isPanelWindow(PanelTarget window) const;
+#ifdef Q_OS_WIN
     static LRESULT CALLBACK panelKeyboardProc(int code, WPARAM message, LPARAM data);
     static LRESULT CALLBACK panelMouseProc(int code, WPARAM message, LPARAM data);
-    std::optional<RECT> capturePasteTarget(HWND window);
-    void positionPanel(bool preferCursor, std::optional<RECT> resolvedBounds = std::nullopt,
-                       std::optional<RECT> controlBounds = std::nullopt);
+#endif
+    std::optional<PanelBounds> capturePasteTarget(PanelTarget window);
+    void positionPanel(bool preferCursor, std::optional<PanelBounds> resolvedBounds = std::nullopt,
+                       std::optional<PanelBounds> controlBounds = std::nullopt);
     void refreshHistory();
     void loadMoreHistory();
     void updateVisibleThumbnails();
     void updateDateIndicator();
     void scheduleCapture();
     void captureClipboard();
-    void saveCapture(ClipboardCapture capture, QImage fallbackImage, DWORD sequence);
+    void saveCapture(ClipboardCapture capture, QImage fallbackImage, quint32 sequence);
     void cleanupPasteFiles();
     void pasteRecord(const QString &id, bool plainText = false, bool asFile = false,
                      std::optional<QByteArray> editedContent = std::nullopt);
@@ -176,17 +185,19 @@ private:
     bool captureSaving_ = false;
     bool startupUpdateCheckRequested_ = false;
     qint64 lastPasteFileCleanup_ = 0;
-    DWORD lastClipboardSequence_ = 0;
-    DWORD ownClipboardSequence_ = 0;
-    HWND targetWindow_ = nullptr;
-    HWND targetFocusWindow_ = nullptr;
+    quint32 lastClipboardSequence_ = 0;
+    quint32 ownClipboardSequence_ = 0;
+    PanelTarget targetWindow_ = {};
+    PanelTarget targetFocusWindow_ = {};
     QPoint dragStart_;
     QPoint dragWindowStart_;
     bool dragging_ = false;
+#ifdef Q_OS_WIN
     HHOOK winVHook_ = nullptr;
     HHOOK panelKeyboardHook_ = nullptr;
     HHOOK panelMouseHook_ = nullptr;
     std::bitset<256> swallowedPanelKeys_;
+#endif
     bool passiveBrowsing_ = false;
     QRect hoveredHistoryRow_;
     bool restoreWasPaused_ = false;

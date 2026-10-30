@@ -86,11 +86,11 @@
   <data name="ExcludedApplicationsTextBox.PlaceholderText" xml:space="preserve"><value>进程名，用分号分隔</value></data>
   <data name="SelectProcessButton.Content" xml:space="preserve"><value>选择进程</value></data>
   <data name="SettingsBackupCard.Header" xml:space="preserve"><value>本地加密备份</value></data>
-  <data name="SettingsBackupCard.Description" xml:space="preserve"><value>导出或恢复由当前 Windows 用户凭据保护的备份文件</value></data>
+  <data name="SettingsBackupCard.Description" xml:space="preserve"><value>导出或恢复由当前系统用户凭据保护的备份文件</value></data>
   <data name="ExportBackupButton.Content" xml:space="preserve"><value>导出备份</value></data>
   <data name="RestoreBackupButton.Content" xml:space="preserve"><value>恢复备份</value></data>
   <data name="SettingsProtectionTitle.Text" xml:space="preserve"><value>本地数据保护已启用</value></data>
-  <data name="SettingsProtectionDescription.Text" xml:space="preserve"><value>剪切板正文使用当前 Windows 用户凭据加密，其他用户无法直接读取。</value></data>
+  <data name="SettingsProtectionDescription.Text" xml:space="preserve"><value>剪切板正文使用当前系统用户凭据加密，其他用户无法直接读取。</value></data>
   <data name="RestoreDefaultsButton.Content" xml:space="preserve"><value>恢复默认</value></data>
   <data name="ShortcutPlaceholder" xml:space="preserve"><value>按下快捷键</value></data>
   <data name="HistoryDispatcherUnavailable" xml:space="preserve"><value>无法获取历史列表的 UI 调度队列。</value></data>
@@ -232,7 +232,7 @@
   <data name="InvalidBackupContentLength" xml:space="preserve"><value>备份内容长度无效。</value></data>
   <data name="BackupContentIncomplete" xml:space="preserve"><value>备份内容不完整。</value></data>
   <data name="BackupFileIncomplete" xml:space="preserve"><value>备份文件不完整。</value></data>
-  <data name="StartupRegistryOpenFailed" xml:space="preserve"><value>无法打开 Windows 启动项。</value></data>
+  <data name="StartupRegistryOpenFailed" xml:space="preserve"><value>无法更新登录启动项。</value></data>
   <data name="ApplicationPathUnavailable" xml:space="preserve"><value>无法定位 贴环 程序路径。</value></data>
   <data name="LanguageRestartTitle" xml:space="preserve"><value>需要重新启动</value></data>
   <data name="LanguageRestartMessage" xml:space="preserve"><value>重新启动 贴环 后将应用新的显示语言。</value></data>
@@ -252,7 +252,7 @@
   <data name="SettingsAboutSectionText" xml:space="preserve"><value>关于</value></data>
   <data name="AboutVersionText" xml:space="preserve"><value>版本 {0}</value></data>
   <data name="AboutDescriptionText" xml:space="preserve"><value>本地剪切板历史管理工具，支持文本、图片、文件、搜索和收藏。</value></data>
-  <data name="AboutPrivacyText" xml:space="preserve"><value>剪切板数据保存在本机，并使用当前 Windows 用户凭据保护。</value></data>
+  <data name="AboutPrivacyText" xml:space="preserve"><value>剪切板数据保存在本机，并使用当前系统用户凭据保护。</value></data>
   <data name="AboutCopyrightText" xml:space="preserve"><value>© 2026 贴环 contributors</value></data>
   <data name="GitHubProjectCardHeader" xml:space="preserve"><value>GitHub 项目主页</value></data>
   <data name="GitHubProjectCardDescription" xml:space="preserve"><value>查看源代码、提交问题或了解项目进展</value></data>
@@ -307,7 +307,7 @@
   <data name="ExportBackupButtonContent" xml:space="preserve"><value>导出备份</value></data>
   <data name="RestoreBackupButtonContent" xml:space="preserve"><value>恢复备份</value></data>
   <data name="SettingsProtectionTitleText" xml:space="preserve"><value>本地数据保护已启用</value></data>
-  <data name="SettingsProtectionDescriptionText" xml:space="preserve"><value>剪切板正文使用当前 Windows 用户凭据加密，其他用户无法直接读取。</value></data>
+  <data name="SettingsProtectionDescriptionText" xml:space="preserve"><value>剪切板正文使用当前系统用户凭据加密，其他用户无法直接读取。</value></data>
   <data name="RestoreDefaultsButtonContent" xml:space="preserve"><value>恢复所有设置的默认值</value></data>
   <data name="AppIconAutomationName" xml:space="preserve"><value>贴环 应用图标</value></data>
   <data name="MainSettingsButtonAutomationName" xml:space="preserve"><value>打开设置</value></data>
@@ -379,4 +379,5 @@
   <data name="ShortcutNotSet" xml:space="preserve"><value>未设置</value></data>
   <data name="SettingsNormalizeUnicodeHeader" xml:space="preserve"><value>Unicode 规范化（NFC）</value></data>
   <data name="SettingsNormalizeUnicodeDescription" xml:space="preserve"><value>修复纯文本中的拆字问题</value></data>
+  <data name="MacManualPasteHint" xml:space="preserve"><value>内容已复制，可手动粘贴。如需自动粘贴，请在“系统设置 → 隐私与安全性 → 辅助功能”中允许贴环。</value></data>
 </root>

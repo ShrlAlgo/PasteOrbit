@@ -10,13 +10,19 @@
 #include <QMutexLocker>
 #include <QScopeGuard>
 #include <QtConcurrent>
+#ifdef Q_OS_WIN
 #include <windows.h>
 #include <shellapi.h>
+#endif
 
 #include <utility>
 
 namespace {
 QImage fileTypeIcon(const QByteArray &content) {
+#ifndef Q_OS_WIN
+    Q_UNUSED(content);
+    return {}; // 卡片使用跨平台的文件矢量图标，避免工作线程调用 GUI 图标提供器。
+#else
     const auto paths = QJsonDocument::fromJson(content).array();
     // 多文件保留组合图标；单文件只按扩展名查关联，不访问可能已失效的本地或网络路径。
     if (paths.size() != 1 || !paths.first().isString()) return {};
@@ -48,6 +54,7 @@ QImage fileTypeIcon(const QByteArray &content) {
     const int cost = qMax(1, int((image.sizeInBytes() + 1023) / 1024));
     cache.insert(key, new QImage(image), cost);
     return image;
+#endif
 }
 }
 

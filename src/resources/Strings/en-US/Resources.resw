@@ -86,11 +86,11 @@
   <data name="ExcludedApplicationsTextBox.PlaceholderText" xml:space="preserve"><value>Process names separated by semicolons</value></data>
   <data name="SelectProcessButton.Content" xml:space="preserve"><value>Processes</value></data>
   <data name="SettingsBackupCard.Header" xml:space="preserve"><value>Encrypted local backup</value></data>
-  <data name="SettingsBackupCard.Description" xml:space="preserve"><value>Export or restore a backup protected with the current Windows user credentials</value></data>
+  <data name="SettingsBackupCard.Description" xml:space="preserve"><value>Export or restore a backup protected with the current system user credentials</value></data>
   <data name="ExportBackupButton.Content" xml:space="preserve"><value>Export</value></data>
   <data name="RestoreBackupButton.Content" xml:space="preserve"><value>Restore</value></data>
   <data name="SettingsProtectionTitle.Text" xml:space="preserve"><value>Local data protection is enabled</value></data>
-  <data name="SettingsProtectionDescription.Text" xml:space="preserve"><value>Clipboard content is encrypted with the current Windows user credentials and cannot be read directly by other users.</value></data>
+  <data name="SettingsProtectionDescription.Text" xml:space="preserve"><value>Clipboard content is encrypted with the current system user credentials and cannot be read directly by other users.</value></data>
   <data name="RestoreDefaultsButton.Content" xml:space="preserve"><value>Reset</value></data>
   <data name="ShortcutPlaceholder" xml:space="preserve"><value>Press shortcut keys</value></data>
   <data name="HistoryDispatcherUnavailable" xml:space="preserve"><value>The history list UI dispatcher is unavailable.</value></data>
@@ -232,7 +232,7 @@
   <data name="InvalidBackupContentLength" xml:space="preserve"><value>The backup content length is invalid.</value></data>
   <data name="BackupContentIncomplete" xml:space="preserve"><value>The backup content is incomplete.</value></data>
   <data name="BackupFileIncomplete" xml:space="preserve"><value>The backup file is incomplete.</value></data>
-  <data name="StartupRegistryOpenFailed" xml:space="preserve"><value>The Windows startup registry key could not be opened.</value></data>
+  <data name="StartupRegistryOpenFailed" xml:space="preserve"><value>Login startup settings could not be updated.</value></data>
   <data name="ApplicationPathUnavailable" xml:space="preserve"><value>The PasteOrbit application path could not be located.</value></data>
   <data name="LanguageRestartTitle" xml:space="preserve"><value>Restart required</value></data>
   <data name="LanguageRestartMessage" xml:space="preserve"><value>Restart PasteOrbit to apply the new display language.</value></data>
@@ -252,12 +252,12 @@
   <data name="SettingsAboutSectionText" xml:space="preserve"><value>About</value></data>
   <data name="AboutVersionText" xml:space="preserve"><value>Version {0}</value></data>
   <data name="AboutDescriptionText" xml:space="preserve"><value>A local clipboard history manager for text, images, files, search, and favorites.</value></data>
-  <data name="AboutPrivacyText" xml:space="preserve"><value>Clipboard data stays on this device and is protected with the current Windows user credentials.</value></data>
+  <data name="AboutPrivacyText" xml:space="preserve"><value>Clipboard data stays on this device and is protected with the current system user credentials.</value></data>
   <data name="AboutCopyrightText" xml:space="preserve"><value>© 2026 PasteOrbit contributors</value></data>
   <data name="GitHubProjectCardHeader" xml:space="preserve"><value>GitHub project</value></data>
   <data name="GitHubProjectCardDescription" xml:space="preserve"><value>View the source code, report issues, or follow project development</value></data>
   <data name="GitHubProjectButtonText" xml:space="preserve"><value>GitHub</value></data>
-  <data name="SettingsStartupCardHeader" xml:space="preserve"><value>Start with Windows</value></data>
+  <data name="SettingsStartupCardHeader" xml:space="preserve"><value>Start at login</value></data>
   <data name="SettingsStartupCardDescription" xml:space="preserve"><value>Run PasteOrbit automatically after signing in to Windows</value></data>
   <data name="SettingsRunAsAdministratorCardHeader" xml:space="preserve"><value>Run as administrator by default</value></data>
   <data name="SettingsRunAsAdministratorCardDescription" xml:space="preserve"><value>For elevated windows</value></data>
@@ -291,7 +291,7 @@
   <data name="SettingsExcludedAppsCardHeader" xml:space="preserve"><value>Ignored applications</value></data>
   <data name="SettingsExcludedAppsCardDescription" xml:space="preserve"><value>Search running apps or enter a process name and press Enter</value></data>
   <data name="SettingsBackupCardHeader" xml:space="preserve"><value>Encrypted local backup</value></data>
-  <data name="SettingsBackupCardDescription" xml:space="preserve"><value>Only this Windows user can restore</value></data>
+  <data name="SettingsBackupCardDescription" xml:space="preserve"><value>Only the current user can restore</value></data>
   <data name="ThemeSystemOptionContent" xml:space="preserve"><value>Use system setting</value></data>
   <data name="ThemeLightOptionContent" xml:space="preserve"><value>Light</value></data>
   <data name="ThemeDarkOptionContent" xml:space="preserve"><value>Dark</value></data>
@@ -307,7 +307,7 @@
   <data name="ExportBackupButtonContent" xml:space="preserve"><value>Export</value></data>
   <data name="RestoreBackupButtonContent" xml:space="preserve"><value>Restore</value></data>
   <data name="SettingsProtectionTitleText" xml:space="preserve"><value>Local data protection is enabled</value></data>
-  <data name="SettingsProtectionDescriptionText" xml:space="preserve"><value>Clipboard content is encrypted with the current Windows user credentials and cannot be read directly by other users.</value></data>
+  <data name="SettingsProtectionDescriptionText" xml:space="preserve"><value>Clipboard content is encrypted with the current system user credentials and cannot be read directly by other users.</value></data>
   <data name="RestoreDefaultsButtonContent" xml:space="preserve"><value>Restore all settings to defaults</value></data>
   <data name="AppIconAutomationName" xml:space="preserve"><value>PasteOrbit app icon</value></data>
   <data name="MainSettingsButtonAutomationName" xml:space="preserve"><value>Open settings</value></data>
@@ -379,4 +379,5 @@
   <data name="ShortcutNotSet" xml:space="preserve"><value>Not set</value></data>
   <data name="SettingsNormalizeUnicodeHeader" xml:space="preserve"><value>Normalize text (NFC)</value></data>
   <data name="SettingsNormalizeUnicodeDescription" xml:space="preserve"><value>Fix decomposed characters in plain text.</value></data>
+  <data name="MacManualPasteHint" xml:space="preserve"><value>Content copied. Paste manually, or allow PasteOrbit in System Settings → Privacy &amp; Security → Accessibility to enable automatic pasting.</value></data>
 </root>
