@@ -377,6 +377,6 @@
   <data name="ShortcutConflictMessage" xml:space="preserve"><value>快捷键 {0} 已被其他操作使用，或与固定导航按键冲突，请使用其他组合。</value></data>
   <data name="ShortcutConflictTitle" xml:space="preserve"><value>快捷键不可用</value></data>
   <data name="ShortcutNotSet" xml:space="preserve"><value>未设置</value></data>
-  <data name="SettingsNormalizeUnicodeHeader" xml:space="preserve"><value>Unicode 文本规范化（NFC）</value></data>
-  <data name="SettingsNormalizeUnicodeDescription" xml:space="preserve"><value>合并新复制的纯文本和 Markdown 中的韩文拆字等组合字符。图文和富文本保留原样，不改写原剪贴板。</value></data>
+  <data name="SettingsNormalizeUnicodeHeader" xml:space="preserve"><value>Unicode 规范化（NFC）</value></data>
+  <data name="SettingsNormalizeUnicodeDescription" xml:space="preserve"><value>修复纯文本中的拆字问题</value></data>
 </root>

@@ -556,14 +556,14 @@ SettingsDialog::SettingsDialog(AppSettings settings, QString databasePath, QStri
     addCard(privacy, QStringLiteral("SettingsExcludedAppsCardHeader"),
             QStringLiteral("SettingsExcludedAppsCardDescription"), excludedRow);
     auto *backupRow = new QWidget(privacy);
-    auto *backupLayout = new QVBoxLayout(backupRow);
+    auto *backupLayout = new QHBoxLayout(backupRow);
     backupLayout->setContentsMargins(0, 0, 0, 0);
     auto *exportButton = new QPushButton(AppLocalization::get(QStringLiteral("ExportBackupButtonContent")), backupRow);
     auto *restoreButton = new QPushButton(AppLocalization::get(QStringLiteral("RestoreBackupButtonContent")), backupRow);
     exportButton->setProperty("LocalizationKey", QStringLiteral("ExportBackupButtonContent"));
     restoreButton->setProperty("LocalizationKey", QStringLiteral("RestoreBackupButtonContent"));
-    backupLayout->addWidget(exportButton);
-    backupLayout->addWidget(restoreButton);
+    backupLayout->addWidget(exportButton, 1);
+    backupLayout->addWidget(restoreButton, 1);
     addCard(privacy, QStringLiteral("SettingsBackupCardHeader"), QStringLiteral("SettingsBackupCardDescription"), backupRow);
     connect(exportButton, &QPushButton::clicked, this, &SettingsDialog::exportBackup);
     connect(restoreButton, &QPushButton::clicked, this, &SettingsDialog::restoreBackup);
