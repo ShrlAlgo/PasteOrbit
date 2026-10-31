@@ -74,7 +74,8 @@ Login startup uses a per-user LaunchAgent and takes effect at the next login.
 Update notifications open the release download page instead of running the Windows installer.
 
 Run `macdeployqt build/macos/bin/Release/PasteOrbit.app -always-overwrite -codesign=-` before distribution to bundle Qt libraries.
-The macOS workflow builds separate Apple Silicon and Intel ZIPs on manual runs and version tags.
+The macOS workflow builds separate Apple Silicon and Intel DMGs on manual runs and version tags and attaches them to the matching Release.
+Open the DMG and drag PasteOrbit into Applications to install.
 Packages use ad-hoc signing; Developer ID signing and notarization are not configured.
 
 ## GitHub Actions

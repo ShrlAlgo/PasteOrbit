@@ -48,12 +48,17 @@ jobs:
           app="$PWD/build/macos/bin/Release/PasteOrbit.app"
           macdeployqt "$app" -always-overwrite -codesign=-
           codesign --verify --deep --strict "$app"
-          mkdir -p dist
-          ditto -c -k --sequesterRsrc --keepParent "$app" "dist/PasteOrbit-macos-${{ matrix.arch }}.zip"
+          # DMG 中提供应用和 Applications 入口，用户拖放即可安装。
+          staging="$PWD/build/macos/dmg"
+          mkdir -p "$staging" dist
+          ditto "$app" "$staging/PasteOrbit.app"
+          ln -sfn /Applications "$staging/Applications"
+          hdiutil create -volname PasteOrbit -srcfolder "$staging" -ov -format UDZO "dist/PasteOrbit-macos-${{ matrix.arch }}.dmg"
+          hdiutil verify "dist/PasteOrbit-macos-${{ matrix.arch }}.dmg"
       - uses: actions/upload-artifact@v7
         with:
           name: PasteOrbit-macos-${{ matrix.arch }}
-          path: dist/PasteOrbit-macos-${{ matrix.arch }}.zip
+          path: dist/PasteOrbit-macos-${{ matrix.arch }}.dmg
           if-no-files-found: error
 
   publish:
@@ -87,7 +92,7 @@ jobs:
           # 标签构建与 Windows 发布并行；等它创建 Release，不创建或改动已有发布说明。
           for attempt in {1..30}; do
             if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-              gh release upload "$tag" dist/PasteOrbit-macos-*.zip --clobber --repo "$GITHUB_REPOSITORY"
+              gh release upload "$tag" dist/PasteOrbit-macos-*.dmg --clobber --repo "$GITHUB_REPOSITORY"
               exit 0
             fi
             if [[ "$GITHUB_REF_TYPE" != tag ]]; then break; fi

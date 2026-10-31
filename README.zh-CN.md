@@ -75,7 +75,8 @@ macOS 面板使用普通激活交互，不提供 Win+V 接管和管理员运行�
 更新提示打开版本下载页，不运行 Windows 安装器。
 
 分发前运行 `macdeployqt build/macos/bin/Release/PasteOrbit.app -always-overwrite -codesign=-`，将 Qt 运行库放入应用包。
-仓库的 macOS 工作流分别构建 Apple Silicon 和 Intel ZIP，支持手动运行及版本标签触发。
+仓库的 macOS 工作流分别构建 Apple Silicon 和 Intel DMG，支持手动运行及版本标签触发，并将产物附加到对应版本的 Release。
+打开 DMG 后，将贴环拖入 Applications 即可安装。
 工作流使用临时签名，未配置 Apple Developer ID 签名和公证。
 
 ## GitHub Actions
