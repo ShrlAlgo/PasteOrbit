@@ -29,7 +29,6 @@
 #include <QKeyEvent>
 #include <QKeySequence>
 #include <QShortcut>
-#include <QLocale>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -305,6 +304,16 @@ signals:
     void valueCaptured(const QString &value);
 
 protected:
+#ifdef Q_OS_MACOS
+    bool event(QEvent *event) override {
+        // 录入时优先接收按键，避免 Command 组合先触发菜单或已有快捷键。
+        if (capturing_ && event->type() == QEvent::ShortcutOverride) {
+            event->accept();
+            return true;
+        }
+        return QPushButton::event(event);
+    }
+#endif
     void keyPressEvent(QKeyEvent *event) override {
         if (!capturing_) { QPushButton::keyPressEvent(event); return; }
         if (event->key() == Qt::Key_Escape) {
@@ -321,7 +330,7 @@ protected:
         if (value.isEmpty()) return;
         capturing_ = false;
         contextShortcut_->setEnabled(false);
-        setText(value);
+        setText(AppSettings::shortcutDisplayText(value));
         emit valueCaptured(value);
         event->accept();
     }
@@ -501,7 +510,7 @@ SettingsDialog::SettingsDialog(AppSettings settings, QString databasePath, QStri
             if (settings_.shortcutConflicts(value, key)) {
                 button->setText(button->previous_);
                 QMessageBox::warning(this, AppLocalization::get(QStringLiteral("ShortcutConflictTitle")),
-                    AppLocalization::format(QStringLiteral("ShortcutConflictMessage"), {value}));
+                    AppLocalization::format(QStringLiteral("ShortcutConflictMessage"), {AppSettings::shortcutDisplayText(value)}));
                 return;
             }
             if (key == QStringLiteral("GlobalHotKey")) settings_.globalHotKey = value;
@@ -796,7 +805,7 @@ void SettingsDialog::loadControls(const AppSettings &settings) {
         {"PlainTextPasteShortcut", settings.plainTextPasteShortcut}, {"PreviewShortcut", settings.previewShortcut},
         {"PinShortcut", settings.pinShortcut}, {"PasteAsFileShortcut", settings.pasteAsFileShortcut},
         {"MoreShortcut", settings.moreShortcut}, {"OpenShortcut", settings.openShortcut}};
-    for (auto it = values.cbegin(); it != values.cend(); ++it) if (shortcuts_.contains(it.key())) shortcuts_[it.key()]->setText(it.value().isEmpty() ? AppLocalization::get(QStringLiteral("ShortcutNotSet")) : it.value());
+    for (auto it = values.cbegin(); it != values.cend(); ++it) if (shortcuts_.contains(it.key())) shortcuts_[it.key()]->setText(it.value().isEmpty() ? AppLocalization::get(QStringLiteral("ShortcutNotSet")) : AppSettings::shortcutDisplayText(it.value()));
     loading_ = false;
 }
 
@@ -828,9 +837,7 @@ void SettingsDialog::persist(bool preserveSkippedVersion) {
         QMessageBox::warning(this, AppLocalization::get(QStringLiteral("SettingsSaveFailedTitle")),
                              AppLocalization::get(QStringLiteral("StartupRegistryOpenFailed")));
     }
-    QString language = settings_.language;
-    if (language.isEmpty()) language = QLocale().name().startsWith(QStringLiteral("en"))
-        ? QStringLiteral("en-US") : QStringLiteral("zh-CN");
+    const QString language = AppLocalization::resolveLanguage(settings_.language);
     // 主题切换不重新解析本地化 XML、遍历所有设置控件或写启动项。
     if (language != AppLocalization::activeLanguage()) {
         AppLocalization::load(language);

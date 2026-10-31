@@ -8,6 +8,8 @@
 #include <QDebug>
 #include <QDir>
 #include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTemporaryDir>
 
 namespace MacIntegration {
@@ -43,6 +45,61 @@ int runPlatformChecks() {
     if (!check(store.initialize().isEmpty() && store.save(capture, &item).isEmpty()
                && store.content(item.id) == content, "encrypted history storage")) return 1;
     AppSettings settings;
+    if (!check(AppSettings::shortcutDisplayText(QStringLiteral("Ctrl + O")) == QStringLiteral("⌘O")
+               && AppSettings::shortcutDisplayText(QStringLiteral("Alt + V")) == QStringLiteral("⌥V")
+               && AppSettings::shortcutDisplayText(QStringLiteral("Meta + O")) == QStringLiteral("⌃O")
+               && AppSettings::shortcutDisplayText(QStringLiteral("Enter")) == QStringLiteral("↩"),
+               "native shortcut symbols")) return 1;
+    if (!check(AppLocalization::resolveLanguage(QStringLiteral("en-US")) == QStringLiteral("en-US")
+               && AppLocalization::resolveLanguage(QStringLiteral("zh-CN")) == QStringLiteral("zh-CN")
+               && QStringList{QStringLiteral("en-US"), QStringLiteral("zh-CN")}
+                   .contains(AppLocalization::resolveLanguage()), "interface language selection")) return 1;
+    const struct { const char *key; const QString *value; } bindings[]{
+        {"GlobalHotKey", &settings.globalHotKey}, {"SequenceCopyShortcut", &settings.sequenceCopyShortcut},
+        {"SequencePasteShortcut", &settings.sequencePasteShortcut}, {"PasteShortcut", &settings.pasteShortcut},
+        {"PlainTextPasteShortcut", &settings.plainTextPasteShortcut}, {"PreviewShortcut", &settings.previewShortcut},
+        {"PinShortcut", &settings.pinShortcut}, {"PasteAsFileShortcut", &settings.pasteAsFileShortcut},
+        {"MoreShortcut", &settings.moreShortcut}, {"OpenShortcut", &settings.openShortcut}};
+    for (const auto &binding : bindings)
+        if (!check(!settings.shortcutConflicts(*binding.value, QString::fromLatin1(binding.key)),
+                   "default shortcuts do not conflict")) return 1;
+    if (!check(settings.shortcutConflicts(QStringLiteral("Ctrl+Shift+V"), QStringLiteral("GlobalHotKey"))
+               && settings.shortcutConflicts(QStringLiteral("Ctrl+V"), QStringLiteral("SequencePasteShortcut"))
+               && settings.shortcutConflicts(QStringLiteral("Meta+Space"), QStringLiteral("GlobalHotKey"))
+               && settings.shortcutConflicts(QStringLiteral("Ctrl+Q"), QStringLiteral("PinShortcut")),
+               "system and editing shortcuts reserved")) return 1;
+    const auto writeSettings = [&settingsPath](const QJsonObject &json) {
+        QFile file(settingsPath);
+        const auto bytes = QJsonDocument(json).toJson();
+        return file.open(QIODevice::WriteOnly | QIODevice::Truncate) && file.write(bytes) == bytes.size();
+    };
+    QJsonObject legacy{{"GlobalHotKey", "Ctrl + Shift + V"}, {"SequenceCopyShortcut", "Alt + C"},
+        {"SequencePasteShortcut", "Alt + V"}, {"MoreShortcut", "Shift + F10"}};
+    if (!check(writeSettings(legacy), "legacy shortcut fixture")) return 1;
+    const auto migrated = AppSettings::load(settingsPath);
+    if (!check(migrated.globalHotKey == settings.globalHotKey
+               && migrated.sequenceCopyShortcut == settings.sequenceCopyShortcut
+               && migrated.sequencePasteShortcut == settings.sequencePasteShortcut
+               && migrated.moreShortcut == settings.moreShortcut, "legacy defaults migrated")) return 1;
+    legacy.insert(QStringLiteral("GlobalHotKey"), QStringLiteral("Meta+Alt+P"));
+    if (!check(writeSettings(legacy)
+               && AppSettings::load(settingsPath).globalHotKey == QStringLiteral("Meta+Alt+P"),
+               "custom shortcut preserved")) return 1;
+    legacy.insert(QStringLiteral("GlobalHotKey"), QStringLiteral("Ctrl+Shift+V"));
+    legacy.insert(QStringLiteral("PinShortcut"), settings.globalHotKey);
+    if (!check(writeSettings(legacy)
+               && AppSettings::normalizedShortcut(AppSettings::load(settingsPath).globalHotKey)
+                   == AppSettings::normalizedShortcut(QStringLiteral("Ctrl+Shift+V")),
+               "migration does not overwrite another binding")) return 1;
+    legacy.remove(QStringLiteral("PinShortcut"));
+    legacy.insert(QStringLiteral("MacShortcutDefaultsVersion"), 1);
+    if (!check(writeSettings(legacy)
+               && AppSettings::load(settingsPath).globalHotKey == QStringLiteral("Ctrl+Shift+V"),
+               "migration runs only once")) return 1;
+    if (!check(settings.save(settingsPath)
+               && AppSettings::load(settingsPath).globalHotKey == settings.globalHotKey
+               && AppSettings::load(settingsPath).sequencePasteShortcut == settings.sequencePasteShortcut,
+               "portable shortcut persistence")) return 1;
     settings.maxHistoryEntries = 1234;
     if (!check(settings.save(settingsPath)
                && BackupService::exportToFile(database, settingsPath, backupPath).isEmpty(), "backup export")) return 1;

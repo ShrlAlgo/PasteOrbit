@@ -353,7 +353,7 @@
   <data name="TableExportExtension" xml:space="preserve"><value>Choose a .csv or .tsv extension</value></data>
   <data name="TableExportFailed" xml:space="preserve"><value>Table export failed</value></data>
   <data name="TableExported" xml:space="preserve"><value>Table exported</value></data>
-  <data name="FormatStructuredText" xml:space="preserve"><value>Format JSON/XML</value></data>
+  <data name="FormatStructuredText" xml:space="preserve"><value>Format</value></data>
   <data name="StructuredFormatUnavailable" xml:space="preserve"><value>Enter valid JSON or simple XML. XML with mixed content, DTDs, or preserved whitespace is left unchanged.</value></data>
   <data name="FilePreviewUnavailable" xml:space="preserve"><value>The file is missing, unreadable, or not a regular file.</value></data>
   <data name="TextFilePreviewTooLarge" xml:space="preserve"><value>This text file exceeds 2 MiB. Open it in an external editor.</value></data>
@@ -374,7 +374,7 @@
   <data name="SettingsOpenShortcutCardDescription" xml:space="preserve"><value>Opens one target directly or lists multiple targets; available in the history list</value></data>
   <data name="SettingsOpenShortcutCardHeader" xml:space="preserve"><value>Open link or path</value></data>
   <data name="SettingsPlainTextShortcutCardDescription" xml:space="preserve"><value>Pastes rich text without HTML or RTF formatting; plain text stays unchanged</value></data>
-  <data name="ShortcutConflictMessage" xml:space="preserve"><value>Shortcut {0} is already assigned or conflicts with fixed navigation keys. Choose another combination.</value></data>
+  <data name="ShortcutConflictMessage" xml:space="preserve"><value>Shortcut {0} is already assigned or conflicts with navigation, system, or common editing shortcuts. Choose another combination.</value></data>
   <data name="ShortcutConflictTitle" xml:space="preserve"><value>Shortcut unavailable</value></data>
   <data name="ShortcutNotSet" xml:space="preserve"><value>Not set</value></data>
   <data name="SettingsNormalizeUnicodeHeader" xml:space="preserve"><value>Normalize text (NFC)</value></data>

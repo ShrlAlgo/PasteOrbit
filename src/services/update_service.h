@@ -16,7 +16,11 @@ public:
     explicit UpdateService(QObject *parent = nullptr);
     void check(QWidget *parent, const QString &settingsPath, bool automatic = false);
 
+signals:
+    void dialogAboutToShow(QWidget *parent);
+
 private:
+    bool prepareDialog();
     void handleCheckFinished(QNetworkReply *reply);
     void showResult();
     void startDownload();

@@ -115,7 +115,7 @@ if ((-not (Test-Path -LiteralPath $cmakePath -PathType Leaf)) -or (-not (Test-Pa
 $env:PATH = "$toolchainDirectory;$env:PATH"
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
-    $Version = '2.5.19'
+    $Version = '2.5.20'
 }
 if ($useMsvc) {
     # 本地发布复用日常 Release 构建及目标进程处理，不再维护第二份 MSVC 缓存。

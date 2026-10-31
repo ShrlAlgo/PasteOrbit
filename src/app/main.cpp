@@ -11,7 +11,6 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QIcon>
-#include <QLocale>
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QMessageBox>
@@ -128,10 +127,7 @@ int main(int argc, char *argv[]) {
 #endif
     QDir().mkpath(dataDirectory);
     AppSettings settings = AppSettings::load(dataDirectory + QStringLiteral("/settings.json"));
-    QString language = settings.language;
-    if (language.isEmpty()) language = QLocale().name().startsWith(QStringLiteral("en"))
-        ? QStringLiteral("en-US") : QStringLiteral("zh-CN");
-    AppLocalization::load(language);
+    AppLocalization::load(settings.language);
     application.setApplicationDisplayName(AppLocalization::get(QStringLiteral("ApplicationDisplayName")));
 
 #ifdef Q_OS_WIN
@@ -249,6 +245,8 @@ int main(int argc, char *argv[]) {
         });
         window.showSettings(dialog);
     });
+    QObject::connect(&updateService, &UpdateService::dialogAboutToShow,
+                     &window, &MainWindow::activatePanel);
     QObject::connect(&window, &MainWindow::checkUpdatesRequested, &updateService, [&updateService, &window] {
         updateService.check(&window, window.settingsPath());
     });

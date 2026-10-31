@@ -936,7 +936,7 @@ void MainWindow::buildUi() {
     historyList_->setModel(model_);
     historyList_->setItemDelegate(delegate_);
     // Windows 的 Shift+F10 必须正式注册，否则 Qt 会交回系统，不发送 KeyPress。
-    moreShortcut_ = new QShortcut(QKeySequence(QString(settings_.moreShortcut).remove(QLatin1Char(' '))), historyList_);
+    moreShortcut_ = new QShortcut(QKeySequence::fromString(QString(settings_.moreShortcut).remove(QLatin1Char(' ')), QKeySequence::PortableText), historyList_);
     moreShortcut_->setContext(Qt::WidgetShortcut);
     moreShortcut_->setAutoRepeat(false);
     connect(moreShortcut_, &QShortcut::activated, this, [this] {
@@ -1119,7 +1119,7 @@ void MainWindow::applySettings(const AppSettings &settings) {
     const bool cleanupChanged = settings_.retentionDays != settings.retentionDays
         || settings_.maxHistoryEntries != settings.maxHistoryEntries;
     settings_ = settings;
-    moreShortcut_->setKey(QKeySequence(QString(settings_.moreShortcut).remove(QLatin1Char(' '))));
+    moreShortcut_->setKey(QKeySequence::fromString(QString(settings_.moreShortcut).remove(QLatin1Char(' ')), QKeySequence::PortableText));
     if (themeChanged) applyTheme();
     if (languageChanged) {
         // 字体不再随语言切换；仅关闭旧语言浮层并更新文案，不重复应用全局主题。
@@ -1162,13 +1162,13 @@ void MainWindow::registerHotkey() {
     const auto bind = [this](int id, const QString &key, std::function<void()> action) {
         if (key.isEmpty()) { GlobalHotkey::remove(winId(), id); return; }
         if (!GlobalHotkey::replace(winId(), id, key, std::move(action)))
-            showStatus(AppLocalization::format(QStringLiteral("GlobalHotKeyRegistrationFailed"), {key}));
+            showStatus(AppLocalization::format(QStringLiteral("GlobalHotKeyRegistrationFailed"), {AppSettings::shortcutDisplayText(key)}));
     };
     bind(HotkeyId + 1, settings_.sequenceCopyShortcut, [this] { sequenceCopy(); });
     bind(HotkeyId + 2, settings_.sequencePasteShortcut, [this] { sequencePaste(); });
     if (!GlobalHotkey::replace(winId(), HotkeyId, settings_.globalHotKey, [this] { showPanel(); })) {
         showStatus(AppLocalization::format(QStringLiteral("GlobalHotKeyRegistrationFailed"),
-                                           {settings_.globalHotKey}));
+                                           {AppSettings::shortcutDisplayText(settings_.globalHotKey)}));
     }
 }
 
@@ -1680,7 +1680,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
                     label = AppLocalization::get(hovered.data(HistoryModel::PinnedRole).toBool()
                         ? QStringLiteral("UnpinItem") : QStringLiteral("PinItem"));
                 else if (action == HistoryDelegate::More)
-                    label = AppLocalization::format(QStringLiteral("RecordMoreShortcutTooltip"), {settings_.moreShortcut});
+                    label = AppLocalization::format(QStringLiteral("RecordMoreShortcutTooltip"), {AppSettings::shortcutDisplayText(settings_.moreShortcut)});
                 if (!label.isEmpty()) { QToolTip::showText(help->globalPos(), label, historyList_->viewport()); return true; }
             }
             QToolTip::hideText();

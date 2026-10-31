@@ -353,7 +353,7 @@
   <data name="TableExportExtension" xml:space="preserve"><value>请选择 .csv 或 .tsv 扩展名</value></data>
   <data name="TableExportFailed" xml:space="preserve"><value>表格导出失败</value></data>
   <data name="TableExported" xml:space="preserve"><value>表格已导出</value></data>
-  <data name="FormatStructuredText" xml:space="preserve"><value>格式化 JSON/XML</value></data>
+  <data name="FormatStructuredText" xml:space="preserve"><value>格式化</value></data>
   <data name="StructuredFormatUnavailable" xml:space="preserve"><value>请输入有效 JSON 或普通 XML；含混合正文、DTD 或保留空白的 XML 不作格式化。</value></data>
   <data name="FilePreviewUnavailable" xml:space="preserve"><value>文件不存在、不可读取或不是普通文件。</value></data>
   <data name="TextFilePreviewTooLarge" xml:space="preserve"><value>文本文件超过 2 MiB，请使用外部编辑器查看。</value></data>
@@ -374,7 +374,7 @@
   <data name="SettingsOpenShortcutCardDescription" xml:space="preserve"><value>单个目标直接打开，多个目标显示列表；仅在历史列表中使用</value></data>
   <data name="SettingsOpenShortcutCardHeader" xml:space="preserve"><value>打开链接或路径</value></data>
   <data name="SettingsPlainTextShortcutCardDescription" xml:space="preserve"><value>富文本仅粘贴正文，不附带 HTML、RTF 等格式；普通文本内容不变</value></data>
-  <data name="ShortcutConflictMessage" xml:space="preserve"><value>快捷键 {0} 已被其他操作使用，或与固定导航按键冲突，请使用其他组合。</value></data>
+  <data name="ShortcutConflictMessage" xml:space="preserve"><value>快捷键 {0} 已被其他操作使用，或与固定导航、系统及常用编辑快捷键冲突，请使用其他组合。</value></data>
   <data name="ShortcutConflictTitle" xml:space="preserve"><value>快捷键不可用</value></data>
   <data name="ShortcutNotSet" xml:space="preserve"><value>未设置</value></data>
   <data name="SettingsNormalizeUnicodeHeader" xml:space="preserve"><value>Unicode 规范化（NFC）</value></data>

@@ -62,13 +62,20 @@ void UpdateService::check(QWidget *parent, const QString &settingsPath, bool aut
     connect(reply, &QNetworkReply::finished, this, [this, reply] { handleCheckFinished(reply); });
 }
 
+// 仅在需要显示界面时通知宿主退出被动置顶，后台检查不改变焦点。
+bool UpdateService::prepareDialog() {
+    if (!parent_) return false;
+    emit dialogAboutToShow(parent_);
+    return !parent_.isNull();
+}
+
 void UpdateService::handleCheckFinished(QNetworkReply *reply) {
     checking_ = false;
     const QByteArray body = reply->readAll();
     const auto networkError = reply->error();
     reply->deleteLater();
     if (networkError != QNetworkReply::NoError) {
-        if (!automatic_ && parent_)
+        if (!automatic_ && prepareDialog())
             QMessageBox::warning(parent_, localized(QStringLiteral("UpdateCheckFailedTitle")),
                                  localized(QStringLiteral("UpdateCheckFailedMessage")));
         return;
@@ -86,7 +93,7 @@ void UpdateService::handleCheckFinished(QNetworkReply *reply) {
     const QVersionNumber currentVersion = QVersionNumber::fromString(QApplication::applicationVersion());
     if (!document.isObject() || !versionPattern.match(releaseTag_).hasMatch()
         || latestVersion.isNull() || currentVersion.isNull() || !isHttpsUrl(releaseUrl_)) {
-        if (!automatic_ && parent_)
+        if (!automatic_ && prepareDialog())
             QMessageBox::warning(parent_, localized(QStringLiteral("UpdateCheckFailedTitle")),
                                  localized(QStringLiteral("UpdateCheckFailedMessage")));
         return;
@@ -111,7 +118,7 @@ void UpdateService::handleCheckFinished(QNetworkReply *reply) {
     }
 
     if (latestVersion <= currentVersion) {
-        if (!automatic_ && parent_)
+        if (!automatic_ && prepareDialog())
             QMessageBox::information(parent_, localized(QStringLiteral("UpdateNoUpdateTitle")),
                 AppLocalization::format(QStringLiteral("UpdateNoUpdateMessage"), {currentVersion.toString()}));
         return;
@@ -125,7 +132,7 @@ void UpdateService::handleCheckFinished(QNetworkReply *reply) {
 }
 
 void UpdateService::showResult() {
-    if (!parent_) return;
+    if (!prepareDialog()) return;
     const QString currentVersion = QApplication::applicationVersion();
     QMessageBox dialog(parent_);
     dialog.setIcon(QMessageBox::Information);
@@ -179,7 +186,7 @@ void UpdateService::ignoreCurrentVersion() {
 }
 
 void UpdateService::startDownload() {
-    if (downloading_ || installerUrl_.isEmpty()) return;
+    if (downloading_ || installerUrl_.isEmpty() || !prepareDialog()) return;
     if (QFileInfo(installerName_).fileName() != installerName_
         || !installerName_.endsWith(QStringLiteral(".exe"), Qt::CaseInsensitive)) {
         showDownloadFailure();
@@ -289,7 +296,7 @@ void UpdateService::handleDownloadFinished() {
 }
 
 void UpdateService::showDownloadFailure() {
-    if (parent_)
+    if (prepareDialog())
         QMessageBox::warning(parent_, localized(QStringLiteral("UpdateDownloadFailedTitle")),
                              localized(QStringLiteral("UpdateDownloadFailedMessage")));
 }

@@ -53,6 +53,7 @@ public:
 
     void showPanel(bool fromTray = false, PanelTarget requestedTarget = {});
     void hidePanel();
+    void activatePanel(QWidget *focus = nullptr);
     void applySettings(const AppSettings &settings);
     void showSettings(SettingsDialog *page);
     void leaveSettings();
@@ -86,7 +87,6 @@ private:
     void updateWinVHook();
     bool setPassiveBrowsing(bool passive);
     void updatePanelInputHooks();
-    void activatePanel(QWidget *focus = nullptr);
     void preparePanelMenu(QMenu *menu);
     bool isPanelWindow(PanelTarget window) const;
 #ifdef Q_OS_WIN

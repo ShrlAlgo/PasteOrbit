@@ -27,8 +27,20 @@ public:
 };
 }
 
+// 界面语言按系统偏好顺序匹配，不能用地区格式推断；未支持的语言回退到英文。
+QString AppLocalization::resolveLanguage(const QString &requestedLanguage) {
+    if (requestedLanguage == QStringLiteral("zh-CN") || requestedLanguage == QStringLiteral("en-US"))
+        return requestedLanguage;
+    for (const auto &preferred : QLocale::system().uiLanguages()) {
+        const auto candidate = QLocale(preferred).language();
+        if (candidate == QLocale::Chinese) return QStringLiteral("zh-CN");
+        if (candidate == QLocale::English) return QStringLiteral("en-US");
+    }
+    return QStringLiteral("en-US");
+}
+
 void AppLocalization::load(const QString &requestedLanguage) {
-    language = requestedLanguage == QStringLiteral("en-US") ? requestedLanguage : QStringLiteral("zh-CN");
+    language = resolveLanguage(requestedLanguage);
     strings.clear();
     QFile file(QStringLiteral(":/Strings/%1/Resources.resw").arg(language));
     if (!file.open(QIODevice::ReadOnly)) return;

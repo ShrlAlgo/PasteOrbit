@@ -37,6 +37,7 @@ elseif(APPLE)
         "-framework AppKit" "-framework Carbon" "-framework ApplicationServices" "-framework Security")
     set_target_properties(PasteOrbitNative PROPERTIES
         MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/platform/macos/Info.plist.in"
         MACOSX_BUNDLE_GUI_IDENTIFIER "com.pasteorbit.PasteOrbit"
         MACOSX_BUNDLE_ICON_FILE "PasteOrbit.icns"
         MACOSX_BUNDLE_BUNDLE_NAME "PasteOrbit"

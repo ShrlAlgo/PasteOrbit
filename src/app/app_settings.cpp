@@ -61,7 +61,19 @@ bool AppSettings::applyWindowsStartup() const {
 QString AppSettings::normalizedShortcut(QString value) {
     value.remove(QLatin1Char(' '));
     value.replace(QStringLiteral("Return"), QStringLiteral("Enter"), Qt::CaseInsensitive);
-    return QKeySequence(value).toString(QKeySequence::PortableText).toCaseFolded();
+    return QKeySequence::fromString(value, QKeySequence::PortableText).toString(QKeySequence::PortableText).toCaseFolded();
+}
+
+// 显示使用平台原生符号，保存和匹配仍使用 PortableText，避免改变已有绑定。
+QString AppSettings::shortcutDisplayText(QString value) {
+#ifdef Q_OS_MACOS
+    value.remove(QLatin1Char(' '));
+    // 已有绑定把 Return 与 Enter 合并，界面显示为常用的回车键。
+    value.replace(QStringLiteral("Enter"), QStringLiteral("Return"), Qt::CaseInsensitive);
+    return QKeySequence::fromString(value, QKeySequence::PortableText).toString(QKeySequence::NativeText);
+#else
+    return value;
+#endif
 }
 
 bool AppSettings::shortcutConflicts(const QString &value, const QString &bindingKey) const {
@@ -82,8 +94,26 @@ bool AppSettings::shortcutConflicts(const QString &value, const QString &binding
         QStringLiteral("Delete"), QStringLiteral("Menu"), QStringLiteral("Ctrl+F")};
     for (const auto &shortcut : reserved)
         if (normalizedShortcut(shortcut) == normalized) return true;
-    const auto combination = QKeySequence(value)[0];
+    const auto combination = QKeySequence::fromString(value, QKeySequence::PortableText)[0];
     const auto modifiers = combination.keyboardModifiers();
+#ifdef Q_OS_MACOS
+    // 固定的应用操作和系统切换不能被记录快捷键覆盖；全局操作还应避开常见编辑组合。
+    const QStringList systemReserved{QStringLiteral("Ctrl+Q"), QStringLiteral("Ctrl+W"),
+        QStringLiteral("Ctrl+H"), QStringLiteral("Ctrl+M"), QStringLiteral("Ctrl+,"),
+        QStringLiteral("Ctrl+Tab"), QStringLiteral("Ctrl+Shift+Tab"), QStringLiteral("Ctrl+Space"),
+        QStringLiteral("Ctrl+Alt+Space"), QStringLiteral("Meta+Space"), QStringLiteral("Meta+Alt+Space"),
+        QStringLiteral("Meta+Ctrl+Q"), QStringLiteral("Ctrl+Alt+Esc")};
+    for (const auto &shortcut : systemReserved)
+        if (normalizedShortcut(shortcut) == normalized) return true;
+    if (bindingKey == QStringLiteral("GlobalHotKey") || bindingKey.startsWith(QStringLiteral("Sequence"))) {
+        const QStringList editingReserved{QStringLiteral("Ctrl+C"), QStringLiteral("Ctrl+V"),
+            QStringLiteral("Ctrl+X"), QStringLiteral("Ctrl+A"), QStringLiteral("Ctrl+Z"),
+            QStringLiteral("Ctrl+Shift+Z"), QStringLiteral("Ctrl+Shift+C"), QStringLiteral("Ctrl+Shift+V"),
+            QStringLiteral("Ctrl+Alt+C"), QStringLiteral("Ctrl+Alt+V"), QStringLiteral("Ctrl+Alt+Shift+V")};
+        for (const auto &shortcut : editingReserved)
+            if (normalizedShortcut(shortcut) == normalized) return true;
+    }
+#endif
     if (bindingKey == QStringLiteral("GlobalHotKey") || bindingKey.startsWith(QStringLiteral("Sequence"))) return modifiers == Qt::NoModifier;
     return
 #ifdef Q_OS_WIN
@@ -115,6 +145,21 @@ AppSettings AppSettings::load(const QString &path) {
     settings.pasteAsFileShortcut = json.value(QStringLiteral("PasteAsFileShortcut")).toString(settings.pasteAsFileShortcut);
     settings.moreShortcut = json.value(QStringLiteral("MoreShortcut")).toString(settings.moreShortcut);
     settings.openShortcut = json.value(QStringLiteral("OpenShortcut")).toString(settings.openShortcut);
+#ifdef Q_OS_MACOS
+    // 只迁移旧版默认值一次；自定义组合以及迁移后用户重新选择的组合保持不变。
+    if (json.value(QStringLiteral("MacShortcutDefaultsVersion")).toInt() < 1) {
+        const AppSettings defaults;
+        const auto migrate = [&settings](QString &value, const QString &oldValue,
+                                         const QString &replacement, const QString &key) {
+            if (normalizedShortcut(value) == normalizedShortcut(oldValue)
+                && !settings.shortcutConflicts(replacement, key)) value = replacement;
+        };
+        migrate(settings.globalHotKey, QStringLiteral("Ctrl+Shift+V"), defaults.globalHotKey, QStringLiteral("GlobalHotKey"));
+        migrate(settings.sequenceCopyShortcut, QStringLiteral("Alt+C"), defaults.sequenceCopyShortcut, QStringLiteral("SequenceCopyShortcut"));
+        migrate(settings.sequencePasteShortcut, QStringLiteral("Alt+V"), defaults.sequencePasteShortcut, QStringLiteral("SequencePasteShortcut"));
+        migrate(settings.moreShortcut, QStringLiteral("Shift+F10"), defaults.moreShortcut, QStringLiteral("MoreShortcut"));
+    }
+#endif
     // 旧配置可能已把 Ctrl+O 用于其他操作，升级时保留原绑定，不抢占按键。
     if (!json.contains(QStringLiteral("OpenShortcut"))
         && settings.shortcutConflicts(settings.openShortcut, QStringLiteral("OpenShortcut"))) settings.openShortcut.clear();
@@ -146,6 +191,9 @@ bool AppSettings::save(const QString &path) const {
     const QFileInfo info(path);
     if (!QDir().mkpath(info.absolutePath())) return false;
     QJsonObject json;
+#ifdef Q_OS_MACOS
+    json.insert(QStringLiteral("MacShortcutDefaultsVersion"), 1);
+#endif
     json.insert(QStringLiteral("Language"), language);
     json.insert(QStringLiteral("GlobalHotKey"), globalHotKey);
     json.insert(QStringLiteral("SequencePasteShortcut"), sequencePasteShortcut);
