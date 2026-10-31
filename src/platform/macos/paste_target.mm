@@ -29,7 +29,7 @@ std::optional<Snapshot> capture(quintptr process) {
                     kAXBoundsForRangeParameterizedAttribute, range, &bounds) == kAXErrorSuccess && bounds) {
                 CGRect rect{};
                 if (CFGetTypeID(bounds) == AXValueGetTypeID()
-                    && AXValueGetValue(static_cast<AXValueRef>(bounds), kAXValueCGRectType, &rect)
+                    && AXValueGetValue(static_cast<AXValueRef>(bounds), kAXValueTypeCGRect, &rect)
                     && rect.size.height > 0)
                     result.caret = QRect(qRound(rect.origin.x), qRound(rect.origin.y),
                                          qMax(1, qRound(rect.size.width)), qRound(rect.size.height));
