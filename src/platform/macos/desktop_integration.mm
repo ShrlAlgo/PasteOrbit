@@ -101,9 +101,11 @@ void installDockReopenHandler(QObject *context, std::function<void()> reopen) {
             andSelector:@selector(handleReopen:withReplyEvent:)
             forEventClass:kCoreEventClass andEventID:kAEReopenApplication];
     });
-    QObject::connect(context, &QObject::destroyed, [] {
+    // 连接持续强持有 handler，不能让它随一次性安装回调结束而释放。
+    QObject::connect(context, &QObject::destroyed, [handler] {
         [NSAppleEventManager.sharedAppleEventManager removeEventHandlerForEventClass:kCoreEventClass
             andEventID:kAEReopenApplication];
+        handler.reopen = nil;
     });
 }
 
