@@ -48,7 +48,7 @@ int runPlatformChecks() {
     if (!check(AppSettings::shortcutDisplayText(QStringLiteral("Ctrl + O")) == QStringLiteral("⌘O")
                && AppSettings::shortcutDisplayText(QStringLiteral("Alt + V")) == QStringLiteral("⌥V")
                && AppSettings::shortcutDisplayText(QStringLiteral("Meta + O")) == QStringLiteral("⌃O")
-               && AppSettings::shortcutDisplayText(QStringLiteral("Enter")) == QStringLiteral("↩"),
+               && AppSettings::shortcutDisplayText(QStringLiteral("Enter")) == QStringLiteral("\u21B5"),
                "native shortcut symbols")) return 1;
     if (!check(AppLocalization::resolveLanguage(QStringLiteral("en-US")) == QStringLiteral("en-US")
                && AppLocalization::resolveLanguage(QStringLiteral("zh-CN")) == QStringLiteral("zh-CN")
