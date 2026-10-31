@@ -475,6 +475,8 @@ SettingsDialog::SettingsDialog(AppSettings settings, QString databasePath, QStri
 #endif
     const struct { const char *name; const char *description; const char *key; bool global; } shortcutDefs[]{
         {"SettingsGlobalHotKeyCardHeader", "SettingsGlobalHotKeyCardDescription", "GlobalHotKey", true},
+        {"SequenceCopyTitle", "SequenceDescription", "SequenceCopyShortcut", true},
+        {"SequencePasteTitle", "SequenceDescription", "SequencePasteShortcut", true},
         {"SettingsPasteShortcutCardHeader", "", "PasteShortcut", false},
         {"SettingsPlainTextShortcutCardHeader", "SettingsPlainTextShortcutCardDescription", "PlainTextPasteShortcut", false},
         {"SettingsPreviewShortcutCardHeader", "", "PreviewShortcut", false},
@@ -503,6 +505,8 @@ SettingsDialog::SettingsDialog(AppSettings settings, QString databasePath, QStri
                 return;
             }
             if (key == QStringLiteral("GlobalHotKey")) settings_.globalHotKey = value;
+            else if (key == QStringLiteral("SequenceCopyShortcut")) settings_.sequenceCopyShortcut = value;
+            else if (key == QStringLiteral("SequencePasteShortcut")) settings_.sequencePasteShortcut = value;
             else if (key == QStringLiteral("PasteShortcut")) settings_.pasteShortcut = value;
             else if (key == QStringLiteral("PlainTextPasteShortcut")) settings_.plainTextPasteShortcut = value;
             else if (key == QStringLiteral("PreviewShortcut")) settings_.previewShortcut = value;
@@ -787,7 +791,8 @@ void SettingsDialog::loadControls(const AppSettings &settings) {
     excludedApplications_->clear();
     syncProcessTags();
     syncProcessSelection();
-    const QHash<QString, QString> values{{"GlobalHotKey", settings.globalHotKey}, {"PasteShortcut", settings.pasteShortcut},
+    const QHash<QString, QString> values{{"GlobalHotKey", settings.globalHotKey}, {"SequenceCopyShortcut", settings.sequenceCopyShortcut},
+        {"SequencePasteShortcut", settings.sequencePasteShortcut}, {"PasteShortcut", settings.pasteShortcut},
         {"PlainTextPasteShortcut", settings.plainTextPasteShortcut}, {"PreviewShortcut", settings.previewShortcut},
         {"PinShortcut", settings.pinShortcut}, {"PasteAsFileShortcut", settings.pasteAsFileShortcut},
         {"MoreShortcut", settings.moreShortcut}, {"OpenShortcut", settings.openShortcut}};

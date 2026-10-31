@@ -706,6 +706,8 @@ MainWindow::~MainWindow() {
     if (winVHookTarget == this) winVHookTarget = nullptr;
 #endif
     GlobalHotkey::remove(winId(), HotkeyId);
+    GlobalHotkey::remove(winId(), HotkeyId + 1);
+    GlobalHotkey::remove(winId(), HotkeyId + 2);
 #ifdef Q_OS_WIN
     RemoveClipboardFormatListener(reinterpret_cast<HWND>(winId()));
 #endif
@@ -718,6 +720,9 @@ MainWindow::~MainWindow() {
 }
 
 void MainWindow::beginStorageOperation() {
+    sequenceQueue_.clear();
+    sequenceCopyPending_ = false;
+    ++sequenceGeneration_;
     suppressClipboardCapture_ = true;
     // 嵌入设置页执行备份时保留宿主窗口，避免连同进度和错误提示一起隐藏。
     if (!settingsPage_) hidePanel();
@@ -1107,7 +1112,9 @@ void MainWindow::applyTheme() {
 void MainWindow::applySettings(const AppSettings &settings) {
     const bool languageChanged = settings_.language != settings.language;
     const bool themeChanged = settings_.themeMode != settings.themeMode;
-    const bool hotkeyChanged = settings_.globalHotKey != settings.globalHotKey;
+    const bool hotkeyChanged = settings_.globalHotKey != settings.globalHotKey
+        || settings_.sequenceCopyShortcut != settings.sequenceCopyShortcut
+        || settings_.sequencePasteShortcut != settings.sequencePasteShortcut;
     const bool winVChanged = settings_.interceptWindowsClipboardShortcut != settings.interceptWindowsClipboardShortcut;
     const bool cleanupChanged = settings_.retentionDays != settings.retentionDays
         || settings_.maxHistoryEntries != settings.maxHistoryEntries;
@@ -1152,10 +1159,59 @@ void MainWindow::applySettings(const AppSettings &settings) {
 }
 
 void MainWindow::registerHotkey() {
+    const auto bind = [this](int id, const QString &key, std::function<void()> action) {
+        if (key.isEmpty()) { GlobalHotkey::remove(winId(), id); return; }
+        if (!GlobalHotkey::replace(winId(), id, key, std::move(action)))
+            showStatus(AppLocalization::format(QStringLiteral("GlobalHotKeyRegistrationFailed"), {key}));
+    };
+    bind(HotkeyId + 1, settings_.sequenceCopyShortcut, [this] { sequenceCopy(); });
+    bind(HotkeyId + 2, settings_.sequencePasteShortcut, [this] { sequencePaste(); });
     if (!GlobalHotkey::replace(winId(), HotkeyId, settings_.globalHotKey, [this] { showPanel(); })) {
         showStatus(AppLocalization::format(QStringLiteral("GlobalHotKeyRegistrationFailed"),
                                            {settings_.globalHotKey}));
     }
+}
+
+// 每次快捷键只发起一次复制；等待修饰键释放及新剪贴板内容，不拿旧内容充数。
+void MainWindow::sequenceCopy() {
+    if (sequenceCopyPending_ || sequencePasting_ || captureSaving_ || paused_ || suppressClipboardCapture_) return;
+    if (sequenceQueue_.size() >= 256) { showStatus(AppLocalization::get(QStringLiteral("SequenceLimit"))); return; }
+    const auto target = PasteTarget::capture((quintptr)foregroundTarget());
+    if (!target || !PasteTarget::prepare(target->window, true)) return;
+    const int generation = ++sequenceGeneration_;
+    sequenceCopyPending_ = true;
+    sequenceCopySent_ = false;
+    sequenceCopyBaseline_ = clipboardSequence();
+    auto *timer = new QTimer(this);
+    timer->setInterval(25);
+    const auto attempts = std::make_shared<int>(0);
+    connect(timer, &QTimer::timeout, this, [this, timer, attempts, target, generation] {
+        if (generation != sequenceGeneration_ || !sequenceCopyPending_) { timer->stop(); timer->deleteLater(); return; }
+        if (++*attempts > 80 || paused_ || suppressClipboardCapture_ || foregroundTarget() != (PanelTarget)target->window) {
+            sequenceCopyPending_ = false;
+            timer->stop(); timer->deleteLater();
+            showStatus(AppLocalization::get(QStringLiteral("SequenceCopyFailed")));
+            return;
+        }
+        if (!sequenceCopySent_) {
+            const auto result = PasteTarget::send(target->window, target->focus, true, false, true);
+            if (result == PasteTarget::Result::WaitingForModifiers) return;
+            if (result == PasteTarget::Result::Failed) { *attempts = 80; return; }
+            sequenceCopySent_ = true;
+        }
+        if (clipboardSequence() != sequenceCopyBaseline_ && !captureTimer_.isActive()) scheduleCapture();
+    });
+    timer->start();
+}
+
+void MainWindow::sequencePaste() {
+    if (sequenceCopyPending_ || captureSaving_ || sequencePasting_ || suppressClipboardCapture_) return;
+    if (sequenceQueue_.isEmpty()) { showStatus(AppLocalization::get(QStringLiteral("SequenceEmpty"))); return; }
+    const auto target = foregroundTarget();
+    if (!PasteTarget::capture((quintptr)target)) return;
+    capturePasteTarget(target);
+    sequencePasting_ = true;
+    pasteRecord(sequenceQueue_.first().id, false, false, std::nullopt, true);
 }
 
 void MainWindow::updateWinVHook() {
@@ -1568,6 +1624,11 @@ bool MainWindow::nativeEventFilter(const QByteArray &, void *message, qintptr *r
         && native->message == WM_ACTIVATE && LOWORD(native->wParam) != WA_INACTIVE) {
         const HWND previous = reinterpret_cast<HWND>(native->lParam);
         if (previous != targetWindow_) capturePasteTarget(previous);
+    }
+    if (native->message == WM_HOTKEY && (native->wParam == HotkeyId + 1 || native->wParam == HotkeyId + 2)) {
+        if (native->wParam == HotkeyId + 1) sequenceCopy(); else sequencePaste();
+        if (result) *result = 0;
+        return true;
     }
     if (native->message == WM_HOTKEY && native->wParam == HotkeyId) {
         const HWND foreground = GetForegroundWindow();
@@ -2145,18 +2206,31 @@ void MainWindow::captureClipboard() {
 }
 
 void MainWindow::saveCapture(ClipboardCapture capture, QImage fallbackImage, quint32 sequence) {
+    const bool queued = sequenceCopyPending_ && sequenceCopySent_ && sequence != sequenceCopyBaseline_;
+    if (queued) sequenceCopyPending_ = false;
+    const bool preserveQueue = queued || !sequenceQueue_.isEmpty();
+    const auto saved = QSharedPointer<HistoryItem>::create();
+    const int sequenceGeneration = sequenceGeneration_;
     captureSaving_ = true;
     const bool normalizeUnicode = settings_.normalizeUnicodeText;
     const int retention = settings_.retentionDays;
     const int maximum = settings_.maxHistoryEntries;
     auto *watcher = new QFutureWatcher<QString>(this);
-    connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher, sequence] {
+    connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher, sequence, queued, saved, sequenceGeneration] {
         const QString error = watcher->result();
         watcher->deleteLater();
         captureSaving_ = false;
         lastClipboardSequence_ = sequence;
         if (!error.isEmpty()) showStatus(error);
         else {
+            if (queued && sequenceGeneration == sequenceGeneration_) {
+                // 队列只保留标识和类型，不依赖面板当前加载的分页，也不复制正文。
+                HistoryItem entry;
+                entry.id = saved->id;
+                entry.kind = saved->kind;
+                sequenceQueue_.append(entry);
+                showStatus(AppLocalization::format(QStringLiteral("SequenceRemaining"), {QString::number(sequenceQueue_.size())}));
+            }
             // 隐藏期间只标记待刷新，下一次打开时再查询第一页。
             historyDirty_ = true;
             newHistoryAvailable_ = !isVisible();
@@ -2165,7 +2239,7 @@ void MainWindow::saveCapture(ClipboardCapture capture, QImage fallbackImage, qui
         if (clipboardSequence() != lastClipboardSequence_) scheduleCapture();
     });
     const QString path = databasePath_;
-    watcher->setFuture(QtConcurrent::run(&writePool_, [path, retention, maximum, normalizeUnicode, capture = std::move(capture),
+    watcher->setFuture(QtConcurrent::run(&writePool_, [path, retention, maximum, normalizeUnicode, saved, preserveQueue, capture = std::move(capture),
                                                         fallback = std::move(fallbackImage)]() mutable {
         if (capture.kind == 0) {
             auto payload = QJsonDocument::fromJson(capture.content.mid(qstrlen(TextPayloadPrefix))).object();
@@ -2192,8 +2266,8 @@ void MainWindow::saveCapture(ClipboardCapture capture, QImage fallbackImage, qui
             encodeMixedImage(capture);
         }
         HistoryStore store(path);
-        QString error = store.save(capture);
-        if (error.isEmpty()) error = store.cleanup(retention, maximum);
+        QString error = store.save(capture, saved.data());
+        if (error.isEmpty() && !preserveQueue) error = store.cleanup(retention, maximum);
         return error;
     }));
 }
@@ -2225,11 +2299,16 @@ void MainWindow::cleanupPasteFiles() {
     });
 }
 
-void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile, std::optional<QByteArray> editedContent) {
-    if (loadingPage_) return;
+void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile, std::optional<QByteArray> editedContent, bool queued) {
+    // 操作完成、失败或被取消时都释放顺序粘贴锁，避免异步返回后卡住队列。
+    const auto completion = QSharedPointer<int>(new int(0), [guard = QPointer<MainWindow>(this), queued](int *value) {
+        if (guard && queued) guard->sequencePasting_ = false;
+        delete value;
+    });
+    if (loadingPage_ && !queued) return;
     ++openGeneration_;
     const int row = model_->rowForId(id);
-    const auto *itemPointer = model_->itemAt(row);
+    const auto *itemPointer = queued && !sequenceQueue_.isEmpty() ? &sequenceQueue_.first() : model_->itemAt(row);
     if (!itemPointer) return;
     const HistoryItem item = *itemPointer;
     if (editedContent && item.kind != 0) return;
@@ -2248,7 +2327,7 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile, std
     const QString path = databasePath_;
     auto *watcher = new QFutureWatcher<PasteResult>(this);
     connect(watcher, &QFutureWatcher<PasteResult>::finished, this,
-            [this, watcher, target, targetFocus, plainText, asFile, id, generation] {
+            [this, watcher, target, targetFocus, plainText, asFile, id, generation, queued, completion] {
         const auto result = watcher->result();
         watcher->deleteLater();
         if (generation != pasteGeneration_->loadRelaxed()) return;
@@ -2336,7 +2415,7 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile, std
         auto *timer = new QTimer(this);
         timer->setInterval(10);
         auto attempts = std::make_shared<int>(0);
-        connect(timer, &QTimer::timeout, this, [this, timer, attempts, target, targetFocus, targetKeptFocus, id, keepPanel,
+        connect(timer, &QTimer::timeout, this, [this, timer, attempts, target, targetFocus, targetKeptFocus, id, keepPanel, queued, completion,
                                               directTextPaste = item.kind == 0 && !asFile,
                                               generation = pasteGeneration_->loadRelaxed(), pasteSequence] {
             if (generation != pasteGeneration_->loadRelaxed() || clipboardSequence() != pasteSequence) {
@@ -2350,6 +2429,10 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile, std
             if (result != PasteTarget::Result::Sent) {
                 showStatus(AppLocalization::get(QStringLiteral("ContentRestoredManualPaste")));
                 return;
+            }
+            if (queued && !sequenceQueue_.isEmpty() && sequenceQueue_.first().id == id) {
+                sequenceQueue_.removeFirst();
+                showStatus(AppLocalization::format(QStringLiteral("SequenceRemaining"), {QString::number(sequenceQueue_.size())}));
             }
             const QString path = databasePath_;
             auto *touchWatcher = new QFutureWatcher<QString>(this);

@@ -8,7 +8,7 @@ elseif(NOT WIN32)
     message(FATAL_ERROR "PasteOrbit supports Windows and macOS")
 endif()
 
-set(PASTEORBIT_VERSION "2.5.18" CACHE STRING "PasteOrbit application version")
+set(PASTEORBIT_VERSION "2.5.19" CACHE STRING "PasteOrbit application version")
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)

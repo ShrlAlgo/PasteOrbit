@@ -68,7 +68,8 @@ bool AppSettings::shortcutConflicts(const QString &value, const QString &binding
     const QString normalized = normalizedShortcut(value);
     if (normalized.isEmpty()) return true;
     const struct { const char *key; const QString *value; } bindings[]{
-        {"GlobalHotKey", &globalHotKey}, {"PasteShortcut", &pasteShortcut},
+        {"GlobalHotKey", &globalHotKey}, {"SequenceCopyShortcut", &sequenceCopyShortcut},
+        {"SequencePasteShortcut", &sequencePasteShortcut}, {"PasteShortcut", &pasteShortcut},
         {"PlainTextPasteShortcut", &plainTextPasteShortcut}, {"PreviewShortcut", &previewShortcut},
         {"PinShortcut", &pinShortcut}, {"PasteAsFileShortcut", &pasteAsFileShortcut},
         {"MoreShortcut", &moreShortcut}, {"OpenShortcut", &openShortcut}};
@@ -83,7 +84,7 @@ bool AppSettings::shortcutConflicts(const QString &value, const QString &binding
         if (normalizedShortcut(shortcut) == normalized) return true;
     const auto combination = QKeySequence(value)[0];
     const auto modifiers = combination.keyboardModifiers();
-    if (bindingKey == QStringLiteral("GlobalHotKey")) return modifiers == Qt::NoModifier;
+    if (bindingKey == QStringLiteral("GlobalHotKey") || bindingKey.startsWith(QStringLiteral("Sequence"))) return modifiers == Qt::NoModifier;
     return
 #ifdef Q_OS_WIN
         modifiers.testFlag(Qt::MetaModifier) ||
@@ -104,6 +105,8 @@ AppSettings AppSettings::load(const QString &path) {
     settings.language = json.value(QStringLiteral("Language")).toString();
     if (settings.language != QStringLiteral("zh-CN") && settings.language != QStringLiteral("en-US")) settings.language.clear();
     settings.globalHotKey = json.value(QStringLiteral("GlobalHotKey")).toString(settings.globalHotKey);
+    settings.sequenceCopyShortcut = json.value(QStringLiteral("SequenceCopyShortcut")).toString(settings.sequenceCopyShortcut);
+    settings.sequencePasteShortcut = json.value(QStringLiteral("SequencePasteShortcut")).toString(settings.sequencePasteShortcut);
     settings.interceptWindowsClipboardShortcut = json.value(QStringLiteral("InterceptWindowsClipboardShortcut")).toBool();
     settings.pasteShortcut = json.value(QStringLiteral("PasteShortcut")).toString(settings.pasteShortcut);
     settings.plainTextPasteShortcut = json.value(QStringLiteral("PlainTextPasteShortcut")).toString(settings.plainTextPasteShortcut);
@@ -134,6 +137,8 @@ AppSettings AppSettings::load(const QString &path) {
     if (settings.retentionDays <= 0) settings.retentionDays = AppSettings{}.retentionDays;
     if (settings.maxHistoryEntries <= 0) settings.maxHistoryEntries = AppSettings{}.maxHistoryEntries;
     settings.skippedUpdateVersion = json.value(QStringLiteral("SkippedUpdateVersion")).toString();
+    if (!json.contains(QStringLiteral("SequenceCopyShortcut")) && settings.shortcutConflicts(settings.sequenceCopyShortcut, QStringLiteral("SequenceCopyShortcut"))) settings.sequenceCopyShortcut.clear();
+    if (!json.contains(QStringLiteral("SequencePasteShortcut")) && settings.shortcutConflicts(settings.sequencePasteShortcut, QStringLiteral("SequencePasteShortcut"))) settings.sequencePasteShortcut.clear();
     return settings;
 }
 
@@ -143,6 +148,8 @@ bool AppSettings::save(const QString &path) const {
     QJsonObject json;
     json.insert(QStringLiteral("Language"), language);
     json.insert(QStringLiteral("GlobalHotKey"), globalHotKey);
+    json.insert(QStringLiteral("SequencePasteShortcut"), sequencePasteShortcut);
+    json.insert(QStringLiteral("SequenceCopyShortcut"), sequenceCopyShortcut);
     json.insert(QStringLiteral("InterceptWindowsClipboardShortcut"), interceptWindowsClipboardShortcut);
     json.insert(QStringLiteral("PasteShortcut"), pasteShortcut);
     json.insert(QStringLiteral("PlainTextPasteShortcut"), plainTextPasteShortcut);

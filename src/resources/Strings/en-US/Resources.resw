@@ -380,4 +380,11 @@
   <data name="SettingsNormalizeUnicodeHeader" xml:space="preserve"><value>Normalize text (NFC)</value></data>
   <data name="SettingsNormalizeUnicodeDescription" xml:space="preserve"><value>Fix decomposed characters in plain text.</value></data>
   <data name="MacManualPasteHint" xml:space="preserve"><value>Content copied. Paste manually, or allow PasteOrbit in System Settings → Privacy &amp; Security → Accessibility to enable automatic pasting.</value></data>
+  <data name="SequenceCopyTitle" xml:space="preserve"><value>Sequential copy</value></data>
+  <data name="SequencePasteTitle" xml:space="preserve"><value>Sequential paste</value></data>
+  <data name="SequenceDescription" xml:space="preserve"><value>Copy into a queue and paste in order; ends when empty</value></data>
+  <data name="SequenceRemaining" xml:space="preserve"><value>Sequential paste: {0} remaining</value></data>
+  <data name="SequenceEmpty" xml:space="preserve"><value>Sequential queue is empty or finished</value></data>
+  <data name="SequenceCopyFailed" xml:space="preserve"><value>No new copied content received; try again</value></data>
+  <data name="SequenceLimit" xml:space="preserve"><value>Sequential queue is limited to 256 items</value></data>
 </root>

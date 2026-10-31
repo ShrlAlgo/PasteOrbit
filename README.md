@@ -29,6 +29,9 @@ PasteOrbit is a Qt Widgets desktop clipboard history manager with a Windows rele
 
 Default shortcuts for a selected history item: `Enter` pastes, `Shift+Enter` pastes as plain text, `Space` toggles the preview, and `Ctrl+O` opens a detected target or a list of targets.
 
+The default panel shortcut is `Ctrl+Shift+V`. Use `Alt+C` to copy selected content into a queue and `Alt+V` to paste in first-in, first-out order; the queue ends after the final paste is sent successfully. Ordinary copies do not join the queue.
+Existing shortcut settings are preserved; resolve occupied shortcuts on the shortcut settings page after upgrading. On macOS, use Command and Option respectively.
+
 ## System Requirements
 
 - Windows 10 version 1809 or later.
@@ -67,7 +70,7 @@ The build targets the current Apple Silicon or Intel architecture; Windows Qt an
 The self-check covers key encryption, tamper rejection, encrypted history, and backup restore in a temporary directory inside the build output.
 
 Automatic pasting requires permission in System Settings → Privacy & Security → Accessibility; manual pasting remains available without permission.
-The default global shortcut is Option+V; `Ctrl` in shortcut settings denotes Command through Qt's macOS mapping.
+The default global shortcut is Command+Shift+V; `Ctrl` in shortcut settings denotes Command through Qt's macOS mapping.
 The macOS panel activates normally and omits Win+V interception and administrator settings.
 Clipboard source attribution uses the foreground application and may be inaccurate for background clipboard writers.
 Login startup uses a per-user LaunchAgent and takes effect at the next login.

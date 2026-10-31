@@ -19,5 +19,5 @@ inline constexpr quintptr InputMarker = 0x504F5041;
 std::optional<Snapshot> capture(quintptr window);
 bool prepare(quintptr window, bool keepFocus);
 // 单次尝试，不等待按键释放；重试时限与取消由调用方管理。
-Result send(quintptr window, quintptr focus, bool keepFocus, bool directText);
+Result send(quintptr window, quintptr focus, bool keepFocus, bool directText, bool copy = false);
 }

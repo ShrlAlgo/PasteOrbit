@@ -81,6 +81,8 @@ private:
     void buildTray();
     void applyTheme();
     void registerHotkey();
+    void sequenceCopy();
+    void sequencePaste();
     void updateWinVHook();
     bool setPassiveBrowsing(bool passive);
     void updatePanelInputHooks();
@@ -103,7 +105,7 @@ private:
     void saveCapture(ClipboardCapture capture, QImage fallbackImage, quint32 sequence);
     void cleanupPasteFiles();
     void pasteRecord(const QString &id, bool plainText = false, bool asFile = false,
-                     std::optional<QByteArray> editedContent = std::nullopt);
+                     std::optional<QByteArray> editedContent = std::nullopt, bool queued = false);
     void openRowMenu(const QString &id);
     void openRecord(const QString &id);
     void addOpenTargets(QMenu *menu, const QStringList &targets);
@@ -124,6 +126,13 @@ private:
     void setTrayPaused(bool paused);
     bool sourceIsExcluded(const QString &source) const;
     void updateTrayTooltip();
+
+    int sequenceGeneration_ = 0;
+    QList<HistoryItem> sequenceQueue_;
+    bool sequenceCopyPending_ = false;
+    bool sequenceCopySent_ = false;
+    bool sequencePasting_ = false;
+    quint32 sequenceCopyBaseline_ = 0;
 
     QString dataDirectory_;
     QString databasePath_;

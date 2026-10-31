@@ -54,13 +54,13 @@ bool prepare(quintptr process, bool) {
     }
 }
 
-Result send(quintptr process, quintptr, bool, bool) {
+Result send(quintptr process, quintptr, bool, bool, bool copy) {
     if (!AXIsProcessTrusted() || MacIntegration::foregroundApplication() != process) return Result::Failed;
     const auto flags = CGEventSourceFlagsState(kCGEventSourceStateCombinedSessionState);
     if (flags & (kCGEventFlagMaskCommand | kCGEventFlagMaskControl | kCGEventFlagMaskAlternate | kCGEventFlagMaskShift))
         return Result::WaitingForModifiers;
-    auto down = CGEventCreateKeyboardEvent(nullptr, kVK_ANSI_V, true);
-    auto up = CGEventCreateKeyboardEvent(nullptr, kVK_ANSI_V, false);
+    auto down = CGEventCreateKeyboardEvent(nullptr, copy ? kVK_ANSI_C : kVK_ANSI_V, true);
+    auto up = CGEventCreateKeyboardEvent(nullptr, copy ? kVK_ANSI_C : kVK_ANSI_V, false);
     if (!down || !up) {
         if (down) CFRelease(down);
         if (up) CFRelease(up);

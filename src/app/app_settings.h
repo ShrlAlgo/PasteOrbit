@@ -4,7 +4,9 @@
 
 struct AppSettings {
     QString language;
-    QString globalHotKey = QStringLiteral("Alt + V");
+    QString globalHotKey = QStringLiteral("Ctrl + Shift + V");
+    QString sequenceCopyShortcut = QStringLiteral("Alt + C");
+    QString sequencePasteShortcut = QStringLiteral("Alt + V");
     bool interceptWindowsClipboardShortcut = false;
     QString pasteShortcut = QStringLiteral("Enter");
     QString plainTextPasteShortcut = QStringLiteral("Shift + Enter");

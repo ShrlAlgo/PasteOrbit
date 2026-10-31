@@ -380,4 +380,11 @@
   <data name="SettingsNormalizeUnicodeHeader" xml:space="preserve"><value>Unicode 规范化（NFC）</value></data>
   <data name="SettingsNormalizeUnicodeDescription" xml:space="preserve"><value>修复纯文本中的拆字问题</value></data>
   <data name="MacManualPasteHint" xml:space="preserve"><value>内容已复制，可手动粘贴。如需自动粘贴，请在“系统设置 → 隐私与安全性 → 辅助功能”中允许贴环。</value></data>
+  <data name="SequenceCopyTitle" xml:space="preserve"><value>顺序复制</value></data>
+  <data name="SequencePasteTitle" xml:space="preserve"><value>顺序粘贴</value></data>
+  <data name="SequenceDescription" xml:space="preserve"><value>依次复制、依次粘贴，队列用完自动结束</value></data>
+  <data name="SequenceRemaining" xml:space="preserve"><value>顺序粘贴剩余 {0} 项</value></data>
+  <data name="SequenceEmpty" xml:space="preserve"><value>顺序队列已结束或为空</value></data>
+  <data name="SequenceCopyFailed" xml:space="preserve"><value>未获得新的复制内容，请重试</value></data>
+  <data name="SequenceLimit" xml:space="preserve"><value>顺序队列最多保存 256 项</value></data>
 </root>

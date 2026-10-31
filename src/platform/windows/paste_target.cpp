@@ -34,7 +34,7 @@ bool prepare(quintptr windowId, bool keepFocus) {
     return true;
 }
 
-Result send(quintptr windowId, quintptr focusId, bool keepFocus, bool directText) {
+Result send(quintptr windowId, quintptr focusId, bool keepFocus, bool directText, bool copy) {
     const auto window = reinterpret_cast<HWND>(windowId);
     const auto focus = reinterpret_cast<HWND>(focusId);
     if (!IsWindow(window) || GetForegroundWindow() != window) return Result::Failed;
@@ -57,7 +57,7 @@ Result send(quintptr windowId, quintptr focusId, bool keepFocus, bool directText
             || GetForegroundWindow() != window) return Result::Failed;
     }
     wchar_t controlClass[32]{};
-    const bool nativeEdit = directText && focus && GetClassNameW(focus, controlClass, 32)
+    const bool nativeEdit = !copy && directText && focus && GetClassNameW(focus, controlClass, 32)
         && QString::fromWCharArray(controlClass).compare(QStringLiteral("Edit"), Qt::CaseInsensitive) == 0;
     if (nativeEdit) {
         // 原生 Edit 直接接收粘贴消息，避免模拟按键被目标转发到其他区域。
@@ -66,7 +66,8 @@ Result send(quintptr windowId, quintptr focusId, bool keepFocus, bool directText
             ? Result::Sent : Result::Failed;
     }
     INPUT inputs[4]{};
-    const WORD keys[4]{VK_CONTROL, 'V', 'V', VK_CONTROL};
+    const WORD key = copy ? 'C' : 'V';
+    const WORD keys[4]{VK_CONTROL, key, key, VK_CONTROL};
     for (int i = 0; i < 4; ++i) {
         inputs[i].type = INPUT_KEYBOARD;
         inputs[i].ki.wVk = keys[i];
