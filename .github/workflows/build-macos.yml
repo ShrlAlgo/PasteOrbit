@@ -2,6 +2,11 @@ name: Build PasteOrbit for macOS
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing Release tag (empty uses the application version)'
+        required: false
+        type: string
   push:
     tags:
       - "v*"
@@ -50,3 +55,43 @@ jobs:
           name: PasteOrbit-macos-${{ matrix.arch }}
           path: dist/PasteOrbit-macos-${{ matrix.arch }}.zip
           if-no-files-found: error
+
+  publish:
+    name: Attach macOS packages to Release
+    needs: macos
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: PasteOrbit-macos-*
+          merge-multiple: true
+          path: dist
+      - name: Upload Release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
+        run: |
+          version=$(sed -nE 's/^set\(PASTEORBIT_VERSION "([^"]+)".*/\1/p' CMakeLists.txt)
+          tag="$RELEASE_TAG_INPUT"
+          if [[ -z "$tag" ]]; then
+            if [[ "$GITHUB_REF_TYPE" == tag ]]; then tag="$GITHUB_REF_NAME"; else tag="v$version"; fi
+          fi
+          if [[ "$tag" != "v$version" ]]; then
+            echo "::error::Release tag $tag does not match application version $version"
+            exit 1
+          fi
+          # 标签构建与 Windows 发布并行；等它创建 Release，不创建或改动已有发布说明。
+          for attempt in {1..30}; do
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+              gh release upload "$tag" dist/PasteOrbit-macos-*.zip --clobber --repo "$GITHUB_REPOSITORY"
+              exit 0
+            fi
+            if [[ "$GITHUB_REF_TYPE" != tag ]]; then break; fi
+            sleep 10
+          done
+          echo "::error::Release $tag is not available; create it before running this workflow manually."
+          exit 1
