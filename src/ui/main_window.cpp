@@ -610,8 +610,8 @@ bool MainWindow::setPassiveBrowsing(bool) {
 }
 
 void MainWindow::activatePanel(QWidget *focus) {
-    MacIntegration::activateApplication();
     auto *window = focus ? focus->window() : this;
+    MacIntegration::activateApplication(static_cast<quintptr>(window->winId()));
     window->raise();
     window->activateWindow();
     if (focus) focus->setFocus(Qt::ShortcutFocusReason);
@@ -672,6 +672,10 @@ MainWindow::MainWindow(QString dataDirectory, AppSettings settings)
     pauseTimer_.setSingleShot(true);
     connect(&pauseTimer_, &QTimer::timeout, this, [this] { setTrayPaused(false); });
     connect(trayIcon_, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
+#ifdef Q_OS_MACOS
+        // macOS 在按下图标时已打开原生菜单，不能再同时唤出历史面板。
+        if (trayIcon_->contextMenu()) return;
+#endif
         if (reason == QSystemTrayIcon::DoubleClick || reason == QSystemTrayIcon::Trigger) showPanel(true);
     });
     const QString error = store_.initialize();

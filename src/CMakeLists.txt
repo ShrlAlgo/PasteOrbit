@@ -27,6 +27,7 @@ if(WIN32)
 elseif(APPLE)
     target_sources(PasteOrbitNative PRIVATE
         platform/macos/desktop_integration.mm
+        platform/macos/update_installer.cpp
         platform/macos/platform_check.cpp
         platform/macos/data_protection.cpp
         platform/macos/global_hotkey.cpp

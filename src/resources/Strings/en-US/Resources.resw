@@ -387,4 +387,6 @@
   <data name="SequenceEmpty" xml:space="preserve"><value>Sequential queue is empty or finished</value></data>
   <data name="SequenceCopyFailed" xml:space="preserve"><value>No new copied content received; try again</value></data>
   <data name="SequenceLimit" xml:space="preserve"><value>Sequential queue is limited to 256 items</value></data>
+  <data name="UpdateInstallLocationMessage" xml:space="preserve"><value>Install PasteOrbit in Applications or another writable folder before updating. Apps in disk images or read-only locations cannot be updated in place.</value></data>
+  <data name="UpdateInstallFailedMessage" xml:space="preserve"><value>The update could not be completed. The previous app has been kept. Retry or install the downloaded update manually:</value></data>
 </root>

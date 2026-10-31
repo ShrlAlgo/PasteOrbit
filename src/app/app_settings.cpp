@@ -159,6 +159,11 @@ AppSettings AppSettings::load(const QString &path) {
         migrate(settings.sequencePasteShortcut, QStringLiteral("Alt+V"), defaults.sequencePasteShortcut, QStringLiteral("SequencePasteShortcut"));
         migrate(settings.moreShortcut, QStringLiteral("Shift+F10"), defaults.moreShortcut, QStringLiteral("MoreShortcut"));
     }
+    // v2.5.20 的默认组合会触发部分中文输入法的手写面板，只替换该默认值。
+    if (json.value(QStringLiteral("MacShortcutDefaultsVersion")).toInt() < 2
+        && normalizedShortcut(settings.globalHotKey) == normalizedShortcut(QStringLiteral("Meta+Shift+Space"))
+        && !settings.shortcutConflicts(AppSettings{}.globalHotKey, QStringLiteral("GlobalHotKey")))
+        settings.globalHotKey = AppSettings{}.globalHotKey;
 #endif
     // 旧配置可能已把 Ctrl+O 用于其他操作，升级时保留原绑定，不抢占按键。
     if (!json.contains(QStringLiteral("OpenShortcut"))
@@ -192,7 +197,7 @@ bool AppSettings::save(const QString &path) const {
     if (!QDir().mkpath(info.absolutePath())) return false;
     QJsonObject json;
 #ifdef Q_OS_MACOS
-    json.insert(QStringLiteral("MacShortcutDefaultsVersion"), 1);
+    json.insert(QStringLiteral("MacShortcutDefaultsVersion"), 2);
 #endif
     json.insert(QStringLiteral("Language"), language);
     json.insert(QStringLiteral("GlobalHotKey"), globalHotKey);

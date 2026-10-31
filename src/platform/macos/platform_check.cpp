@@ -92,7 +92,13 @@ int runPlatformChecks() {
                    == AppSettings::normalizedShortcut(QStringLiteral("Ctrl+Shift+V")),
                "migration does not overwrite another binding")) return 1;
     legacy.remove(QStringLiteral("PinShortcut"));
+    legacy.insert(QStringLiteral("GlobalHotKey"), QStringLiteral("Meta+Shift+Space"));
     legacy.insert(QStringLiteral("MacShortcutDefaultsVersion"), 1);
+    if (!check(writeSettings(legacy)
+               && AppSettings::load(settingsPath).globalHotKey == settings.globalHotKey,
+               "handwriting shortcut migrated")) return 1;
+    legacy.insert(QStringLiteral("GlobalHotKey"), QStringLiteral("Ctrl+Shift+V"));
+    legacy.insert(QStringLiteral("MacShortcutDefaultsVersion"), 2);
     if (!check(writeSettings(legacy)
                && AppSettings::load(settingsPath).globalHotKey == QStringLiteral("Ctrl+Shift+V"),
                "migration runs only once")) return 1;

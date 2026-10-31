@@ -2,6 +2,9 @@
 
 #include "app_settings.h"
 #include "localization.h"
+#ifdef Q_OS_MACOS
+#include "macos/desktop_integration.h"
+#endif
 
 #include <QAbstractButton>
 #include <QApplication>
@@ -23,6 +26,7 @@
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QStandardPaths>
+#include <QSysInfo>
 #include <QVersionNumber>
 #include <QUuid>
 
@@ -108,13 +112,16 @@ void UpdateService::handleCheckFinished(QNetworkReply *reply) {
         const QString name = asset.value(QStringLiteral("name")).toString();
         const QUrl url(asset.value(QStringLiteral("browser_download_url")).toString());
 #ifdef Q_OS_WIN
-        if (name.endsWith(QStringLiteral("-Setup.exe"), Qt::CaseInsensitive) && isHttpsUrl(url)) {
+        const bool matchesPlatform = name.endsWith(QStringLiteral("-Setup.exe"), Qt::CaseInsensitive);
+#else
+        const bool matchesPlatform = name == QStringLiteral("PasteOrbit-macos-%1.dmg").arg(QSysInfo::buildCpuArchitecture());
+#endif
+        if (matchesPlatform && isHttpsUrl(url)) {
             installerName_ = name;
             installerUrl_ = url;
             installerSize_ = asset.value(QStringLiteral("size")).toVariant().toLongLong();
             break;
         }
-#endif
     }
 
     if (latestVersion <= currentVersion) {
@@ -154,13 +161,13 @@ void UpdateService::showResult() {
 
     QAbstractButton *primary = nullptr;
     QAbstractButton *skip = nullptr;
-#ifdef Q_OS_MACOS
-    primary = dialog.addButton(localized(QStringLiteral("DownloadUpdateButton")), QMessageBox::AcceptRole);
-#endif
     if (!installerUrl_.isEmpty()) {
         primary = dialog.addButton(localized(QStringLiteral("DownloadUpdateButton")), QMessageBox::AcceptRole);
         skip = dialog.addButton(localized(QStringLiteral("DoNotRemindUpdateButton")), QMessageBox::DestructiveRole);
     } else {
+#ifdef Q_OS_MACOS
+        primary = dialog.addButton(localized(QStringLiteral("DownloadUpdateButton")), QMessageBox::AcceptRole);
+#endif
         skip = dialog.addButton(localized(QStringLiteral("DoNotRemindUpdateButton")), QMessageBox::AcceptRole);
     }
     auto *later = dialog.addButton(localized(QStringLiteral("Later")), QMessageBox::RejectRole);
@@ -170,11 +177,8 @@ void UpdateService::showResult() {
     for (auto *button : dialog.findChildren<QPushButton *>()) button->setFixedSize(buttonSize);
     dialog.exec();
     if (dialog.clickedButton() == primary && primary) {
-#ifdef Q_OS_MACOS
-        QDesktopServices::openUrl(releaseUrl_);
-#else
-        startDownload();
-#endif
+        if (installerUrl_.isEmpty()) QDesktopServices::openUrl(releaseUrl_);
+        else startDownload();
     }
     else if (dialog.clickedButton() == skip) ignoreCurrentVersion();
 }
@@ -187,8 +191,18 @@ void UpdateService::ignoreCurrentVersion() {
 
 void UpdateService::startDownload() {
     if (downloading_ || installerUrl_.isEmpty() || !prepareDialog()) return;
+#ifdef Q_OS_MACOS
+    if (!MacIntegration::canUpdateApplication()) {
+        QMessageBox::warning(parent_, localized(QStringLiteral("UpdateDownloadFailedTitle")),
+                             localized(QStringLiteral("UpdateInstallLocationMessage")));
+        return;
+    }
+    const QString suffix = QStringLiteral(".dmg");
+#else
+    const QString suffix = QStringLiteral(".exe");
+#endif
     if (QFileInfo(installerName_).fileName() != installerName_
-        || !installerName_.endsWith(QStringLiteral(".exe"), Qt::CaseInsensitive)) {
+        || !installerName_.endsWith(suffix, Qt::CaseInsensitive)) {
         showDownloadFailure();
         return;
     }
@@ -407,6 +421,9 @@ try {
     if (launcher.startDetached()) return true;
     QFile::remove(scriptPath);
     return false;
+#elif defined(Q_OS_MACOS)
+    return MacIntegration::startUpdate(installerPath_, releaseTag_.mid(1),
+                                       localized(QStringLiteral("UpdateInstallFailedMessage")));
 #else
     return false;
 #endif

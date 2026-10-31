@@ -186,6 +186,9 @@ int main(int argc, char *argv[]) {
     }
 
     MainWindow window(dataDirectory, settings);
+#ifdef Q_OS_MACOS
+    MacIntegration::installDockReopenHandler(&window, [&window] { window.showPanel(true); });
+#endif
     UpdateService updateService(&application);
     QPointer<SettingsDialog> settingsDialog;
     QObject::connect(&server, &QLocalServer::newConnection, &window, [&server, &window] {

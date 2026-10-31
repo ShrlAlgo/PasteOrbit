@@ -387,4 +387,6 @@
   <data name="SequenceEmpty" xml:space="preserve"><value>顺序队列已结束或为空</value></data>
   <data name="SequenceCopyFailed" xml:space="preserve"><value>未获得新的复制内容，请重试</value></data>
   <data name="SequenceLimit" xml:space="preserve"><value>顺序队列最多保存 256 项</value></data>
+  <data name="UpdateInstallLocationMessage" xml:space="preserve"><value>请先将贴环安装到 Applications 或其他可写目录，再使用自动更新。不能直接更新磁盘映像或只读位置中的应用。</value></data>
+  <data name="UpdateInstallFailedMessage" xml:space="preserve"><value>更新未完成，原应用已保留。请重试，或手动安装下载的更新包：</value></data>
 </root>

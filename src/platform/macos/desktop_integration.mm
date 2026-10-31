@@ -3,7 +3,23 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QUrl>
+#include <QPointer>
+#include <QTimer>
+#include <Carbon/Carbon.h>
 #import <AppKit/AppKit.h>
+
+@interface PasteOrbitReopenHandler : NSObject
+@property(nonatomic, copy) void (^reopen)(void);
+- (void)handleReopen:(NSAppleEventDescriptor *)event withReplyEvent:(NSAppleEventDescriptor *)reply;
+@end
+
+@implementation PasteOrbitReopenHandler
+- (void)handleReopen:(NSAppleEventDescriptor *)event withReplyEvent:(NSAppleEventDescriptor *)reply {
+    Q_UNUSED(event);
+    Q_UNUSED(reply);
+    if (self.reopen) self.reopen();
+}
+@end
 
 namespace {
 QString appName(NSRunningApplication *app) {
@@ -72,7 +88,34 @@ void setAlwaysOnTop(quintptr view, bool pinned) {
     nativeView.window.level = pinned ? NSFloatingWindowLevel : NSNormalWindowLevel;
 }
 
-void activateApplication() {
+// 只监听 Dock/Finder 的重新打开事件，菜单栏点击和普通激活不唤出面板。
+void installDockReopenHandler(QObject *context, std::function<void()> reopen) {
+    auto *handler = [[PasteOrbitReopenHandler alloc] init];
+    const QPointer<QObject> guard(context);
+    handler.reopen = ^{
+        if (guard) QTimer::singleShot(0, guard.data(), reopen);
+    };
+    // AppKit 完成启动后再安装，避免启动阶段覆盖自定义事件处理。
+    QTimer::singleShot(0, context, [handler] {
+        [NSAppleEventManager.sharedAppleEventManager setEventHandler:handler
+            andSelector:@selector(handleReopen:withReplyEvent:)
+            forEventClass:kCoreEventClass andEventID:kAEReopenApplication];
+    });
+    QObject::connect(context, &QObject::destroyed, [] {
+        [NSAppleEventManager.sharedAppleEventManager removeEventHandlerForEventClass:kCoreEventClass
+            andEventID:kAEReopenApplication];
+    });
+}
+
+void preparePanel(quintptr view) {
+    NSWindow *window = ((__bridge NSView *)(reinterpret_cast<void *>(view))).window;
+    // 映射前设为当前桌面的辅助面板，避免台前调度切走当前窗口组。
+    window.collectionBehavior = (window.collectionBehavior & ~NSWindowCollectionBehaviorCanJoinAllSpaces)
+        | NSWindowCollectionBehaviorMoveToActiveSpace | NSWindowCollectionBehaviorFullScreenAuxiliary;
+}
+
+void activateApplication(quintptr view) {
+    if (view) preparePanel(view);
     [NSRunningApplication.currentApplication activateWithOptions:NSApplicationActivateIgnoringOtherApps];
 }
 }

@@ -3,6 +3,9 @@
 #include <QHash>
 #include <QString>
 #include <QtGlobal>
+#include <functional>
+
+class QObject;
 
 namespace MacIntegration {
 quintptr foregroundApplication();
@@ -13,7 +16,11 @@ QString clipboardSource();
 QHash<QString, QString> runningApplications();
 bool revealFile(const QString &path);
 bool animationsEnabled();
-void activateApplication();
+void preparePanel(quintptr view);
+void activateApplication(quintptr view = 0);
+bool canUpdateApplication();
+bool startUpdate(const QString &imagePath, const QString &version, const QString &failureMessage);
+void installDockReopenHandler(QObject *context, std::function<void()> reopen);
 void setAlwaysOnTop(quintptr view, bool pinned);
 int runPlatformChecks();
 }

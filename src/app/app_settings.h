@@ -6,7 +6,7 @@ struct AppSettings {
     QString language;
 #ifdef Q_OS_MACOS
     // Qt 的 Meta 在 macOS 对应实体 Control，避免占用 Command 粘贴和 Option 字符输入。
-    QString globalHotKey = QStringLiteral("Meta + Shift + Space");
+    QString globalHotKey = QStringLiteral("Meta + Shift + P");
     QString sequenceCopyShortcut = QStringLiteral("Meta + Shift + C");
     QString sequencePasteShortcut = QStringLiteral("Meta + Shift + V");
 #else

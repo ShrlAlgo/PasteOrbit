@@ -52,6 +52,7 @@ void MainWindow::showPanel(bool fromTray, PanelTarget requestedTarget) {
     // 显示前记录外部应用；激活面板之后不能再把本应用误记为粘贴目标。
     const auto bounds = capturePasteTarget(foreground);
     positionPanel(fromTray, bounds);
+    MacIntegration::preparePanel(static_cast<quintptr>(winId()));
     show();
     activatePanel();
     if (!startupUpdateCheckRequested_) {

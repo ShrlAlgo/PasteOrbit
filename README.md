@@ -70,14 +70,15 @@ The build targets the current Apple Silicon or Intel architecture; Windows Qt an
 The self-check covers key encryption, tamper rejection, encrypted history, and backup restore in a temporary directory inside the build output.
 
 Automatic pasting requires permission in System Settings → Privacy & Security → Accessibility; manual pasting remains available without permission.
-The default panel shortcut is Control+Shift+Space; sequential copy and paste use Control+Shift+C and Control+Shift+V.
+The default panel shortcut is Control+Shift+P; sequential copy and paste use Control+Shift+C and Control+Shift+V.
 Control+Return opens the selected record's menu; Return pastes, Shift+Return pastes plain text, Space previews, Command+D toggles favorites, Command+Shift+S pastes as a file, and Command+O opens a detected target.
 Shortcut settings display native Mac symbols: ⌃ Control, ⌥ Option, ⇧ Shift, and ⌘ Command.
 The first upgrade migrates matching legacy defaults when the new combination is available; custom bindings are preserved.
 The macOS panel activates normally and omits Win+V interception and administrator settings.
 Clipboard source attribution uses the foreground application and may be inaccurate for background clipboard writers.
 Login startup uses a per-user LaunchAgent and takes effect at the next login.
-Update notifications open the release download page instead of running the Windows installer.
+Updates download the matching Mac DMG, verify the app, replace the installed bundle, and restart PasteOrbit.
+Automatic replacement requires a writable installation outside the mounted DMG; failures preserve the previous app.
 
 Run `macdeployqt build/macos/bin/Release/PasteOrbit.app -always-overwrite -codesign=-` before distribution to bundle Qt libraries.
 The macOS workflow builds separate Apple Silicon and Intel DMGs on manual runs and version tags and attaches them to the matching Release.
