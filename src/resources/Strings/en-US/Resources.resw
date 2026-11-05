@@ -378,7 +378,7 @@
   <data name="ShortcutConflictTitle" xml:space="preserve"><value>Shortcut unavailable</value></data>
   <data name="ShortcutNotSet" xml:space="preserve"><value>Not set</value></data>
   <data name="SettingsNormalizeUnicodeHeader" xml:space="preserve"><value>Normalize text (NFC)</value></data>
-  <data name="SettingsNormalizeUnicodeDescription" xml:space="preserve"><value>Fix decomposed characters in plain text.</value></data>
+  <data name="SettingsNormalizeUnicodeDescription" xml:space="preserve"><value>Fix decomposed characters in plain text and HTML.</value></data>
   <data name="MacManualPasteHint" xml:space="preserve"><value>Content copied. Paste manually, or allow PasteOrbit in System Settings → Privacy &amp; Security → Accessibility to enable automatic pasting.</value></data>
   <data name="SequenceCopyTitle" xml:space="preserve"><value>Sequential copy</value></data>
   <data name="SequencePasteTitle" xml:space="preserve"><value>Sequential paste</value></data>

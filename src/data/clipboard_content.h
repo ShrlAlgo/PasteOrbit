@@ -42,6 +42,7 @@ TextContent decodeTextContent(const QByteArray &content, bool includeImages = fa
 // 捕获时快照 HTML 引用的本地图片；预览仅解码快照和内嵌图片，不读取外部资源。
 QHash<QString, QByteArray> captureHtmlImages(const QString &html);
 QHash<QString, QImage> previewHtmlImages(const QString &html, const QHash<QString, QByteArray> &images);
+void normalizeUnicodeText(TextContent &content);
 QString textFormatLabel(const TextContent &content, bool markdown = false);
 bool isMarkdownContent(const TextContent &content);
 QPair<QString, QByteArray> textFileContent(const TextContent &content);

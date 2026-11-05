@@ -97,7 +97,7 @@ private:
     void positionPanel(bool preferCursor, std::optional<PanelBounds> resolvedBounds = std::nullopt,
                        std::optional<PanelBounds> controlBounds = std::nullopt);
     void refreshHistory();
-    void loadMoreHistory();
+    void loadMoreHistory(int selectRow = -1);
     void updateVisibleThumbnails();
     void updateDateIndicator();
     void scheduleCapture();

@@ -160,6 +160,54 @@ QHash<QString, QImage> previewHtmlImages(const QString &html, const QHash<QStrin
 }
 
 // 编辑器常附带 HTML 而不提供 Markdown MIME；导出和预览共用正文识别结果。
+// 只改 HTML 文本节点，保留标签、属性、图片引用和脚本样式原文。
+void normalizeUnicodeText(TextContent &content) {
+    const QString originalText = content.text;
+    const QString originalHtml = content.html;
+    content.text = content.text.normalized(QString::NormalizationForm_C);
+    static const QRegularExpression tokens(QStringLiteral(R"(<!--[\s\S]*?-->|<(?:[^>"']|"[^"]*"|'[^']*')*>|[^<]+|<)"));
+    static const QRegularExpression numeric(QStringLiteral(R"(&#(x[0-9a-f]+|[0-9]+);)"), QRegularExpression::CaseInsensitiveOption);
+    QString html;
+    QString rawTag;
+    auto matches = tokens.globalMatch(content.html);
+    while (matches.hasNext()) {
+        const QString token = matches.next().captured();
+        if (token.startsWith(QLatin1Char('<'))) {
+            html += token;
+            const QString lower = token.toLower();
+            if (rawTag.isEmpty()) {
+                for (const auto &tag : {QStringLiteral("script"), QStringLiteral("style")}) {
+                    if (lower.startsWith(QLatin1Char('<') + tag)
+                        && lower.size() > tag.size() + 1
+                        && (lower.at(tag.size() + 1).isSpace() || lower.at(tag.size() + 1) == QLatin1Char('>')))
+                        rawTag = tag;
+                }
+            } else if (lower.startsWith(QStringLiteral("</") + rawTag + QLatin1Char('>'))) rawTag.clear();
+        } else if (!rawTag.isEmpty()) html += token;
+        else {
+            QString decoded = token;
+            auto entities = numeric.globalMatch(token);
+            QList<QRegularExpressionMatch> replacements;
+            while (entities.hasNext()) replacements.append(entities.next());
+            for (auto it = replacements.crbegin(); it != replacements.crend(); ++it) {
+                const QString number = it->captured(1);
+                bool ok = false;
+                const uint value = number.startsWith(QLatin1Char('x'), Qt::CaseInsensitive)
+                    ? number.mid(1).toUInt(&ok, 16) : number.toUInt(&ok);
+                // 标记字符继续保留实体形式，避免改变 HTML 的解析含义。
+                if (!ok || value < 0x80 || value > 0x10ffff || (value >= 0xd800 && value <= 0xdfff)) continue;
+                const char32_t scalar = value;
+                decoded.replace(it->capturedStart(), it->capturedLength(), QString::fromUcs4(&scalar, 1));
+            }
+            const QString normalized = decoded.normalized(QString::NormalizationForm_C);
+            html += normalized == decoded ? token : normalized;
+        }
+    }
+    content.html = html;
+    // HTML 已提供规范化正文时，避免接收端改选未规范化的 RTF；RTF 单独存在时保留原样。
+    if (!content.html.isEmpty() && (content.text != originalText || content.html != originalHtml)) content.rtf.clear();
+}
+
 QString textFormatLabel(const TextContent &content, bool markdown) {
     if (markdown || content.markdown) return QStringLiteral("Markdown");
     if (!content.html.isEmpty()) return content.rtf.isEmpty() ? QStringLiteral("HTML") : QStringLiteral("HTML · RTF");

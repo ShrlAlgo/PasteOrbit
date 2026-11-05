@@ -1422,7 +1422,7 @@ void MainWindow::refreshHistory() {
     }));
 }
 
-void MainWindow::loadMoreHistory() {
+void MainWindow::loadMoreHistory(int selectRow) {
     if (!isVisible() || settingsPage_ || loadingPage_ || loadingMore_ || !nextCursor_) return;
     loadingMore_ = true;
     const int generation = historyGeneration_->loadRelaxed();
@@ -1431,14 +1431,19 @@ void MainWindow::loadMoreHistory() {
     const auto source = selectedSource_;
     const auto cursor = nextCursor_;
     auto *watcher = new QFutureWatcher<HistoryPage>(this);
-    connect(watcher, &QFutureWatcher<HistoryPage>::finished, this, [this, watcher, generation] {
+    connect(watcher, &QFutureWatcher<HistoryPage>::finished, this, [this, watcher, generation, selectRow] {
         const auto page = watcher->result();
         watcher->deleteLater();
         if (generation != historyGeneration_->loadRelaxed()) return;
         loadingMore_ = false;
         if (!page.error.isEmpty()) { showStatus(page.error); nextCursor_.reset(); return; }
-        model_->appendPage(page);
         nextCursor_ = page.next;
+        model_->appendPage(page);
+        updateEmptyState();
+        if (selectRow >= 0 && model_->rowCount() > 0) {
+            historyList_->setCurrentIndex(model_->index(qMin(selectRow, model_->rowCount() - 1)));
+            historyList_->scrollTo(historyList_->currentIndex(), QAbstractItemView::EnsureVisible);
+        }
         updateVisibleThumbnails();
     });
     const QString path = databasePath_;
@@ -1922,18 +1927,35 @@ void MainWindow::deleteRecord(const QString &id) {
     if (loadingPage_) return;
     const auto *item = model_->itemAt(model_->rowForId(id));
     if (!item) return;
-    if (item->pinned) activatePanel();
-    if (item->pinned && QMessageBox::question(this,
+    const bool pinned = item->pinned;
+    if (pinned) activatePanel();
+    if (pinned && QMessageBox::question(this,
             AppLocalization::get(QStringLiteral("DeletePinnedItemTitle")),
             AppLocalization::get(QStringLiteral("DeletePinnedItemMessage")),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) return;
     const QString path = databasePath_;
     auto *watcher = new QFutureWatcher<QString>(this);
-    connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher] {
+    connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher, id, pinned] {
         const auto error = watcher->result();
         watcher->deleteLater();
-        if (!error.isEmpty()) showStatus(error);
-        refreshHistory();
+        if (!error.isEmpty()) { showStatus(error); return; }
+        // 查询中的筛选结果重新读取；普通删除直接移除当前行，保留分页和滚动位置。
+        if (loadingPage_) { refreshHistory(); return; }
+        const int row = model_->rowForId(id);
+        if (row < 0) return;
+        historyGeneration_->fetchAndAddRelaxed(1);
+        loadingMore_ = false;
+        if (hoverPreviewId_ == id) closeHoverPreview();
+        const QSignalBlocker scrollBlocker(historyList_->verticalScrollBar());
+        model_->remove(id);
+        if (!pinned) unpinnedCount_ = qMax(0, unpinnedCount_ - 1);
+        updateEmptyState();
+        if (model_->rowCount() > 0) {
+            historyList_->setCurrentIndex(model_->index(qMin(row, model_->rowCount() - 1)));
+            historyList_->scrollTo(historyList_->currentIndex(), QAbstractItemView::EnsureVisible);
+        }
+        updateVisibleThumbnails();
+        loadMoreHistory(row >= model_->rowCount() ? row : -1);
     });
     watcher->setFuture(QtConcurrent::run(&writePool_, [path, id] { return HistoryStore(path).remove(id); }));
 }
@@ -2247,14 +2269,13 @@ void MainWindow::saveCapture(ClipboardCapture capture, QImage fallbackImage, qui
                                                         fallback = std::move(fallbackImage)]() mutable {
         if (capture.kind == 0) {
             auto payload = QJsonDocument::fromJson(capture.content.mid(qstrlen(TextPayloadPrefix))).object();
-            // 图文和富文本必须保留原始格式；仅规范化纯文本和 Markdown，不丢弃嵌入图片。
-            if (normalizeUnicode && payload.value(QStringLiteral("Html")).toString().isEmpty()
-                && payload.value(QStringLiteral("RtfBase64")).toString().isEmpty()) {
-                const QString normalized = capture.searchText.normalized(QString::NormalizationForm_C);
-                if (normalized != capture.searchText) {
-                    payload.insert(QStringLiteral("Text"), normalized);
-                    capture.searchText = normalized;
-                }
+            if (normalizeUnicode) {
+                auto text = decodeTextContent(capture.content);
+                normalizeUnicodeText(text);
+                payload.insert(QStringLiteral("Text"), text.text);
+                payload.insert(QStringLiteral("Html"), text.html.isEmpty() ? QJsonValue(QJsonValue::Null) : QJsonValue(text.html));
+                payload.insert(QStringLiteral("RtfBase64"), QString::fromLatin1(text.rtf.toBase64()));
+                capture.searchText = text.text;
             }
             const auto images = captureHtmlImages(payload.value(QStringLiteral("Html")).toString());
             if (!images.isEmpty()) {
@@ -2365,7 +2386,8 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile, std
             }
             mime->setUrls({QUrl::fromLocalFile(filePath)});
         } else if (item.kind == 0) {
-            const auto text = decodeTextContent(content);
+            auto text = decodeTextContent(content);
+            if (settings_.normalizeUnicodeText) normalizeUnicodeText(text);
             mime->setText(text.text);
             if (!plainText) {
                 if (!text.html.isEmpty()) mime->setHtml(text.html);

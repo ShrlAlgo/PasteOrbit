@@ -378,7 +378,7 @@
   <data name="ShortcutConflictTitle" xml:space="preserve"><value>快捷键不可用</value></data>
   <data name="ShortcutNotSet" xml:space="preserve"><value>未设置</value></data>
   <data name="SettingsNormalizeUnicodeHeader" xml:space="preserve"><value>Unicode 规范化（NFC）</value></data>
-  <data name="SettingsNormalizeUnicodeDescription" xml:space="preserve"><value>修复纯文本中的拆字问题</value></data>
+  <data name="SettingsNormalizeUnicodeDescription" xml:space="preserve"><value>修复纯文本和网页文字中的拆字问题</value></data>
   <data name="MacManualPasteHint" xml:space="preserve"><value>内容已复制，可手动粘贴。如需自动粘贴，请在“系统设置 → 隐私与安全性 → 辅助功能”中允许贴环。</value></data>
   <data name="SequenceCopyTitle" xml:space="preserve"><value>顺序复制</value></data>
   <data name="SequencePasteTitle" xml:space="preserve"><value>顺序粘贴</value></data>
