@@ -25,6 +25,8 @@
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QSaveFile>
+#include <QScreen>
+#include <QWindow>
 #include <QStandardPaths>
 #include <QSysInfo>
 #include <QVersionNumber>
@@ -40,6 +42,22 @@ constexpr qint64 DownloadBufferLimit = 128 * 1024;
 
 QString localized(const QString &key) {
     return AppLocalization::get(key);
+}
+
+// 更新对话框统一居中到主屏可用区，避免继承历史面板所在的副屏。
+void placeOnPrimaryScreen(QWidget &dialog) {
+    auto *screen = QGuiApplication::primaryScreen();
+    if (!screen) return;
+    dialog.winId();
+    dialog.windowHandle()->setScreen(screen);
+    dialog.adjustSize();
+    dialog.move(screen->availableGeometry().center() - dialog.rect().center());
+}
+
+void showUpdateMessage(QWidget *parent, QMessageBox::Icon icon, const QString &title, const QString &message) {
+    QMessageBox dialog(icon, title, message, QMessageBox::Ok, parent);
+    placeOnPrimaryScreen(dialog);
+    dialog.exec();
 }
 
 bool isHttpsUrl(const QUrl &url) {
@@ -80,7 +98,7 @@ void UpdateService::handleCheckFinished(QNetworkReply *reply) {
     reply->deleteLater();
     if (networkError != QNetworkReply::NoError) {
         if (!automatic_ && prepareDialog())
-            QMessageBox::warning(parent_, localized(QStringLiteral("UpdateCheckFailedTitle")),
+            showUpdateMessage(parent_, QMessageBox::Warning, localized(QStringLiteral("UpdateCheckFailedTitle")),
                                  localized(QStringLiteral("UpdateCheckFailedMessage")));
         return;
     }
@@ -98,7 +116,7 @@ void UpdateService::handleCheckFinished(QNetworkReply *reply) {
     if (!document.isObject() || !versionPattern.match(releaseTag_).hasMatch()
         || latestVersion.isNull() || currentVersion.isNull() || !isHttpsUrl(releaseUrl_)) {
         if (!automatic_ && prepareDialog())
-            QMessageBox::warning(parent_, localized(QStringLiteral("UpdateCheckFailedTitle")),
+            showUpdateMessage(parent_, QMessageBox::Warning, localized(QStringLiteral("UpdateCheckFailedTitle")),
                                  localized(QStringLiteral("UpdateCheckFailedMessage")));
         return;
     }
@@ -126,7 +144,7 @@ void UpdateService::handleCheckFinished(QNetworkReply *reply) {
 
     if (latestVersion <= currentVersion) {
         if (!automatic_ && prepareDialog())
-            QMessageBox::information(parent_, localized(QStringLiteral("UpdateNoUpdateTitle")),
+            showUpdateMessage(parent_, QMessageBox::Information, localized(QStringLiteral("UpdateNoUpdateTitle")),
                 AppLocalization::format(QStringLiteral("UpdateNoUpdateMessage"), {currentVersion.toString()}));
         return;
     }
@@ -175,6 +193,7 @@ void UpdateService::showResult() {
     QSize buttonSize = later->sizeHint().expandedTo(skip->sizeHint());
     if (primary) buttonSize = buttonSize.expandedTo(primary->sizeHint());
     for (auto *button : dialog.findChildren<QPushButton *>()) button->setFixedSize(buttonSize);
+    placeOnPrimaryScreen(dialog);
     dialog.exec();
     if (dialog.clickedButton() == primary && primary) {
         if (installerUrl_.isEmpty()) QDesktopServices::openUrl(releaseUrl_);
@@ -193,7 +212,7 @@ void UpdateService::startDownload() {
     if (downloading_ || installerUrl_.isEmpty() || !prepareDialog()) return;
 #ifdef Q_OS_MACOS
     if (!MacIntegration::canUpdateApplication()) {
-        QMessageBox::warning(parent_, localized(QStringLiteral("UpdateDownloadFailedTitle")),
+        showUpdateMessage(parent_, QMessageBox::Warning, localized(QStringLiteral("UpdateDownloadFailedTitle")),
                              localized(QStringLiteral("UpdateInstallLocationMessage")));
         return;
     }
@@ -236,6 +255,7 @@ void UpdateService::startDownload() {
     progressDialog_->setWindowModality(Qt::WindowModal);
     progressDialog_->setMinimumDuration(0);
     progressDialog_->setRange(0, installerSize_ > 0 ? 100 : 0);
+    placeOnPrimaryScreen(*progressDialog_);
     progressDialog_->show();
 
     QNetworkRequest request(installerUrl_);
@@ -311,7 +331,7 @@ void UpdateService::handleDownloadFinished() {
 
 void UpdateService::showDownloadFailure() {
     if (prepareDialog())
-        QMessageBox::warning(parent_, localized(QStringLiteral("UpdateDownloadFailedTitle")),
+        showUpdateMessage(parent_, QMessageBox::Warning, localized(QStringLiteral("UpdateDownloadFailedTitle")),
                              localized(QStringLiteral("UpdateDownloadFailedMessage")));
 }
 

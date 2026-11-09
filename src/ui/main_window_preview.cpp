@@ -418,6 +418,7 @@ void MainWindow::toggleHoverPreview(QString id) {
             QPushButton *exportTable = nullptr;
             if (!result.table.isEmpty()) {
                 exportTable = new QPushButton(AppLocalization::get(QStringLiteral("ExportTable")), content);
+                exportTable->setToolTip(AppLocalization::get(QStringLiteral("ExportTableHint")));
                 layout->addWidget(exportTable);
                 connect(exportTable, &QPushButton::clicked, this, [this, table = result.table] {
                     // 模态对话框仍会处理刷新事件，预览销毁后不能再读取连接闭包中的数据。
@@ -466,6 +467,7 @@ void MainWindow::toggleHoverPreview(QString id) {
                 edit->setToolTip(AppLocalization::get(plainRtf ? QStringLiteral("RtfEditNotice") : QStringLiteral("EditViewedTextHint")));
                 paste->setToolTip(edit->toolTip());
                 auto *formatText = new QPushButton(AppLocalization::get(QStringLiteral("FormatStructuredText")), content);
+                formatText->setToolTip(AppLocalization::get(QStringLiteral("FormatStructuredTextHint")));
                 formatText->hide();
                 actions->addWidget(formatText);
                 connect(formatText, &QPushButton::clicked, this, [this, preview] {

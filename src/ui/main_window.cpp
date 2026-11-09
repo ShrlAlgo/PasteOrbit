@@ -22,10 +22,13 @@
 #include <QDataStream>
 #include <QCloseEvent>
 #include <QCursor>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QDesktopServices>
 #include <QFile>
 #include <QFileInfo>
+#include <QGridLayout>
 #include <QFrame>
 #include <QGuiApplication>
 #include <QHash>
@@ -72,6 +75,7 @@
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWheelEvent>
+#include <QWidgetAction>
 #include <QWindow>
 #include <QtConcurrent>
 
@@ -93,6 +97,12 @@ constexpr int HotkeyId = 0x504F;
 constexpr int HistoryPageSize = 30;
 constexpr int TrayResumeMilliseconds = 10 * 60 * 1000;
 const QString WindowsRtfMime = QStringLiteral("application/x-qt-windows-mime;value=\"Rich Text Format\"");
+
+struct GroupMutation {
+    QVector<HistoryGroup> groups;
+    int groupId = 0;
+    QString error;
+};
 
 QByteArray clipboardRtf(const QMimeData *mime) {
     for (const auto &format : {WindowsRtfMime, QStringLiteral("text/rtf"), QStringLiteral("application/rtf")}) {
@@ -174,8 +184,9 @@ void stylePopupMenu(QMenu *menu, const QPalette &palette) {
 }
 
 QIcon headerGlyphIcon(QChar glyph, const QColor &color, const QWidget *widget) {
+    constexpr int size = 20;
     const qreal scale = widget->devicePixelRatioF();
-    QPixmap pixmap(qRound(20 * scale), qRound(20 * scale));
+    QPixmap pixmap(qRound(size * scale), qRound(size * scale));
     pixmap.setDevicePixelRatio(scale);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);
@@ -183,14 +194,109 @@ QIcon headerGlyphIcon(QChar glyph, const QColor &color, const QWidget *widget) {
 #ifdef Q_OS_WIN
     QFont font;
     font.setFamilies({QStringLiteral("Segoe Fluent Icons"), QStringLiteral("Segoe MDL2 Assets")});
-    font.setPixelSize(16);
+    font.setPixelSize(qRound(size * 0.8));
     painter.setFont(font);
     painter.setPen(color);
-    painter.drawText(QRect(0, 0, 20, 20), Qt::AlignCenter, QString(glyph));
+    painter.drawText(QRect(0, 0, size, size), Qt::AlignCenter, QString(glyph));
 #else
-    drawPortableIcon(&painter, QRectF(0, 0, 20, 20), glyph, color);
+    drawPortableIcon(&painter, QRectF(0, 0, size, size), glyph, color);
 #endif
     return QIcon(pixmap);
+}
+
+const QSize GroupIconSize(20, 20);
+
+constexpr struct GroupIconChoice {
+    ushort glyph;
+    const char *label;
+} GroupIcons[]{
+    {0xE8EC, "FilterGroupsButtonTooltip"}, {0xE8B7, "FilterFilesButtonTooltip"},
+    {0xE734, "FilterFavoritesButtonTooltip"}, {0xE8D2, "FilterTextButtonTooltip"},
+    {0xE8B9, "FilterImageButtonTooltip"}, {0xE718, "MainWindowPinToggleTooltip"},
+    {0xE721, "GroupIconSearch"}, {0xE715, "GroupIconMail"}, {0xE787, "GroupIconCalendar"},
+    {0xE71B, "GroupIconLink"}, {0xE768, "GroupIconPlay"}, {0xE74E, "GroupIconSave"}
+};
+
+QChar groupGlyph(const QString &icon) {
+    for (const auto &choice : GroupIcons)
+        if (icon == QString(QChar(choice.glyph))) return QChar(choice.glyph);
+    return QChar(GroupIcons[0].glyph);
+}
+
+QIcon groupGlyphIcon(const QString &icon, const QColor &color, const QWidget *widget) {
+    return headerGlyphIcon(groupGlyph(icon), color, widget);
+}
+
+bool editGroupDialog(QWidget *parent, HistoryGroup &group) {
+    QDialog dialog(parent);
+    dialog.setWindowTitle(AppLocalization::get(group.id > 0
+        ? QStringLiteral("EditGroupTitle") : QStringLiteral("NewGroupTitle")));
+    auto *layout = new QVBoxLayout(&dialog);
+    auto *fields = new QHBoxLayout;
+    auto *name = new QLineEdit(group.name, &dialog);
+    name->setMaxLength(40);
+    const QString nameLabel = AppLocalization::get(QStringLiteral("GroupNameLabel"));
+    name->setPlaceholderText(nameLabel);
+    name->setAccessibleName(nameLabel);
+    auto *icon = new QToolButton(&dialog);
+    icon->setAccessibleName(AppLocalization::get(QStringLiteral("GroupIconLabel")));
+    icon->setIconSize(GroupIconSize);
+    icon->setFixedWidth(32);
+    auto *picker = new QMenu(icon);
+    icon->setPopupMode(QToolButton::InstantPopup);
+    icon->setMenu(picker);
+    icon->setStyleSheet(QStringLiteral("QToolButton::menu-indicator { image: none; width: 0px; }"));
+    QObject::connect(qApp, &QApplication::focusChanged, picker, [picker](QWidget *, QWidget *focused) {
+        if (picker->isVisible() && focused && focused != picker && !picker->isAncestorOf(focused))
+            picker->close();
+    });
+    QObject::connect(qApp, &QGuiApplication::applicationStateChanged, picker, [picker](Qt::ApplicationState state) {
+        if (state != Qt::ApplicationActive) picker->close();
+    });
+    auto *choices = new QWidgetAction(picker);
+    auto *grid = new QWidget(picker);
+    auto *icons = new QGridLayout(grid);
+    icons->setContentsMargins(3, 3, 3, 3);
+    icons->setSpacing(2);
+    const QColor color = dialog.palette().color(QPalette::Text);
+    QChar selectedIcon = groupGlyph(group.icon);
+    icon->setIcon(headerGlyphIcon(selectedIcon, color, icon));
+    int index = 0;
+    for (const auto &choice : GroupIcons) {
+        auto *button = new QToolButton(grid);
+        button->setFixedSize(32, 32);
+        button->setIconSize(GroupIconSize);
+        button->setIcon(headerGlyphIcon(QChar(choice.glyph), color, button));
+        button->setToolTip(AppLocalization::get(QString::fromLatin1(choice.label)));
+        button->setAccessibleName(button->toolTip());
+        icons->addWidget(button, index / 4, index % 4);
+        ++index;
+        QObject::connect(button, &QToolButton::clicked, &dialog, [&, glyph = QChar(choice.glyph)] {
+            selectedIcon = glyph;
+            icon->setIcon(headerGlyphIcon(glyph, color, icon));
+            picker->close();
+            name->setFocus();
+        });
+    }
+    choices->setDefaultWidget(grid);
+    picker->addAction(choices);
+    fields->addWidget(icon);
+    fields->addWidget(name, 1);
+    layout->addLayout(fields);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    auto *confirm = buttons->button(QDialogButtonBox::Ok);
+    confirm->setEnabled(!name->text().trimmed().isEmpty());
+    QObject::connect(name, &QLineEdit::textChanged, confirm, [confirm](const QString &text) {
+        confirm->setEnabled(!text.trimmed().isEmpty());
+    });
+    layout->addWidget(buttons);
+    QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    name->setFocus();
+    if (dialog.exec() != QDialog::Accepted) return false;
+    group.name = name->text().trimmed();
+    group.icon = QString(selectedIcon);
+    return true;
 }
 
 QLabel *createSettingsSnapshot(QWidget *page, QWidget *parent, const QPoint &position) {
@@ -683,6 +789,7 @@ MainWindow::MainWindow(QString dataDirectory, AppSettings settings)
     else {
         // 启动后异步预载第一页，首次唤出面板即可显示已有记录。
         refreshHistory();
+        reloadGroups();
         const QString path = databasePath_;
         const int retention = settings_.retentionDays;
         const int maximum = settings_.maxHistoryEntries;
@@ -754,7 +861,15 @@ void MainWindow::finishStorageOperation(bool restored) {
         if (language.isEmpty()) language = QLocale().name().startsWith(QStringLiteral("en"))
             ? QStringLiteral("en-US") : QStringLiteral("zh-CN");
         AppLocalization::load(language);
+        groups_.clear();
+        rebuildGroupButtons();
+        if (selectedKind_ >= HistoryStore::GroupKindBase) {
+            selectedKind_ = -1;
+            filterButtons_->button(0)->setChecked(true);
+            clearButton_->setEnabled(true);
+        }
         applySettings(restoredSettings);
+        reloadGroups();
     }
     refreshHistory();
 }
@@ -867,6 +982,7 @@ void MainWindow::buildUi() {
     searchRow->addWidget(sourceButton_);
     searchLayout->addLayout(searchRow);
     sourceFilterChip_ = new QToolButton(searchFrame);
+    sourceFilterChip_->setObjectName(QStringLiteral("SourceFilterChip"));
     sourceFilterChip_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     sourceFilterChip_->hide();
     connect(sourceFilterChip_, &QToolButton::clicked, this, [this] { setSourceFilter(std::nullopt); });
@@ -877,6 +993,24 @@ void MainWindow::buildUi() {
     auto *filterLayout = new QHBoxLayout(filterRow);
     filterLayout->setContentsMargins(0, 0, 0, 10);
     filterLayout->setSpacing(0);
+    filterScroll_ = new QScrollArea(filterRow);
+    filterScroll_->setFrameShape(QFrame::NoFrame);
+    filterScroll_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    filterScroll_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    filterScroll_->setWidgetResizable(true);
+    filterScroll_->setFixedHeight(32);
+    filterScroll_->setFocusPolicy(Qt::NoFocus);
+    filterScroll_->viewport()->setAutoFillBackground(false);
+    filterScroll_->viewport()->installEventFilter(this);
+    auto *filterStrip = new QWidget;
+    filterStrip->installEventFilter(this);
+    filterStrip->setProperty("historyFilter", true);
+    auto *stripLayout = new QHBoxLayout(filterStrip);
+    stripLayout->setContentsMargins(0, 0, 0, 0);
+    stripLayout->setSpacing(0);
+    stripLayout->setSizeConstraint(QLayout::SetMinimumSize);
+    filterScroll_->setWidget(filterStrip);
+    filterLayout->addWidget(filterScroll_, 1);
     filterButtons_ = new QButtonGroup(this);
     filterButtons_->setExclusive(true);
     const QStringList labels{QString(QChar(0xE8A9)), QString(QChar(0xE8D2)), QString(QChar(0xE8B9)), QString(QChar(0xE8B7)), QString(QChar(0xE734))};
@@ -885,7 +1019,7 @@ void MainWindow::buildUi() {
                                QStringLiteral("FilterFavoritesButtonTooltip")};
     // QButtonGroup 将 -1 保留给“无选择”，按钮序号通过偏移映射到记录类型。
     for (int i = 0; i < labels.size(); ++i) {
-        auto *button = new QToolButton(filterRow);
+        auto *button = new QToolButton(filterStrip);
         button->setText(labels.at(i));
         button->setCheckable(true);
         button->setObjectName(QStringLiteral("FilterButton"));
@@ -894,11 +1028,18 @@ void MainWindow::buildUi() {
         // 分类切换由列表和空状态处理，筛选按钮不占用键盘焦点。
         button->setFocusPolicy(Qt::NoFocus);
         filterButtons_->addButton(button, i);
-        filterLayout->addWidget(button);
+        button->setProperty("historyFilter", true);
+        button->installEventFilter(this);
+        stripLayout->addWidget(button);
     }
     filterButtons_->button(0)->setChecked(true);
     connect(filterButtons_, &QButtonGroup::idClicked, this, [this](int id) { setFilter(id - 1); });
-    filterLayout->addStretch(1);
+    groupButtonsLayout_ = new QHBoxLayout;
+    groupButtonsLayout_->setContentsMargins(0, 0, 0, 0);
+    groupButtonsLayout_->setSpacing(0);
+    stripLayout->addLayout(groupButtonsLayout_);
+    stripLayout->addStretch(1);
+    filterLayout->addSpacing(6);
     clearButton_ = new QToolButton(filterRow);
     clearButton_->setText(QChar(0xE75C));
     clearButton_->setToolButtonStyle(Qt::ToolButtonIconOnly);
@@ -907,6 +1048,17 @@ void MainWindow::buildUi() {
     clearButton_->setToolTip(AppLocalization::get(QStringLiteral("ClearHistoryButtonTooltip")));
     clearButton_->setFont(iconFont);
     connect(clearButton_, &QToolButton::clicked, this, &MainWindow::clearCurrentList);
+    newGroupButton_ = new QToolButton(filterRow);
+    newGroupButton_->setObjectName(QStringLiteral("HeaderButton"));
+    newGroupButton_->setFocusPolicy(Qt::NoFocus);
+    newGroupButton_->setIconSize(GroupIconSize);
+    connect(newGroupButton_, &QToolButton::clicked, this, [this] {
+        activatePanel();
+        HistoryGroup group;
+        if (editGroupDialog(this, group)) saveGroup(group);
+    });
+    filterLayout->addWidget(newGroupButton_);
+    filterLayout->addSpacing(6);
     filterLayout->addWidget(clearButton_);
     root->addWidget(filterRow);
 
@@ -1096,19 +1248,25 @@ void MainWindow::applyTheme() {
     pinButton_->setIcon(headerGlyphIcon(isPinned_ ? QChar(0xE77A) : QChar(0xE718), text, pinButton_));
     clearButton_->setIcon(headerGlyphIcon(QChar(0xE75C), text, clearButton_));
     sourceButton_->setIcon(headerGlyphIcon(QChar(0xE71C), text, sourceButton_));
+    updateGroupButtons();
     dateLabel_->setStyleSheet(QStringLiteral("color:%1;background:transparent;").arg(muted.name()));
     pageColor_ = page;
     borderColor_ = stroke;
+    const QColor hoverStrong(dark ? QStringLiteral("#474747") : QStringLiteral("#DEDEDE"));
     // 历史页样式不能成为设置页祖先样式，否则会覆盖 Qlementine Switch 的原生绘制。
     historyPage_->setStyleSheet(QStringLiteral(
         "QWidget#HistoryPage{background:transparent;color:%1;border:0;}"
         "QWidget#Header{background:transparent;border:0;} QLabel#AppTitle{color:%1;border:0;}"
         "QToolButton#HeaderButton{color:%1;background:%2;border:0;border-radius:6px;min-width:32px;max-width:32px;min-height:32px;max-height:32px;}"
-        "QToolButton#HeaderButton:hover{background:%3;} QToolButton#FilterButton{color:%4;background:%2;border:0;border-radius:6px;min-width:36px;max-width:36px;min-height:32px;max-height:32px;margin-right:6px;}"
+        "QToolButton#HeaderButton:hover{background:%3;} QToolButton#HeaderButton:checked{background:%3;}"
+        "QToolButton#HeaderButton:checked:hover{background:%5;}"
+        "QToolButton#FilterButton{color:%4;background:%2;border:0;border-radius:6px;min-width:36px;max-width:36px;min-height:32px;max-height:32px;margin-right:6px;}"
         "QToolButton#FilterButton:hover{background:%3;} QToolButton#FilterButton:checked{color:white;background:#0078D4;}"
+        "QToolButton#SourceFilterChip{color:%1;background:%2;border:0;border-radius:6px;padding:2px 8px;}"
+        "QToolButton#SourceFilterChip:hover{background:%3;}"
         "QListView#HistoryList{background:transparent;color:%1;border:0;outline:0;}"
         "QLabel#EmptyHistory{color:%4;background:transparent;border:0;}"
-    ).arg(text.name(), surface.name(), hover.name(), muted.name()));
+    ).arg(text.name(), surface.name(), hover.name(), muted.name(), hoverStrong.name()));
     historyList_->viewport()->update();
     update();
 }
@@ -1145,6 +1303,7 @@ void MainWindow::applySettings(const AppSettings &settings) {
     if (hotkeyChanged) registerHotkey();
     if (winVChanged) updateWinVHook();
     updateTrayTooltip();
+    updateGroupButtons();
     if (cleanupChanged) {
         const QString path = databasePath_;
         const int retention = settings_.retentionDays;
@@ -1513,6 +1672,197 @@ void MainWindow::setSourceFilter(std::optional<QString> source) {
     if (!passiveBrowsing_) historyStack_->currentWidget()->setFocus(Qt::ShortcutFocusReason);
 }
 
+void MainWindow::rebuildGroupButtons() {
+    while (auto *item = groupButtonsLayout_->takeAt(0)) {
+        delete item->widget();
+        delete item;
+    }
+    for (const auto &group : groups_) {
+        auto *button = new QToolButton(filterScroll_->widget());
+        button->setObjectName(QStringLiteral("FilterButton"));
+        button->setToolButtonStyle(Qt::ToolButtonIconOnly);
+        button->setProperty("historyFilter", true);
+        button->installEventFilter(this);
+        button->setFocusPolicy(Qt::NoFocus);
+        button->setCheckable(true);
+        button->setIconSize(GroupIconSize);
+        button->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(button, &QToolButton::clicked, this, [this, id = group.id] { setGroupFilter(id); });
+        connect(button, &QToolButton::customContextMenuRequested, this, [this, button, id = group.id](const QPoint &position) {
+            if (QApplication::activePopupWidget()) return;
+            auto *menu = new QMenu(this);
+            stylePopupMenu(menu, qApp->palette());
+            auto *edit = menu->addAction(AppLocalization::get(QStringLiteral("EditGroupMenu")));
+            auto *remove = menu->addAction(AppLocalization::get(QStringLiteral("DeleteGroupMenu")));
+            connect(edit, &QAction::triggered, this, [this, id] { editGroup(id); });
+            connect(remove, &QAction::triggered, this, [this, id] { deleteGroup(id); });
+            connect(menu, &QMenu::aboutToHide, menu, &QObject::deleteLater);
+            preparePanelMenu(menu);
+            menu->popup(button->mapToGlobal(position));
+        });
+        groupButtonsLayout_->addWidget(button);
+    }
+    updateGroupButtons();
+}
+
+void MainWindow::setGroupFilter(int groupId) {
+    // 分组筛选与固定分类互斥；QButtonGroup 没有“无选择”状态，先临时关闭互斥。
+    filterButtons_->setExclusive(false);
+    for (auto *button : filterButtons_->buttons()) button->setChecked(false);
+    filterButtons_->setExclusive(true);
+    setFilter(HistoryStore::GroupKindBase + groupId);
+}
+
+void MainWindow::updateGroupButtons() {
+    if (!newGroupButton_) return;
+    const QColor color = qApp->palette().color(QPalette::Text);
+    newGroupButton_->setIcon(headerGlyphIcon(QChar(0xE710), color, newGroupButton_));
+    newGroupButton_->setToolTip(AppLocalization::get(QStringLiteral("NewGroupTitle")));
+    newGroupButton_->setAccessibleName(newGroupButton_->toolTip());
+    auto *selected = filterButtons_->checkedButton();
+    for (int i = 0; i < groupButtonsLayout_->count(); ++i) {
+        auto *button = static_cast<QToolButton *>(groupButtonsLayout_->itemAt(i)->widget());
+        const auto &group = groups_.at(i);
+        const bool active = selectedKind_ == HistoryStore::GroupKindBase + group.id;
+        button->setChecked(active);
+        button->setIcon(groupGlyphIcon(group.icon, active ? QColor(Qt::white) : color, button));
+        button->setToolTip(group.name);
+        button->setAccessibleName(group.name);
+        if (active) selected = button;
+    }
+    if (selected) {
+        QTimer::singleShot(0, this, [this, button = QPointer<QAbstractButton>(selected)] {
+            if (button && button->isChecked()) filterScroll_->ensureWidgetVisible(button, 0, 0);
+        });
+    }
+}
+
+void MainWindow::reloadGroups() {
+    const QString path = databasePath_;
+    auto *watcher = new QFutureWatcher<QVector<HistoryGroup>>(this);
+    connect(watcher, &QFutureWatcher<QVector<HistoryGroup>>::finished, this, [this, watcher] {
+        groups_ = watcher->result();
+        watcher->deleteLater();
+        rebuildGroupButtons();
+    });
+    watcher->setFuture(QtConcurrent::run(&readPool_, [path] { return HistoryStore(path).groups(); }));
+}
+
+void MainWindow::saveGroup(HistoryGroup group, const QString &assignItemId) {
+    const QString path = databasePath_;
+    auto *watcher = new QFutureWatcher<GroupMutation>(this);
+    const bool creating = group.id == 0;
+    connect(watcher, &QFutureWatcher<GroupMutation>::finished, this, [this, watcher, assignItemId, creating] {
+        const auto result = watcher->result();
+        watcher->deleteLater();
+        if (!result.error.isEmpty()) { showStatus(result.error); return; }
+        groups_ = result.groups;
+        rebuildGroupButtons();
+        if (result.groupId <= 0) return;
+        if (!assignItemId.isEmpty()) setRecordGroup(assignItemId, result.groupId);
+        else if (creating) setGroupFilter(result.groupId);
+    });
+    watcher->setFuture(QtConcurrent::run(&writePool_, [path, group]() mutable {
+        HistoryStore store(path);
+        GroupMutation result;
+        result.error = store.saveGroup(group);
+        result.groupId = group.id;
+        if (result.error.isEmpty()) result.groups = store.groups();
+        return result;
+    }));
+}
+
+void MainWindow::editGroup(int groupId) {
+    for (const auto &group : groups_) {
+        if (group.id != groupId) continue;
+        HistoryGroup edited = group;
+        activatePanel();
+        if (editGroupDialog(this, edited)) saveGroup(edited);
+        return;
+    }
+}
+
+void MainWindow::deleteGroup(int groupId) {
+    const auto it = std::find_if(groups_.cbegin(), groups_.cend(),
+        [groupId](const HistoryGroup &group) { return group.id == groupId; });
+    if (it == groups_.cend()) return;
+    const QString name = it->name;
+    activatePanel();
+    if (QMessageBox::question(this, AppLocalization::get(QStringLiteral("DeleteGroupTitle")),
+            AppLocalization::format(QStringLiteral("DeleteGroupMessage"), {name}),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) return;
+    const QString path = databasePath_;
+    auto *watcher = new QFutureWatcher<GroupMutation>(this);
+    connect(watcher, &QFutureWatcher<GroupMutation>::finished, this, [this, watcher, groupId] {
+        const auto result = watcher->result();
+        watcher->deleteLater();
+        if (!result.error.isEmpty()) { showStatus(result.error); return; }
+        groups_ = result.groups;
+        rebuildGroupButtons();
+        if (selectedKind_ == HistoryStore::GroupKindBase + groupId) {
+            filterButtons_->button(0)->setChecked(true);
+            setFilter(-1);
+        } else {
+            updateGroupButtons();
+            refreshHistory();
+        }
+    });
+    watcher->setFuture(QtConcurrent::run(&writePool_, [path, groupId] {
+        HistoryStore store(path);
+        GroupMutation result;
+        result.error = store.removeGroup(groupId);
+        if (result.error.isEmpty()) result.groups = store.groups();
+        return result;
+    }));
+}
+
+void MainWindow::setRecordGroup(const QString &id, int groupId) {
+    const auto *item = model_->itemAt(model_->rowForId(id));
+    if (item && item->groupId == groupId) return;
+    const QString path = databasePath_;
+    auto *watcher = new QFutureWatcher<QString>(this);
+    connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher, id, groupId] {
+        const auto error = watcher->result();
+        watcher->deleteLater();
+        if (!error.isEmpty()) { showStatus(error); return; }
+        if (loadingPage_) { refreshHistory(); return; }
+        const int row = model_->rowForId(id);
+        if (row < 0) {
+            if (groupId > 0 && selectedKind_ == HistoryStore::GroupKindBase + groupId) refreshHistory();
+            else historyDirty_ = true;
+            return;
+        }
+        const auto *current = model_->itemAt(row);
+        const bool wasGrouped = current->groupId > 0;
+        const bool wasPinned = current->pinned;
+        model_->setGroup(id, groupId);
+        // 分组记录与收藏一样受清理保护，清空数量需要保持准确。
+        if (!wasPinned && selectedKind_ != 3 && selectedKind_ < HistoryStore::GroupKindBase) {
+            if (groupId > 0 && !wasGrouped) unpinnedCount_ = qMax(0, unpinnedCount_ - 1);
+            else if (groupId == 0 && wasGrouped) ++unpinnedCount_;
+        }
+        if (selectedKind_ < HistoryStore::GroupKindBase) return;
+        if (selectedKind_ - HistoryStore::GroupKindBase == groupId) return;
+        // 当前正按分组筛选时，移出分组的记录立即从列表消失。
+        const bool restoreFocus = historyList_->hasFocus();
+        const bool removingCurrent = historyList_->currentIndex().data(HistoryModel::IdRole).toString() == id;
+        // 丢弃可能仍包含旧分组成员的在途分页。
+        historyGeneration_->fetchAndAddRelaxed(1);
+        loadingMore_ = false;
+        const QSignalBlocker scrollBlocker(historyList_->verticalScrollBar());
+        model_->remove(id);
+        if (removingCurrent && model_->rowCount() > 0)
+            historyList_->setCurrentIndex(model_->index(qMin(row, model_->rowCount() - 1)));
+        updateEmptyState();
+        if (restoreFocus && !passiveBrowsing_) historyStack_->currentWidget()->setFocus(Qt::ShortcutFocusReason);
+        updateVisibleThumbnails();
+        loadMoreHistory(removingCurrent && row >= model_->rowCount() ? row : -1);
+    });
+    watcher->setFuture(QtConcurrent::run(&writePool_, [path, id, groupId] {
+        return HistoryStore(path).setGroup(id, groupId);
+    }));
+}
+
 void MainWindow::openSourceMenu() {
     sourceButton_->setChecked(selectedSource_.has_value());
     if (QApplication::activePopupWidget()) return;
@@ -1561,17 +1911,32 @@ void MainWindow::openSourceMenu() {
 
 void MainWindow::setFilter(int kind) {
     selectedKind_ = kind;
-    // 收藏受保留规则保护，不提供整批清空；单条删除仍需确认。
-    clearButton_->setEnabled(kind != 3);
+    // 收藏和自定义分组受保留规则保护，不提供整批清空；单条删除仍需确认。
+    clearButton_->setEnabled(kind != 3 && kind < HistoryStore::GroupKindBase);
+    updateGroupButtons();
+    searchTimer_.stop();
+    historyList_->verticalScrollBar()->setValue(0);
     refreshHistory();
     if (!passiveBrowsing_) historyStack_->currentWidget()->setFocus(Qt::ShortcutFocusReason);
 }
 
 void MainWindow::switchFilter(int direction) {
-    const int count = filterButtons_->buttons().size();
-    const int next = (selectedKind_ + 1 + direction + count) % count;
-    filterButtons_->button(next)->setChecked(true);
-    setFilter(next - 1);
+    const int fixedCount = filterButtons_->buttons().size();
+    int current = selectedKind_ + 1;
+    if (selectedKind_ >= HistoryStore::GroupKindBase) {
+        const int active = selectedKind_ - HistoryStore::GroupKindBase;
+        const auto it = std::find_if(groups_.cbegin(), groups_.cend(),
+            [active](const HistoryGroup &group) { return group.id == active; });
+        current = it == groups_.cend() ? 0 : fixedCount + int(it - groups_.cbegin());
+    }
+    const int count = fixedCount + int(groups_.size());
+    const int next = (current + direction + count) % count;
+    if (next >= fixedCount) {
+        setGroupFilter(groups_.at(next - fixedCount).id);
+    } else {
+        filterButtons_->button(next)->setChecked(true);
+        setFilter(next - 1);
+    }
 }
 
 void MainWindow::updateEmptyState() {
@@ -1658,6 +2023,19 @@ bool MainWindow::nativeEventFilter(const QByteArray &, void *message, qintptr *r
 }
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
+    if (event->type() == QEvent::Wheel && filterScroll_
+        && (watched == filterScroll_->viewport() || watched->property("historyFilter").toBool())) {
+        auto *bar = filterScroll_->horizontalScrollBar();
+        if (bar->maximum() > 0) {
+            const auto *wheel = static_cast<QWheelEvent *>(event);
+            const QPoint pixels = wheel->pixelDelta();
+            const QPoint angle = wheel->angleDelta();
+            const int steps = angle.x() != 0 ? angle.x() : angle.y();
+            const int delta = pixels.isNull() ? qRound(42.0 * steps / 120) : (pixels.x() != 0 ? pixels.x() : pixels.y());
+            bar->setValue(bar->value() - delta);
+            return true;
+        }
+    }
     if (watched == searchBox_ && passiveBrowsing_ && event->type() == QEvent::MouseButtonPress)
         activatePanel(searchBox_);
     if (watched == hoverPreview_ && event->type() == QEvent::WindowDeactivate) scheduleAutoHide();
@@ -1891,9 +2269,10 @@ void MainWindow::setPinned(const QString &id) {
     const auto *item = model_->itemAt(model_->rowForId(id));
     if (!item) return;
     const bool newState = !item->pinned;
+    const int groupId = item->groupId;
     const QString path = databasePath_;
     auto *watcher = new QFutureWatcher<QString>(this);
-    connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher, id, newState] {
+    connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher, id, newState, groupId] {
         const auto error = watcher->result();
         watcher->deleteLater();
         if (!error.isEmpty()) { showStatus(error); return; }
@@ -1904,7 +2283,7 @@ void MainWindow::setPinned(const QString &id) {
         if (!current) { historyDirty_ = true; return; }
         if (current->pinned == newState) return;
         // 收藏不再影响排序，只更新角色，保留选中项、滚动位置和已加载的分页。
-        if (selectedKind_ != 3) unpinnedCount_ = qMax(0, unpinnedCount_ + (newState ? -1 : 1));
+        if (selectedKind_ != 3 && groupId == 0) unpinnedCount_ = qMax(0, unpinnedCount_ + (newState ? -1 : 1));
         model_->setPinned(id, newState);
         if (selectedKind_ == 3 && !newState) {
             const bool restoreFocus = historyList_->hasFocus();
@@ -1928,6 +2307,7 @@ void MainWindow::deleteRecord(const QString &id) {
     const auto *item = model_->itemAt(model_->rowForId(id));
     if (!item) return;
     const bool pinned = item->pinned;
+    const int groupId = item->groupId;
     if (pinned) activatePanel();
     if (pinned && QMessageBox::question(this,
             AppLocalization::get(QStringLiteral("DeletePinnedItemTitle")),
@@ -1935,7 +2315,7 @@ void MainWindow::deleteRecord(const QString &id) {
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes) return;
     const QString path = databasePath_;
     auto *watcher = new QFutureWatcher<QString>(this);
-    connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher, id, pinned] {
+    connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher, id, pinned, groupId] {
         const auto error = watcher->result();
         watcher->deleteLater();
         if (!error.isEmpty()) { showStatus(error); return; }
@@ -1948,7 +2328,8 @@ void MainWindow::deleteRecord(const QString &id) {
         if (hoverPreviewId_ == id) closeHoverPreview();
         const QSignalBlocker scrollBlocker(historyList_->verticalScrollBar());
         model_->remove(id);
-        if (!pinned) unpinnedCount_ = qMax(0, unpinnedCount_ - 1);
+        // 分组记录不参与清空数量统计，删除时也不能误减。
+        if (!pinned && groupId == 0) unpinnedCount_ = qMax(0, unpinnedCount_ - 1);
         updateEmptyState();
         if (model_->rowCount() > 0) {
             historyList_->setCurrentIndex(model_->index(qMin(row, model_->rowCount() - 1)));
@@ -2091,6 +2472,40 @@ void MainWindow::openRowMenu(const QString &id) {
     if (kind == 0) plain = menu->addAction(AppLocalization::get(QStringLiteral("PastePlainTextMenuItem.Text")));
     if (kind == 0 || kind == 1) asFile = menu->addAction(AppLocalization::get(QStringLiteral("PasteAsFileMenuItem.Text")));
     if (plain || asFile) menu->addSeparator();
+    auto *groupMenu = menu->addMenu(AppLocalization::get(QStringLiteral("AddToGroupMenu")));
+    // 子菜单是独立弹窗，需要单独套用圆角和主题样式。
+    stylePopupMenu(groupMenu, qApp->palette());
+    groupMenu->setToolTipsVisible(true);
+    const int currentGroup = item->groupId;
+    if (currentGroup > 0) {
+        auto *none = groupMenu->addAction(AppLocalization::get(QStringLiteral("RemoveFromGroupMenu")));
+        connect(none, &QAction::triggered, this, [this, id] { setRecordGroup(id, 0); });
+        groupMenu->addSeparator();
+    }
+    const QColor menuText = qApp->palette().color(QPalette::Text);
+    for (const auto &group : groups_) {
+        auto *action = groupMenu->addAction(groupGlyphIcon(group.icon, menuText, groupMenu),
+            groupMenu->fontMetrics().elidedText(group.name, Qt::ElideRight, 240)
+                .replace(QLatin1Char('&'), QStringLiteral("&&")));
+        action->setToolTip(group.name);
+        action->setCheckable(true);
+        action->setChecked(group.id == currentGroup);
+        connect(action, &QAction::triggered, this, [this, id, groupId = group.id] {
+            setRecordGroup(id, groupId);
+        });
+    }
+    if (groups_.isEmpty()) {
+        auto *empty = groupMenu->addAction(AppLocalization::get(QStringLiteral("NoGroups")));
+        empty->setEnabled(false);
+    }
+    groupMenu->addSeparator();
+    auto *create = groupMenu->addAction(AppLocalization::get(QStringLiteral("NewGroupMenu")));
+    connect(create, &QAction::triggered, this, [this, id] {
+        activatePanel();
+        HistoryGroup group;
+        if (editGroupDialog(this, group)) saveGroup(group, id);
+    });
+    menu->addSeparator();
     auto *remove = menu->addAction(AppLocalization::get(QStringLiteral("DeleteRecordMenuItem.Text")));
     if (plain) connect(plain, &QAction::triggered, this, [this, id] { pasteRecord(id, true); });
     if (asFile) connect(asFile, &QAction::triggered, this, [this, id] { pasteRecord(id, false, true); });

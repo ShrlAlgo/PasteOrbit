@@ -125,8 +125,11 @@ void HistoryDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
 #endif
         }
         const QRect textRect(left.left() + 34, left.top(), left.width() - 34, 56);
-        painter->setFont(option.font);
-        painter->setPen(palette.color(QPalette::Text));
+        const bool unavailable = index.data(HistoryModel::UnavailableRole).toBool();
+        QFont fileTextFont = option.font;
+        if (unavailable) fileTextFont.setStrikeOut(true);
+        painter->setFont(fileTextFont);
+        painter->setPen(unavailable ? QColor("#D13438") : palette.color(QPalette::Text));
         drawPreviewText(painter, textRect, index.data(HistoryModel::PreviewRole).toString());
     } else if (kind == 0) {
         painter->setFont(option.font);

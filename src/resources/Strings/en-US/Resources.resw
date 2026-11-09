@@ -78,7 +78,7 @@
   <data name="SettingsRetentionCard.Description" xml:space="preserve"><value>Automatically remove non-favorite items older than this period</value></data>
   <data name="SettingsMaxEntriesCard.Header" xml:space="preserve"><value>Maximum items</value></data>
   <data name="SettingsMaxEntriesCard.Description" xml:space="preserve"><value>Remove non-favorite items first when the limit is reached</value></data>
-  <data name="SettingsPinnedRetentionHint.Text" xml:space="preserve"><value>Favorites are excluded from automatic expiration and count limits.</value></data>
+  <data name="SettingsPinnedRetentionHint.Text" xml:space="preserve"><value>Favorites and groups are excluded from automatic expiration and count limits.</value></data>
   <data name="SettingsPrivacySection.Text" xml:space="preserve"><value>Privacy &amp; security</value></data>
   <data name="SettingsAboutSection.Text" xml:space="preserve"><value>About</value></data>
   <data name="SettingsExcludedAppsCard.Header" xml:space="preserve"><value>Ignored applications</value></data>
@@ -131,13 +131,13 @@
   <data name="OpenExplorerFolderFirst" xml:space="preserve"><value>Open a folder in File Explorer first</value></data>
   <data name="SaveAsFileFailed" xml:space="preserve"><value>Could not save as file</value></data>
   <data name="ClearCurrentListTitle" xml:space="preserve"><value>Clear the current list?</value></data>
-  <data name="ClearCurrentListMessage" xml:space="preserve"><value>Delete {0} non-favorite items matching this filter? This cannot be undone.</value></data>
+  <data name="ClearCurrentListMessage" xml:space="preserve"><value>Delete {0} records that are neither favorites nor grouped in the current filter? This cannot be undone.</value></data>
   <data name="DeletePinnedItemTitle" xml:space="preserve"><value>Delete favorite?</value></data>
   <data name="DeletePinnedItemMessage" xml:space="preserve"><value>This action cannot be undone.</value></data>
   <data name="Delete" xml:space="preserve"><value>Delete</value></data>
   <data name="Clear" xml:space="preserve"><value>Clear</value></data>
   <data name="Cancel" xml:space="preserve"><value>Cancel</value></data>
-  <data name="CurrentListCleared" xml:space="preserve"><value>Cleared {0} items from the current list. Favorites were preserved.</value></data>
+  <data name="CurrentListCleared" xml:space="preserve"><value>Cleared {0} items from the current list. Favorites and grouped records were preserved.</value></data>
   <data name="ClearHistoryFailed" xml:space="preserve"><value>Could not clear clipboard history</value></data>
   <data name="PreviewUnavailable" xml:space="preserve"><value>This item cannot be viewed</value></data>
   <data name="RichTextPreview" xml:space="preserve"><value>Rich text view</value></data>
@@ -301,7 +301,7 @@
   <data name="ToggleOnContent" xml:space="preserve"><value>On</value></data>
   <data name="ToggleOffContent" xml:space="preserve"><value>Off</value></data>
   <data name="SettingsShortcutHintText" xml:space="preserve"><value>Esc hides the panel, and arrow keys navigate the list. These system actions stay fixed.</value></data>
-  <data name="SettingsPinnedRetentionHintText" xml:space="preserve"><value>Auto-cleanup skips favorites</value></data>
+  <data name="SettingsPinnedRetentionHintText" xml:space="preserve"><value>Auto-cleanup skips favorites and groups</value></data>
   <data name="ExcludedApplicationsTextBoxPlaceholder" xml:space="preserve"><value>Search or enter a process name</value></data>
   <data name="SelectProcessButtonContent" xml:space="preserve"><value>Processes</value></data>
   <data name="ExportBackupButtonContent" xml:space="preserve"><value>Export</value></data>
@@ -389,4 +389,26 @@
   <data name="SequenceLimit" xml:space="preserve"><value>Sequential queue is limited to 256 items</value></data>
   <data name="UpdateInstallLocationMessage" xml:space="preserve"><value>Install PasteOrbit in Applications or another writable folder before updating. Apps in disk images or read-only locations cannot be updated in place.</value></data>
   <data name="UpdateInstallFailedMessage" xml:space="preserve"><value>The update could not be completed. The previous app has been kept. Retry or install the downloaded update manually:</value></data>
+  <data name="FilterGroupsButtonTooltip" xml:space="preserve"><value>Groups</value></data>
+  <data name="ActiveGroupFilter" xml:space="preserve"><value>Group: {0}</value></data>
+  <data name="NoGroups" xml:space="preserve"><value>No groups yet</value></data>
+  <data name="NewGroupMenu" xml:space="preserve"><value>New group…</value></data>
+  <data name="EditGroupMenu" xml:space="preserve"><value>Edit group…</value></data>
+  <data name="DeleteGroupMenu" xml:space="preserve"><value>Delete group…</value></data>
+  <data name="NewGroupTitle" xml:space="preserve"><value>New group</value></data>
+  <data name="EditGroupTitle" xml:space="preserve"><value>Edit group</value></data>
+  <data name="GroupNameLabel" xml:space="preserve"><value>Name</value></data>
+  <data name="GroupIconLabel" xml:space="preserve"><value>Icon</value></data>
+  <data name="DeleteGroupTitle" xml:space="preserve"><value>Delete group?</value></data>
+  <data name="DeleteGroupMessage" xml:space="preserve"><value>Records in “{0}” stay in history and only lose their group.</value></data>
+  <data name="AddToGroupMenu" xml:space="preserve"><value>Add to group</value></data>
+  <data name="RemoveFromGroupMenu" xml:space="preserve"><value>Remove from group</value></data>
+  <data name="ExportTableHint" xml:space="preserve"><value>Export this table as a CSV or TSV file</value></data>
+  <data name="FormatStructuredTextHint" xml:space="preserve"><value>Format JSON or plain XML text</value></data>
+  <data name="GroupIconSearch" xml:space="preserve"><value>Search</value></data>
+  <data name="GroupIconMail" xml:space="preserve"><value>Mail</value></data>
+  <data name="GroupIconCalendar" xml:space="preserve"><value>Calendar</value></data>
+  <data name="GroupIconLink" xml:space="preserve"><value>Link</value></data>
+  <data name="GroupIconPlay" xml:space="preserve"><value>Play</value></data>
+  <data name="GroupIconSave" xml:space="preserve"><value>Save</value></data>
 </root>

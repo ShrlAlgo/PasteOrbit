@@ -20,7 +20,7 @@ namespace {
 using DataProtection::protect;
 using DataProtection::unprotect;
 
-constexpr int CurrentSchemaVersion = 6;
+constexpr int CurrentSchemaVersion = 7;
 
 std::optional<QByteArray> protectTargets(const ClipboardContent::ContentMetadata &metadata) {
     return protect(QJsonDocument(QJsonArray::fromStringList(metadata.openTargets)).toJson(QJsonDocument::Compact));
@@ -75,7 +75,8 @@ bool hasRequiredColumns(QSqlDatabase &database, int schema = 0) {
         if (!found.contains(column)) return false;
     }
     return (schema < 5 || found.contains(QStringLiteral("format_label")))
-        && (schema < 6 || found.contains(QStringLiteral("open_targets")));
+        && (schema < 6 || found.contains(QStringLiteral("open_targets")))
+        && (schema < 7 || found.contains(QStringLiteral("group_id")));
 }
 
 QString escapeLike(QString value) {
@@ -89,9 +90,11 @@ QString searchClause(const QString &text, int kind, const std::optional<HistoryC
                      bool includeUnpinnedOnly = false, const std::optional<QString> &source = std::nullopt) {
     QString sql = QStringLiteral(" WHERE 1=1");
     if (source) sql += QStringLiteral(" AND COALESCE(fts.source_application,'')=:source COLLATE NOCASE");
-    if (includeUnpinnedOnly) sql += QStringLiteral(" AND item.is_pinned=0");
+    // 自定义分组和收藏一样受清理保护，清空未收藏列表时也要跳过。
+    if (includeUnpinnedOnly) sql += QStringLiteral(" AND item.is_pinned=0 AND item.group_id IS NULL");
     // 收藏复用旧置顶标记，不改变记录的文本、图片或文件类型。
     if (kind == 3) sql += QStringLiteral(" AND item.is_pinned=1");
+    else if (kind >= HistoryStore::GroupKindBase) sql += QStringLiteral(" AND item.group_id=:group");
     else if (kind >= 0) sql += QStringLiteral(" AND item.kind=:kind");
     const auto term = text.trimmed();
     if (!term.isEmpty()) {
@@ -112,7 +115,8 @@ QString searchClause(const QString &text, int kind, const std::optional<HistoryC
 void bindSearch(QSqlQuery &query, const QString &text, int kind,
                 const std::optional<HistoryCursor> &cursor, const std::optional<QString> &source = std::nullopt) {
     if (source) query.bindValue(QStringLiteral(":source"), source->isEmpty() ? QStringLiteral("") : *source);
-    if (kind >= 0 && kind < 3) query.bindValue(QStringLiteral(":kind"), kind);
+    if (kind >= HistoryStore::GroupKindBase) query.bindValue(QStringLiteral(":group"), kind - HistoryStore::GroupKindBase);
+    else if (kind >= 0 && kind < 3) query.bindValue(QStringLiteral(":kind"), kind);
     const auto term = text.trimmed();
     if (!term.isEmpty()) {
         if (term.size() >= 3) {
@@ -146,7 +150,7 @@ QString HistoryStore::initialize() const {
     }
     version = versionQuery.value(0).toInt();
     versionQuery.finish();
-    if (version != 0 && version != 4 && version != 5 && version != CurrentSchemaVersion) {
+    if (version != 0 && (version < 4 || version > CurrentSchemaVersion)) {
         return QStringLiteral("历史数据库版本不兼容，已保留原文件：%1").arg(version);
     }
     QSqlQuery existingQuery(connection.database());
@@ -168,11 +172,13 @@ QString HistoryStore::initialize() const {
             "content_hash TEXT NOT NULL UNIQUE,preview_text BLOB NOT NULL,search_text_length INTEGER NOT NULL,"
             "content BLOB NOT NULL,thumbnail BLOB NULL,content_size INTEGER NOT NULL,source_application BLOB NULL,"
             "created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,is_pinned INTEGER NOT NULL,"
-            "format_label TEXT NULL,open_targets BLOB NULL)"),
+            "group_id INTEGER NULL,format_label TEXT NULL,open_targets BLOB NULL)"),
         QStringLiteral("CREATE INDEX IF NOT EXISTS ix_clipboard_items_order ON clipboard_items(is_pinned DESC,updated_at DESC,storage_id DESC)"),
         QStringLiteral("CREATE INDEX IF NOT EXISTS ix_clipboard_items_kind_order ON clipboard_items(kind,is_pinned DESC,updated_at DESC,storage_id DESC)"),
         QStringLiteral("CREATE INDEX IF NOT EXISTS ix_clipboard_items_recent ON clipboard_items(updated_at DESC,storage_id DESC)"),
         QStringLiteral("CREATE INDEX IF NOT EXISTS ix_clipboard_items_kind_recent ON clipboard_items(kind,updated_at DESC,storage_id DESC)"),
+        QStringLiteral("CREATE TABLE IF NOT EXISTS clipboard_groups(group_id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "name TEXT NOT NULL,icon TEXT NOT NULL)"),
         QStringLiteral("CREATE VIRTUAL TABLE IF NOT EXISTS clipboard_items_fts USING fts5(search_text,source_application,tokenize='trigram')"),
         QStringLiteral("CREATE TABLE IF NOT EXISTS clipboard_image_previews(storage_id INTEGER PRIMARY KEY,content BLOB NOT NULL)"),
         QStringLiteral("CREATE TRIGGER IF NOT EXISTS delete_clipboard_image_preview AFTER DELETE ON clipboard_items BEGIN DELETE FROM clipboard_image_previews WHERE storage_id=OLD.storage_id; END")};
@@ -186,11 +192,16 @@ QString HistoryStore::initialize() const {
          && !execute(database, QStringLiteral("ALTER TABLE clipboard_items ADD COLUMN format_label TEXT NULL"), &error))
         || (!hasRequiredColumns(database, 6)
             && !execute(database, QStringLiteral("ALTER TABLE clipboard_items ADD COLUMN open_targets BLOB NULL"), &error))
-        || !execute(database, QStringLiteral("PRAGMA user_version=6"), &error)) {
+        || (!hasRequiredColumns(database, 7)
+            && !execute(database, QStringLiteral("ALTER TABLE clipboard_items ADD COLUMN group_id INTEGER NULL"), &error))
+        || !execute(database, QStringLiteral("PRAGMA user_version=7"), &error)) {
         database.rollback();
         return error;
     }
     if (!database.commit()) return connection.error();
+    // group_id 在旧库中由上面的迁移补齐，索引必须等列存在后再创建。
+    if (!execute(database, QStringLiteral("CREATE INDEX IF NOT EXISTS ix_clipboard_items_group_order "
+        "ON clipboard_items(group_id,updated_at DESC,storage_id DESC)"), &error)) return error;
     return {};
 }
 
@@ -205,7 +216,7 @@ bool HistoryStore::isCurrentSchema(const QString &path, bool allowUpgrade) {
     QSqlQuery version(connection.database());
     if (!version.exec(QStringLiteral("PRAGMA user_version")) || !version.next()) return false;
     const int schema = version.value(0).toInt();
-    if ((schema != CurrentSchemaVersion && !(allowUpgrade && (schema == 4 || schema == 5)))
+    if ((schema != CurrentSchemaVersion && !(allowUpgrade && schema >= 4 && schema < CurrentSchemaVersion))
         || !hasRequiredColumns(connection.database(), schema)) return false;
     QSqlQuery searchTable(connection.database());
     return searchTable.exec(QStringLiteral("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='clipboard_items_fts'"))
@@ -233,7 +244,7 @@ HistoryPage HistoryStore::search(const QString &text, int kind, const std::optio
 
     QSqlQuery query(connection.database());
     const QString sql = QStringLiteral("SELECT item.storage_id,item.id,item.kind,item.preview_text,"
-        "item.search_text_length,item.source_application,item.created_at,item.updated_at,item.is_pinned,item.content_size,item.format_label")
+        "item.search_text_length,item.source_application,item.created_at,item.updated_at,item.is_pinned,item.content_size,item.format_label,item.group_id")
         + from + searchClause(text, kind, cursor, false, source)
         + QStringLiteral(" ORDER BY item.updated_at DESC,item.storage_id DESC LIMIT :limit");
     query.prepare(sql);
@@ -258,6 +269,7 @@ HistoryPage HistoryStore::search(const QString &text, int kind, const std::optio
         item.pinned = query.value(8).toBool();
         item.contentSize = query.value(9).toLongLong();
         item.formatLabel = query.value(10).toString();
+        item.groupId = query.value(11).toInt();
         page.items.push_back(std::move(item));
     }
     if (page.items.size() > pageSize) {
@@ -280,6 +292,69 @@ QPair<QStringList, QString> HistoryStore::sourceApplications() const {
     QStringList sources;
     while (query.next()) sources.append(query.value(0).toString());
     return {sources, {}};
+}
+
+QVector<HistoryGroup> HistoryStore::groups() const {
+    Connection connection(path_);
+    if (!connection.isOpen()) return {};
+    QSqlQuery query(connection.database());
+    if (!query.exec(QStringLiteral("SELECT group_id,name,icon FROM clipboard_groups ORDER BY group_id")))
+        return {};
+    QVector<HistoryGroup> groups;
+    while (query.next()) groups.push_back({query.value(0).toInt(), query.value(1).toString(),
+                                           query.value(2).toString()});
+    return groups;
+}
+
+QString HistoryStore::saveGroup(HistoryGroup &group) const {
+    Connection connection(path_);
+    if (!connection.isOpen()) return connection.error();
+    QSqlQuery query(connection.database());
+    if (group.id > 0) {
+        query.prepare(QStringLiteral("UPDATE clipboard_groups SET name=:name,icon=:icon WHERE group_id=:id"));
+        query.bindValue(QStringLiteral(":id"), group.id);
+    } else {
+        query.prepare(QStringLiteral("INSERT INTO clipboard_groups(name,icon) VALUES(:name,:icon)"));
+    }
+    query.bindValue(QStringLiteral(":name"), group.name);
+    query.bindValue(QStringLiteral(":icon"), group.icon);
+    if (!query.exec()) return query.lastError().text();
+    if (group.id <= 0) {
+        QSqlQuery lastId(connection.database());
+        if (!lastId.exec(QStringLiteral("SELECT last_insert_rowid()")) || !lastId.next())
+            return lastId.lastError().text();
+        group.id = lastId.value(0).toInt();
+    }
+    return {};
+}
+
+QString HistoryStore::removeGroup(int id) const {
+    Connection connection(path_);
+    if (!connection.isOpen()) return connection.error();
+    auto &database = connection.database();
+    if (!database.transaction()) return connection.error();
+    QSqlQuery ungroup(database);
+    ungroup.prepare(QStringLiteral("UPDATE clipboard_items SET group_id=NULL WHERE group_id=:id"));
+    ungroup.bindValue(QStringLiteral(":id"), id);
+    if (!ungroup.exec()) { database.rollback(); return ungroup.lastError().text(); }
+    QSqlQuery remove(database);
+    remove.prepare(QStringLiteral("DELETE FROM clipboard_groups WHERE group_id=:id"));
+    remove.bindValue(QStringLiteral(":id"), id);
+    if (!remove.exec()) { database.rollback(); return remove.lastError().text(); }
+    if (!database.commit()) return connection.error();
+    return {};
+}
+
+QString HistoryStore::setGroup(const QString &id, int groupId) const {
+    Connection connection(path_);
+    if (!connection.isOpen()) return connection.error();
+    QSqlQuery query(connection.database());
+    query.prepare(QStringLiteral("UPDATE clipboard_items SET group_id=:group WHERE id=:id "
+        "AND (:group IS NULL OR EXISTS (SELECT 1 FROM clipboard_groups WHERE group_id=:group))"));
+    query.bindValue(QStringLiteral(":group"), groupId > 0 ? QVariant(groupId) : QVariant());
+    query.bindValue(QStringLiteral(":id"), id);
+    if (!query.exec()) return query.lastError().text();
+    return query.numRowsAffected() == 0 ? QStringLiteral("记录或分组已不存在") : QString{};
 }
 
 QString HistoryStore::save(const ClipboardCapture &capture, HistoryItem *saved) const {
@@ -310,7 +385,7 @@ QString HistoryStore::save(const ClipboardCapture &capture, HistoryItem *saved) 
     auto &database = connection.database();
     if (!database.transaction()) return connection.error();
     QSqlQuery lookup(database);
-    lookup.prepare(QStringLiteral("SELECT storage_id,id,created_at,is_pinned FROM clipboard_items WHERE content_hash=:hash"));
+    lookup.prepare(QStringLiteral("SELECT storage_id,id,created_at,is_pinned,group_id FROM clipboard_items WHERE content_hash=:hash"));
     lookup.bindValue(QStringLiteral(":hash"), contentHash);
     if (!lookup.exec()) { database.rollback(); return lookup.lastError().text(); }
     const bool exists = lookup.next();
@@ -319,6 +394,7 @@ QString HistoryStore::save(const ClipboardCapture &capture, HistoryItem *saved) 
                               : QUuid::createUuid().toString(QUuid::WithoutBraces);
     const qint64 createdAt = exists ? lookup.value(2).toLongLong() : QDateTime::currentMSecsSinceEpoch();
     const bool pinned = exists && lookup.value(3).toBool();
+    const int groupId = exists ? lookup.value(4).toInt() : 0;
     lookup.finish();
 
     QSqlQuery write(database);
@@ -394,6 +470,7 @@ QString HistoryStore::save(const ClipboardCapture &capture, HistoryItem *saved) 
         saved->createdAt = createdAt;
         saved->updatedAt = now;
         saved->pinned = pinned;
+        saved->groupId = groupId;
         saved->contentSize = capture.content.size();
         saved->formatLabel = format;
     }
@@ -620,8 +697,8 @@ QString HistoryStore::cleanup(int retentionDays, int maxEntries) const {
     if (!database.transaction()) return connection.error();
     QSqlQuery select(database);
     // 使用排序索引筛选过期和超额记录，避免每次保存都对全表计算窗口排名。
-    select.prepare(QStringLiteral("SELECT storage_id FROM clipboard_items WHERE is_pinned=0 AND updated_at<:cutoff "
-        "UNION SELECT storage_id FROM (SELECT storage_id FROM clipboard_items WHERE is_pinned=0 "
+    select.prepare(QStringLiteral("SELECT storage_id FROM clipboard_items WHERE is_pinned=0 AND group_id IS NULL AND updated_at<:cutoff "
+        "UNION SELECT storage_id FROM (SELECT storage_id FROM clipboard_items WHERE is_pinned=0 AND group_id IS NULL "
         "ORDER BY updated_at DESC,storage_id DESC LIMIT -1 OFFSET :maximum)"));
     select.bindValue(QStringLiteral(":cutoff"), QDateTime::currentMSecsSinceEpoch()
                      - static_cast<qint64>(retentionDays) * 24 * 60 * 60 * 1000);

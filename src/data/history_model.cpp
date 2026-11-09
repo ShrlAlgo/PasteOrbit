@@ -89,6 +89,8 @@ QVariant HistoryModel::data(const QModelIndex &index, int role) const {
     case TextLengthRole: return item.searchTextLength;
     case ThumbnailRole: return thumbnails_.value(item.id);
     case FormatRole: return item.formatLabel;
+    case GroupRole: return item.groupId;
+    case UnavailableRole: return item.unavailable;
     case QuickPasteRole: {
         // 收藏分类同样支持数字粘贴，编号与当前列表的可见顺序一致。
         if (!quickPasteEnabled_ || index.row() >= 9) return {};
@@ -148,6 +150,13 @@ void HistoryModel::setPinned(const QString &id, bool pinned) {
     items_[row].pinned = pinned;
     // 收藏不再改变排序或数字编号，仅刷新当前卡片。
     emit dataChanged(index(row), index(row), {PinnedRole});
+}
+
+void HistoryModel::setGroup(const QString &id, int groupId) {
+    const int row = rowForId(id);
+    if (row < 0 || items_[row].groupId == groupId) return;
+    items_[row].groupId = groupId;
+    emit dataChanged(index(row), index(row), {GroupRole});
 }
 
 void HistoryModel::setText(const QString &id, const QString &text, qint64 contentSize, const QString &format) {
@@ -211,7 +220,8 @@ void HistoryModel::setVisibleRows(int first, int last) {
             thumbnails_.insert(result.id, result.image);
             const int row = rowForId(result.id);
             if (row >= 0 && !result.format.isEmpty()) items_[row].formatLabel = result.format;
-            if (row >= 0) emit dataChanged(index(row), index(row), {ThumbnailRole, FormatRole});
+            if (row >= 0 && items_[row].kind == 2) items_[row].unavailable = result.unavailable;
+            if (row >= 0) emit dataChanged(index(row), index(row), {ThumbnailRole, FormatRole, UnavailableRole});
         });
         const QString path = databasePath_;
         watcher->setFuture(QtConcurrent::run([path, id, cancelled, kind] {
@@ -222,7 +232,11 @@ void HistoryModel::setVisibleRows(int first, int last) {
             if (kind == 2) {
                 const auto content = HistoryStore(path).content(id);
                 if (cancelled->loadRelaxed()) return ThumbnailResult{id, {}};
-                return ThumbnailResult{id, fileTypeIcon(content)};
+                QStringList paths;
+                for (const auto &path : QJsonDocument::fromJson(content).array())
+                    if (path.isString()) paths.append(path.toString());
+                return ThumbnailResult{id, fileTypeIcon(content), {},
+                    !ClipboardContent::firstUnavailableFilePath(paths).isEmpty()};
             }
             const auto bytes = HistoryStore(path).thumbnail(id);
             if (cancelled->loadRelaxed()) return ThumbnailResult{id, {}};

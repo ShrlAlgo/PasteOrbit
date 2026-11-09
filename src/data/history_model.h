@@ -14,13 +14,15 @@ struct ThumbnailResult {
     QString id;
     QImage image;
     QString format;
+    bool unavailable = false;
 };
 
 class HistoryModel final : public QAbstractListModel {
     Q_OBJECT
 public:
     enum Role { IdRole = Qt::UserRole + 1, KindRole, PreviewRole, SourceRole, UpdatedRole,
-                PinnedRole, SizeRole, TextLengthRole, ThumbnailRole, QuickPasteRole, FormatRole };
+                PinnedRole, SizeRole, TextLengthRole, ThumbnailRole, QuickPasteRole, FormatRole,
+                GroupRole, UnavailableRole };
 
     explicit HistoryModel(QString databasePath, QObject *parent = nullptr);
     ~HistoryModel() override;
@@ -33,6 +35,7 @@ public:
     int quickPasteRow(int number) const;
     void setQuickPasteEnabled(bool enabled);
     void setPinned(const QString &id, bool pinned);
+    void setGroup(const QString &id, int groupId);
     void setText(const QString &id, const QString &text, qint64 contentSize, const QString &format);
     void remove(const QString &id);
     void setVisibleRows(int first, int last);

@@ -12,6 +12,39 @@ void drawPortableIcon(QPainter *painter, const QRectF &rect, QChar glyph, const 
     painter->setPen(QPen(color, 1.6, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     painter->setBrush(Qt::NoBrush);
     switch (glyph.unicode()) {
+    case 0xE710:
+        painter->drawLine(5, 12, 19, 12);
+        painter->drawLine(12, 5, 12, 19);
+        break;
+    case 0xE721: // 搜索
+        painter->drawEllipse(QPointF(10, 10), 6, 6);
+        painter->drawLine(14, 14, 21, 21);
+        break;
+    case 0xE715: // 邮件
+        painter->drawRoundedRect(QRectF(3, 5, 18, 14), 2, 2);
+        painter->drawPolyline(QPolygonF{QPointF(4, 7), QPointF(12, 13), QPointF(20, 7)});
+        break;
+    case 0xE787: // 日历
+        painter->drawRoundedRect(QRectF(3, 5, 18, 16), 2, 2);
+        painter->drawLine(3, 10, 21, 10);
+        painter->drawLine(8, 3, 8, 7);
+        painter->drawLine(16, 3, 16, 7);
+        break;
+    case 0xE71B: // 链接
+        painter->translate(12, 12);
+        painter->rotate(-45);
+        painter->drawRoundedRect(QRectF(-10, -3, 8, 6), 3, 3);
+        painter->drawRoundedRect(QRectF(2, -3, 8, 6), 3, 3);
+        painter->drawLine(-4, 0, 4, 0);
+        break;
+    case 0xE768: // 播放
+        painter->drawPolygon(QPolygonF{QPointF(7, 4), QPointF(20, 12), QPointF(7, 20)});
+        break;
+    case 0xE74E: // 保存
+        painter->drawPolygon(QPolygonF{QPointF(4, 3), QPointF(17, 3), QPointF(21, 7), QPointF(21, 21), QPointF(4, 21)});
+        painter->drawRect(QRectF(8, 3, 8, 6));
+        painter->drawRect(QRectF(8, 14, 9, 7));
+        break;
     case 0xE713: // 设置
         painter->drawEllipse(QPointF(12, 12), 7, 7);
         painter->drawEllipse(QPointF(12, 12), 2.5, 2.5);
@@ -71,6 +104,18 @@ void drawPortableIcon(QPainter *painter, const QRectF &rect, QChar glyph, const 
     case 0xE8B7:
         painter->drawPolyline(QPolygonF{QPointF(3, 20), QPointF(3, 5), QPointF(10, 5), QPointF(12, 8), QPointF(21, 8), QPointF(21, 20), QPointF(3, 20)});
         break;
+    case 0xE8EC: { // 分组
+        QPainterPath tag;
+        tag.moveTo(4, 12);
+        tag.lineTo(11, 4);
+        tag.lineTo(20, 4);
+        tag.lineTo(20, 13);
+        tag.lineTo(13, 21);
+        tag.closeSubpath();
+        painter->drawPath(tag);
+        painter->drawEllipse(QPointF(16, 8), 1.4, 1.4);
+        break;
+    }
     default: // 文本与文件
         painter->drawRoundedRect(QRectF(5, 3, 14, 18), 1, 1);
         for (int y : {8, 12, 16}) painter->drawLine(8, y, 16, y);

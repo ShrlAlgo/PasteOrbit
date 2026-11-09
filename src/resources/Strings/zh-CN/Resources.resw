@@ -78,7 +78,7 @@
   <data name="SettingsRetentionCard.Description" xml:space="preserve"><value>自动清理超过该天数的未收藏记录</value></data>
   <data name="SettingsMaxEntriesCard.Header" xml:space="preserve"><value>最多记录数</value></data>
   <data name="SettingsMaxEntriesCard.Description" xml:space="preserve"><value>达到上限时优先清理未收藏记录</value></data>
-  <data name="SettingsPinnedRetentionHint.Text" xml:space="preserve"><value>收藏记录不参与自动过期和数量清理。</value></data>
+  <data name="SettingsPinnedRetentionHint.Text" xml:space="preserve"><value>收藏和分组记录不参与自动过期和数量清理。</value></data>
   <data name="SettingsPrivacySection.Text" xml:space="preserve"><value>隐私与安全</value></data>
   <data name="SettingsAboutSection.Text" xml:space="preserve"><value>关于</value></data>
   <data name="SettingsExcludedAppsCard.Header" xml:space="preserve"><value>忽略应用</value></data>
@@ -131,13 +131,13 @@
   <data name="OpenExplorerFolderFirst" xml:space="preserve"><value>请先切换到资源管理器文件夹视图</value></data>
   <data name="SaveAsFileFailed" xml:space="preserve"><value>无法保存为文件</value></data>
   <data name="ClearCurrentListTitle" xml:space="preserve"><value>清空当前列表？</value></data>
-  <data name="ClearCurrentListMessage" xml:space="preserve"><value>删除当前筛选下的 {0} 条未收藏记录？无法撤销。</value></data>
+  <data name="ClearCurrentListMessage" xml:space="preserve"><value>删除当前筛选下的 {0} 条未收藏且未分组记录？无法撤销。</value></data>
   <data name="DeletePinnedItemTitle" xml:space="preserve"><value>删除收藏记录？</value></data>
   <data name="DeletePinnedItemMessage" xml:space="preserve"><value>删除后无法恢复。</value></data>
   <data name="Delete" xml:space="preserve"><value>删除</value></data>
   <data name="Clear" xml:space="preserve"><value>清空</value></data>
   <data name="Cancel" xml:space="preserve"><value>取消</value></data>
-  <data name="CurrentListCleared" xml:space="preserve"><value>已清空当前列表 · {0} 条，收藏记录已保留</value></data>
+  <data name="CurrentListCleared" xml:space="preserve"><value>已清空当前列表 · {0} 条，收藏和分组记录已保留</value></data>
   <data name="ClearHistoryFailed" xml:space="preserve"><value>清空历史失败</value></data>
   <data name="PreviewUnavailable" xml:space="preserve"><value>无法查看该条记录</value></data>
   <data name="RichTextPreview" xml:space="preserve"><value>富文本查看</value></data>
@@ -301,7 +301,7 @@
   <data name="ToggleOnContent" xml:space="preserve"><value>开启</value></data>
   <data name="ToggleOffContent" xml:space="preserve"><value>关闭</value></data>
   <data name="SettingsShortcutHintText" xml:space="preserve"><value>Esc 隐藏面板，方向键用于列表导航，这些系统操作保持固定。</value></data>
-  <data name="SettingsPinnedRetentionHintText" xml:space="preserve"><value>收藏不自动清理</value></data>
+  <data name="SettingsPinnedRetentionHintText" xml:space="preserve"><value>收藏和分组不自动清理</value></data>
   <data name="ExcludedApplicationsTextBoxPlaceholder" xml:space="preserve"><value>搜索或输入进程名</value></data>
   <data name="SelectProcessButtonContent" xml:space="preserve"><value>选择进程</value></data>
   <data name="ExportBackupButtonContent" xml:space="preserve"><value>导出备份</value></data>
@@ -389,4 +389,26 @@
   <data name="SequenceLimit" xml:space="preserve"><value>顺序队列最多保存 256 项</value></data>
   <data name="UpdateInstallLocationMessage" xml:space="preserve"><value>请先将贴环安装到 Applications 或其他可写目录，再使用自动更新。不能直接更新磁盘映像或只读位置中的应用。</value></data>
   <data name="UpdateInstallFailedMessage" xml:space="preserve"><value>更新未完成，原应用已保留。请重试，或手动安装下载的更新包：</value></data>
+  <data name="FilterGroupsButtonTooltip" xml:space="preserve"><value>分组</value></data>
+  <data name="ActiveGroupFilter" xml:space="preserve"><value>分组：{0}</value></data>
+  <data name="NoGroups" xml:space="preserve"><value>暂无分组</value></data>
+  <data name="NewGroupMenu" xml:space="preserve"><value>新建分组…</value></data>
+  <data name="EditGroupMenu" xml:space="preserve"><value>编辑分组…</value></data>
+  <data name="DeleteGroupMenu" xml:space="preserve"><value>删除分组…</value></data>
+  <data name="NewGroupTitle" xml:space="preserve"><value>新建分组</value></data>
+  <data name="EditGroupTitle" xml:space="preserve"><value>编辑分组</value></data>
+  <data name="GroupNameLabel" xml:space="preserve"><value>名称</value></data>
+  <data name="GroupIconLabel" xml:space="preserve"><value>图标</value></data>
+  <data name="DeleteGroupTitle" xml:space="preserve"><value>删除分组？</value></data>
+  <data name="DeleteGroupMessage" xml:space="preserve"><value>分组“{0}”中的记录会保留，只取消分组。</value></data>
+  <data name="AddToGroupMenu" xml:space="preserve"><value>收藏到分组</value></data>
+  <data name="RemoveFromGroupMenu" xml:space="preserve"><value>取消分组</value></data>
+  <data name="ExportTableHint" xml:space="preserve"><value>导出当前表格为 CSV 或 TSV 文件</value></data>
+  <data name="FormatStructuredTextHint" xml:space="preserve"><value>格式化 JSON 或普通 XML 文本</value></data>
+  <data name="GroupIconSearch" xml:space="preserve"><value>搜索</value></data>
+  <data name="GroupIconMail" xml:space="preserve"><value>邮件</value></data>
+  <data name="GroupIconCalendar" xml:space="preserve"><value>日历</value></data>
+  <data name="GroupIconLink" xml:space="preserve"><value>链接</value></data>
+  <data name="GroupIconPlay" xml:space="preserve"><value>播放</value></data>
+  <data name="GroupIconSave" xml:space="preserve"><value>保存</value></data>
 </root>
