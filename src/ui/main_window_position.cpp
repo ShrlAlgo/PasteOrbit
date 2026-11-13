@@ -270,6 +270,13 @@ void MainWindow::showPanel(bool fromTray, HWND requestedTarget) {
         return;
     }
     if (suppressClipboardCapture_) return;
+    if (hoverPreview_) {
+        // 唤回现有预览，保留位置、选区和原粘贴目标。
+        ++panelShowGeneration_;
+        auto *focus = hoverPreview_->focusWidget();
+        activatePanel(focus ? focus : hoverPreview_);
+        return;
+    }
     pasteGeneration_->fetchAndAddRelaxed(1);
     const int generation = ++panelShowGeneration_;
     const HWND foreground = requestedTarget && IsWindow(requestedTarget) ? requestedTarget : GetForegroundWindow();

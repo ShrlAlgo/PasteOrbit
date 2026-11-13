@@ -42,6 +42,13 @@ void MainWindow::showPanel(bool fromTray, PanelTarget requestedTarget) {
     if (QApplication::activePopupWidget()) return;
     if (settingsPage_) { show(); activatePanel(); return; }
     if (suppressClipboardCapture_) return;
+    if (hoverPreview_) {
+        // 唤回现有预览，保留位置、选区和原粘贴目标。
+        ++panelShowGeneration_;
+        auto *focus = hoverPreview_->focusWidget();
+        activatePanel(focus ? focus : hoverPreview_);
+        return;
+    }
     pasteGeneration_->fetchAndAddRelaxed(1);
     ++panelShowGeneration_;
     const auto foreground = requestedTarget ? requestedTarget : MacIntegration::foregroundApplication();

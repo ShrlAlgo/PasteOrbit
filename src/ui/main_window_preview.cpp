@@ -193,12 +193,19 @@ void MainWindow::closeHoverPreview(bool restoreFocus) {
     hoverImageSize_ = {};
     hoverImageZoom_ = 1.0;
     hoverImageDragging_ = false;
+    const bool hadPreview = hoverPreview_ != nullptr;
     delete hoverPreview_;
     hoverPreview_ = nullptr;
     if (delegate_) delegate_->setActivePreviewId({});
     // 仅显式关闭预览时恢复浏览焦点，刷新和隐藏过程不抢占目标应用。
     if (restoreFocus && isVisible() && !passiveBrowsing_ && !settingsPage_)
         activatePanel(historyStack_->currentWidget());
+    // 等删除等当前操作完成后再刷新，避免在关闭或模型重置过程中重入。
+    if (hadPreview && historyDirty_ && isVisible() && !settingsPage_) {
+        QTimer::singleShot(0, this, [this] {
+            if (historyDirty_ && isVisible() && !settingsPage_ && !hoverPreview_) refreshHistory();
+        });
+    }
 }
 
 void MainWindow::toggleHoverPreview(QString id) {
@@ -391,7 +398,8 @@ void MainWindow::toggleHoverPreview(QString id) {
             preview->setReadOnly(true);
             preview->setUndoRedoEnabled(false);
             preview->setAcceptDrops(false);
-            preview->setFocusPolicy(Qt::NoFocus);
+            preview->setFocusPolicy(Qt::StrongFocus);
+            preview->viewport()->installEventFilter(this);
             preview->setFrameShape(QFrame::NoFrame);
             preview->setContextMenuPolicy(Qt::CustomContextMenu);
             connect(preview, &QTextEdit::customContextMenuRequested, this, [this, preview](const QPoint &position) {

@@ -49,6 +49,7 @@
 #include <QMessageBox>
 #include <QMimeData>
 #include <QMouseEvent>
+#include <QTextEdit>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPixmap>
@@ -2038,6 +2039,15 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
     }
     if (watched == searchBox_ && passiveBrowsing_ && event->type() == QEvent::MouseButtonPress)
         activatePanel(searchBox_);
+    if (hoverPreview_ && event->type() == QEvent::MouseButtonPress
+        && static_cast<QMouseEvent *>(event)->button() == Qt::LeftButton) {
+        auto *editor = qobject_cast<QTextEdit *>(watched->parent());
+        if (editor && editor->viewport() == watched && hoverPreview_->isAncestorOf(editor)
+            && !hoverPreview_->isActiveWindow()) {
+            // 用户开始选择正文时激活预览，让系统复制快捷键交给文本控件。
+            activatePanel(editor);
+        }
+    }
     if (watched == hoverPreview_ && event->type() == QEvent::WindowDeactivate) scheduleAutoHide();
     if (historyList_ && watched == historyList_->viewport()) {
         // 新分类加载完成前，拦截旧卡片的点击和预览提示。
@@ -2672,10 +2682,10 @@ void MainWindow::saveCapture(ClipboardCapture capture, QImage fallbackImage, qui
                 sequenceQueue_.append(entry);
                 showStatus(AppLocalization::format(QStringLiteral("SequenceRemaining"), {QString::number(sequenceQueue_.size())}));
             }
-            // 隐藏期间只标记待刷新，下一次打开时再查询第一页。
+            // 预览复制也会写入历史，延后刷新以保留选区和预览窗口。
             historyDirty_ = true;
             newHistoryAvailable_ = !isVisible();
-            if (isVisible()) refreshHistory();
+            if (isVisible() && !hoverPreview_) refreshHistory();
         }
         if (clipboardSequence() != lastClipboardSequence_) scheduleCapture();
     });
