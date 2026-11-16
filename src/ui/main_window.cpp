@@ -13,6 +13,7 @@
 #include <oclero/qlementine/style/QlementineStyle.hpp>
 #include <oclero/qlementine/style/Theme.hpp>
 
+#include <QMoveEvent>
 #include <QApplication>
 #include <QBuffer>
 #include <QClipboard>
@@ -45,6 +46,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListView>
+#include <QListWidget>
 #include <QMenu>
 #include <QMessageBox>
 #include <QMimeData>
@@ -76,6 +78,7 @@
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWheelEvent>
+#include <QActionEvent>
 #include <QWidgetAction>
 #include <QWindow>
 #include <QtConcurrent>
@@ -94,6 +97,53 @@
 using namespace ClipboardContent;
 
 namespace {
+class FilterFlowLayout final : public QLayout {
+public:
+    explicit FilterFlowLayout(QWidget *parent) : QLayout(parent) {
+        setContentsMargins(0, 0, 0, 0);
+    }
+    ~FilterFlowLayout() override {
+        while (auto *item = takeAt(0)) delete item;
+    }
+    void addItem(QLayoutItem *item) override { items_.append(item); }
+    int count() const override { return items_.size(); }
+    QLayoutItem *itemAt(int index) const override { return items_.value(index); }
+    QLayoutItem *takeAt(int index) override {
+        return index >= 0 && index < count() ? items_.takeAt(index) : nullptr;
+    }
+    bool hasHeightForWidth() const override { return true; }
+    int heightForWidth(int width) const override { return arrange(QRect(0, 0, width, 0), false); }
+    QSize minimumSize() const override {
+        QSize size(0, 0);
+        for (const auto *item : items_) size = size.expandedTo(item->minimumSize());
+        return size;
+    }
+    QSize sizeHint() const override { return minimumSize(); }
+    void setGeometry(const QRect &rect) override {
+        QLayout::setGeometry(rect);
+        arrange(rect, true);
+    }
+
+private:
+    // 高度计算和实际排版共用换行规则，保持“全部”始终位于首行。
+    int arrange(const QRect &rect, bool apply) const {
+        int x = 0, y = 0, rowHeight = 0;
+        for (auto *item : items_) {
+            const QSize size = item->sizeHint();
+            if (x > 0 && x + size.width() > rect.width()) {
+                y += rowHeight + 4;
+                x = 0;
+                rowHeight = 0;
+            }
+            if (apply) item->setGeometry(QRect(rect.topLeft() + QPoint(x, y), size));
+            x += size.width();
+            rowHeight = qMax(rowHeight, size.height());
+        }
+        return y + rowHeight;
+    }
+    QList<QLayoutItem *> items_;
+};
+
 constexpr int HotkeyId = 0x504F;
 constexpr int HistoryPageSize = 30;
 constexpr int TrayResumeMilliseconds = 10 * 60 * 1000;
@@ -775,7 +825,7 @@ MainWindow::MainWindow(QString dataDirectory, AppSettings settings)
     connect(&captureTimer_, &QTimer::timeout, this, &MainWindow::captureClipboard);
     searchTimer_.setSingleShot(true);
     searchTimer_.setInterval(180);
-    connect(&searchTimer_, &QTimer::timeout, this, &MainWindow::refreshHistory);
+    connect(&searchTimer_, &QTimer::timeout, this, [this] { refreshHistory(); });
     pauseTimer_.setSingleShot(true);
     connect(&pauseTimer_, &QTimer::timeout, this, [this] { setTrayPaused(false); });
     connect(trayIcon_, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
@@ -948,6 +998,12 @@ void MainWindow::buildUi() {
     headerLayout->addWidget(settingsButton_);
     headerLayout->addWidget(pinButton_);
     headerLayout->addStretch(1);
+    sourceFilterChip_ = new QToolButton(header);
+    sourceFilterChip_->setObjectName(QStringLiteral("SourceFilterChip"));
+    sourceFilterChip_->setMaximumWidth(130);
+    sourceFilterChip_->hide();
+    connect(sourceFilterChip_, &QToolButton::clicked, this, [this] { setSourceFilter(std::nullopt); });
+    headerLayout->addWidget(sourceFilterChip_);
     root->addWidget(header);
 
     auto *searchFrame = new QWidget(this);
@@ -982,36 +1038,16 @@ void MainWindow::buildUi() {
     connect(sourceButton_, &QToolButton::clicked, this, &MainWindow::openSourceMenu);
     searchRow->addWidget(sourceButton_);
     searchLayout->addLayout(searchRow);
-    sourceFilterChip_ = new QToolButton(searchFrame);
-    sourceFilterChip_->setObjectName(QStringLiteral("SourceFilterChip"));
-    sourceFilterChip_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
-    sourceFilterChip_->hide();
-    connect(sourceFilterChip_, &QToolButton::clicked, this, [this] { setSourceFilter(std::nullopt); });
-    searchLayout->addWidget(sourceFilterChip_);
     root->addWidget(searchFrame);
 
     auto *filterRow = new QWidget(this);
     auto *filterLayout = new QHBoxLayout(filterRow);
     filterLayout->setContentsMargins(0, 0, 0, 10);
     filterLayout->setSpacing(0);
-    filterScroll_ = new QScrollArea(filterRow);
-    filterScroll_->setFrameShape(QFrame::NoFrame);
-    filterScroll_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    filterScroll_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    filterScroll_->setWidgetResizable(true);
-    filterScroll_->setFixedHeight(32);
-    filterScroll_->setFocusPolicy(Qt::NoFocus);
-    filterScroll_->viewport()->setAutoFillBackground(false);
-    filterScroll_->viewport()->installEventFilter(this);
-    auto *filterStrip = new QWidget;
-    filterStrip->installEventFilter(this);
-    filterStrip->setProperty("historyFilter", true);
-    auto *stripLayout = new QHBoxLayout(filterStrip);
-    stripLayout->setContentsMargins(0, 0, 0, 0);
-    stripLayout->setSpacing(0);
-    stripLayout->setSizeConstraint(QLayout::SetMinimumSize);
-    filterScroll_->setWidget(filterStrip);
-    filterLayout->addWidget(filterScroll_, 1);
+    filterStrip_ = new QWidget(filterRow);
+    filterStrip_->setLayout(new FilterFlowLayout(filterStrip_));
+    filterLayout->addWidget(filterStrip_, 1);
+    filterLayout->setAlignment(filterStrip_, Qt::AlignTop);
     filterButtons_ = new QButtonGroup(this);
     filterButtons_->setExclusive(true);
     const QStringList labels{QString(QChar(0xE8A9)), QString(QChar(0xE8D2)), QString(QChar(0xE8B9)), QString(QChar(0xE8B7)), QString(QChar(0xE734))};
@@ -1020,7 +1056,7 @@ void MainWindow::buildUi() {
                                QStringLiteral("FilterFavoritesButtonTooltip")};
     // QButtonGroup 将 -1 保留给“无选择”，按钮序号通过偏移映射到记录类型。
     for (int i = 0; i < labels.size(); ++i) {
-        auto *button = new QToolButton(filterStrip);
+        auto *button = new QToolButton(filterStrip_);
         button->setText(labels.at(i));
         button->setCheckable(true);
         button->setObjectName(QStringLiteral("FilterButton"));
@@ -1029,17 +1065,10 @@ void MainWindow::buildUi() {
         // 分类切换由列表和空状态处理，筛选按钮不占用键盘焦点。
         button->setFocusPolicy(Qt::NoFocus);
         filterButtons_->addButton(button, i);
-        button->setProperty("historyFilter", true);
-        button->installEventFilter(this);
-        stripLayout->addWidget(button);
+        filterStrip_->layout()->addWidget(button);
     }
     filterButtons_->button(0)->setChecked(true);
     connect(filterButtons_, &QButtonGroup::idClicked, this, [this](int id) { setFilter(id - 1); });
-    groupButtonsLayout_ = new QHBoxLayout;
-    groupButtonsLayout_->setContentsMargins(0, 0, 0, 0);
-    groupButtonsLayout_->setSpacing(0);
-    stripLayout->addLayout(groupButtonsLayout_);
-    stripLayout->addStretch(1);
     filterLayout->addSpacing(6);
     clearButton_ = new QToolButton(filterRow);
     clearButton_->setText(QChar(0xE75C));
@@ -1058,9 +1087,9 @@ void MainWindow::buildUi() {
         HistoryGroup group;
         if (editGroupDialog(this, group)) saveGroup(group);
     });
-    filterLayout->addWidget(newGroupButton_);
+    filterLayout->addWidget(newGroupButton_, 0, Qt::AlignTop);
     filterLayout->addSpacing(6);
-    filterLayout->addWidget(clearButton_);
+    filterLayout->addWidget(clearButton_, 0, Qt::AlignTop);
     root->addWidget(filterRow);
 
     auto *listHost = new QWidget(this);
@@ -1101,7 +1130,9 @@ void MainWindow::buildUi() {
         if (!current.isValid()) return;
         openRowMenu(current.data(HistoryModel::IdRole).toString());
     });
-    connect(model_, &QAbstractItemModel::modelAboutToBeReset, this, [this] { closeHoverPreview(); });
+    connect(model_, &QAbstractItemModel::modelAboutToBeReset, this, [this] {
+        if (!preservePreviewOnReset_) closeHoverPreview();
+    });
     connect(delegate_, &HistoryDelegate::actionTriggered, this, [this](const QString &id, int action) {
         if (action == HistoryDelegate::Preview) toggleHoverPreview(id);
         else if (action == HistoryDelegate::Pin) setPinned(id);
@@ -1142,7 +1173,6 @@ void MainWindow::buildTray() {
         trayMenu_ = nullptr;
         pauseAction_ = nullptr;
     }
-    updateTrayTooltip();
     // 避免弹出菜单继承透明面板样式及 Qlementine 的延迟点击/缩放处理。
     trayMenu_ = new QMenu();
     stylePopupMenu(trayMenu_, qApp->palette());
@@ -1150,7 +1180,8 @@ void MainWindow::buildTray() {
     connect(openAction, &QAction::triggered, this, [this] { showPanel(true); });
     pauseAction_ = trayMenu_->addAction(AppLocalization::get(QStringLiteral("TrayPauseMonitoring")));
     pauseAction_->setCheckable(true);
-    pauseAction_->setChecked(paused_);
+    pauseAction_->setChecked(pauseTimer_.isActive());
+    updateTrayTooltip();
     connect(pauseAction_, &QAction::toggled, this, &MainWindow::setTrayPaused);
     trayMenu_->addSeparator();
     auto *settingsAction = trayMenu_->addAction(AppLocalization::get(QStringLiteral("TraySettings")));
@@ -1395,7 +1426,14 @@ void MainWindow::updateWinVHook() {
 
 void MainWindow::updateTrayTooltip() {
     if (!trayIcon_) return;
-    trayIcon_->setToolTip(AppLocalization::get(QStringLiteral("TrayToolTip")));
+    const bool timedPause = pauseTimer_.isActive();
+    QString tooltip = AppLocalization::get(QStringLiteral("TrayToolTip"));
+    if (timedPause) tooltip += QStringLiteral(" · ") + AppLocalization::get(QStringLiteral("MonitoringPaused"));
+    trayIcon_->setToolTip(tooltip);
+    if (pauseAction_) {
+        pauseAction_->setText(AppLocalization::get(timedPause
+            ? QStringLiteral("TrayResumeMonitoring") : QStringLiteral("TrayPauseMonitoring")));
+    }
 }
 
 void MainWindow::setTrayPaused(bool paused) {
@@ -1541,11 +1579,11 @@ void MainWindow::animatePage(QWidget *page, bool opening) {
     animation->start();
 }
 
-void MainWindow::refreshHistory() {
+void MainWindow::refreshHistory(bool preservePreview) {
     searchTimer_.stop();
     const int generation = historyGeneration_->fetchAndAddRelaxed(1) + 1;
     historyDirty_ = false;
-    closeHoverPreview();
+    if (!preservePreview) closeHoverPreview();
     model_->setQuickPasteEnabled(false);
     loadingPage_ = true;
     updateDateIndicator();
@@ -1555,7 +1593,7 @@ void MainWindow::refreshHistory() {
     const int kind = selectedKind_;
     const auto source = selectedSource_;
     auto *watcher = new QFutureWatcher<HistoryPage>(this);
-    connect(watcher, &QFutureWatcher<HistoryPage>::finished, this, [this, watcher, generation] {
+    connect(watcher, &QFutureWatcher<HistoryPage>::finished, this, [this, watcher, generation, preservePreview] {
         const auto page = watcher->result();
         watcher->deleteLater();
         if (generation != historyGeneration_->loadRelaxed()) return;
@@ -1563,7 +1601,10 @@ void MainWindow::refreshHistory() {
         if (!page.error.isEmpty()) { historyDirty_ = true; showStatus(page.error); }
         // 在模型重置前保存焦点归属，结果返回后继续由列表或空状态接收按键。
         const bool restoreFocus = historyList_->hasFocus() || emptyLabel_->hasFocus();
+        // 复制预览内容时保留独立窗口及文本选区。
+        preservePreviewOnReset_ = preservePreview;
         model_->setFirstPage(page);
+        preservePreviewOnReset_ = false;
         model_->setQuickPasteEnabled(searchBox_->text().isEmpty());
         nextCursor_ = page.next;
         unpinnedCount_ = page.unpinnedCount;
@@ -1638,10 +1679,6 @@ void MainWindow::updateDateIndicator() {
 void MainWindow::updateVisibleThumbnails() {
     updateDateIndicator();
     if (!isVisible() || settingsPage_ || loadingPage_ || !historyList_ || !model_) return;
-    if (hoverPreview_) {
-        const int row = model_->rowForId(hoverPreviewId_);
-        if (row < 0) closeHoverPreview();
-    }
     int first = model_->rowCount();
     int last = -1;
     const int step = qMax(24, delegate_->sizeHint({}, model_->index(0, 0)).height() / 2);
@@ -1661,9 +1698,10 @@ void MainWindow::setSourceFilter(std::optional<QString> source) {
     if (selectedSource_) {
         const QString name = selectedSource_->isEmpty()
             ? AppLocalization::get(QStringLiteral("UnknownApplication")) : *selectedSource_;
-        const QString label = AppLocalization::format(QStringLiteral("ActiveSourceFilter"), {name});
-        sourceFilterChip_->setText(AppLocalization::format(QStringLiteral("ActiveSourceFilter"),
-            {sourceFilterChip_->fontMetrics().elidedText(name, Qt::ElideMiddle, 200)}));
+        QString displayName = name;
+        if (displayName.endsWith(QStringLiteral(".exe"), Qt::CaseInsensitive)) displayName.chop(4);
+        const QString label = AppLocalization::format(QStringLiteral("ActiveSourceFilter"), {displayName});
+        sourceFilterChip_->setText(sourceFilterChip_->fontMetrics().elidedText(label, Qt::ElideMiddle, 114));
         sourceFilterChip_->setToolTip(label);
         sourceFilterChip_->setAccessibleName(label);
     }
@@ -1674,16 +1712,12 @@ void MainWindow::setSourceFilter(std::optional<QString> source) {
 }
 
 void MainWindow::rebuildGroupButtons() {
-    while (auto *item = groupButtonsLayout_->takeAt(0)) {
-        delete item->widget();
-        delete item;
-    }
+    qDeleteAll(groupButtons_);
+    groupButtons_.clear();
     for (const auto &group : groups_) {
-        auto *button = new QToolButton(filterScroll_->widget());
+        auto *button = new QToolButton(filterStrip_);
         button->setObjectName(QStringLiteral("FilterButton"));
         button->setToolButtonStyle(Qt::ToolButtonIconOnly);
-        button->setProperty("historyFilter", true);
-        button->installEventFilter(this);
         button->setFocusPolicy(Qt::NoFocus);
         button->setCheckable(true);
         button->setIconSize(GroupIconSize);
@@ -1701,7 +1735,8 @@ void MainWindow::rebuildGroupButtons() {
             preparePanelMenu(menu);
             menu->popup(button->mapToGlobal(position));
         });
-        groupButtonsLayout_->addWidget(button);
+        filterStrip_->layout()->addWidget(button);
+        groupButtons_.append(button);
     }
     updateGroupButtons();
 }
@@ -1720,21 +1755,14 @@ void MainWindow::updateGroupButtons() {
     newGroupButton_->setIcon(headerGlyphIcon(QChar(0xE710), color, newGroupButton_));
     newGroupButton_->setToolTip(AppLocalization::get(QStringLiteral("NewGroupTitle")));
     newGroupButton_->setAccessibleName(newGroupButton_->toolTip());
-    auto *selected = filterButtons_->checkedButton();
-    for (int i = 0; i < groupButtonsLayout_->count(); ++i) {
-        auto *button = static_cast<QToolButton *>(groupButtonsLayout_->itemAt(i)->widget());
+    for (int i = 0; i < groupButtons_.size(); ++i) {
+        auto *button = groupButtons_.at(i);
         const auto &group = groups_.at(i);
         const bool active = selectedKind_ == HistoryStore::GroupKindBase + group.id;
         button->setChecked(active);
         button->setIcon(groupGlyphIcon(group.icon, active ? QColor(Qt::white) : color, button));
         button->setToolTip(group.name);
         button->setAccessibleName(group.name);
-        if (active) selected = button;
-    }
-    if (selected) {
-        QTimer::singleShot(0, this, [this, button = QPointer<QAbstractButton>(selected)] {
-            if (button && button->isChecked()) filterScroll_->ensureWidgetVisible(button, 0, 0);
-        });
     }
 }
 
@@ -1876,31 +1904,69 @@ void MainWindow::openSourceMenu() {
     all->setChecked(!selectedSource_);
     connect(all, &QAction::triggered, this, [this] { setSourceFilter(std::nullopt); });
     menu->addSeparator();
-    auto *loading = menu->addAction(AppLocalization::get(QStringLiteral("LoadingSources")));
-    loading->setEnabled(false);
+    auto *listAction = new QWidgetAction(menu);
+    auto *list = new QListWidget(menu);
+    constexpr int columnWidth = 168;
+    constexpr int rowHeight = 38;
+    list->setFixedSize(columnWidth * 2 + 2, rowHeight);
+    list->setViewMode(QListView::IconMode);
+    list->setFlow(QListView::LeftToRight);
+    list->setWrapping(true);
+    list->setResizeMode(QListView::Adjust);
+    list->setMovement(QListView::Static);
+    list->setGridSize(QSize(columnWidth, rowHeight));
+    list->setFrameShape(QFrame::NoFrame);
+    list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    list->setSelectionMode(QAbstractItemView::SingleSelection);
+    // 隐藏滚动条，留两个像素的布局余量，避免第二列在换行边界被挤下去。
+    list->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    list->setStyleSheet(QStringLiteral(
+        "QListWidget{background:transparent;border:0;color:%1;outline:0;}"
+        "QListWidget::item{padding:6px 8px;border-radius:4px;}"
+        "QListWidget::item:hover{background:%2;}"
+        "QListWidget::item:selected{background:%2;color:%3;}"
+    ).arg(qApp->palette().color(QPalette::Text).name(),
+          qApp->palette().color(QPalette::AlternateBase).name(),
+          qApp->palette().color(QPalette::Highlight).name()));
+    listAction->setDefaultWidget(list);
+    menu->addAction(listAction);
+    auto *loading = new QListWidgetItem(AppLocalization::get(QStringLiteral("LoadingSources")), list);
+    loading->setFlags(Qt::NoItemFlags);
+    const auto selectSource = [this, menu](QListWidgetItem *item) {
+        if (!item || !(item->flags() & Qt::ItemIsEnabled)) return;
+        const QString source = item->data(Qt::UserRole).toString();
+        menu->close();
+        setSourceFilter(source);
+    };
+    connect(list, &QListWidget::itemClicked, this, selectSource);
+    connect(list, &QListWidget::itemActivated, this, selectSource);
     const auto cancelled = QSharedPointer<QAtomicInteger<bool>>::create(false);
     connect(menu, &QMenu::aboutToHide, this, [cancelled] { cancelled->storeRelaxed(true); });
     connect(menu, &QObject::destroyed, this, [cancelled] { cancelled->storeRelaxed(true); });
     auto *watcher = new QFutureWatcher<QPair<QStringList, QString>>(this);
     connect(watcher, &QFutureWatcher<QPair<QStringList, QString>>::finished, this,
-            [this, watcher, guard = QPointer<QMenu>(menu), loading] {
+            [this, watcher, guard = QPointer<QMenu>(menu), listAction, list, loading, rowHeight, columnWidth] {
         const auto result = watcher->result();
         watcher->deleteLater();
         if (!guard || !guard->isVisible()) return;
         if (!result.second.isEmpty()) { loading->setText(result.second); return; }
         if (result.first.isEmpty()) { loading->setText(AppLocalization::get(QStringLiteral("NoSources"))); return; }
-        guard->removeAction(loading);
         delete loading;
+        // 按应用数量展开两列列表，最后一行可只有一项。
+        list->setFixedHeight(((int(result.first.size()) + 1) / 2) * rowHeight);
         for (const auto &source : result.first) {
-            const QString label = source.isEmpty() ? AppLocalization::get(QStringLiteral("UnknownApplication")) : source;
-            auto *action = guard->addAction(guard->fontMetrics().elidedText(label, Qt::ElideMiddle, 240)
-                                               .replace(QLatin1Char('&'), QStringLiteral("&&")));
-            action->setToolTip(label);
-            action->setCheckable(true);
-            action->setChecked(selectedSource_ && selectedSource_->compare(source, Qt::CaseInsensitive) == 0);
-            connect(action, &QAction::triggered, this, [this, source] { setSourceFilter(source); });
+            QString label = source.isEmpty() ? AppLocalization::get(QStringLiteral("UnknownApplication")) : source;
+            if (label.endsWith(QStringLiteral(".exe"), Qt::CaseInsensitive)) label.chop(4);
+            auto *item = new QListWidgetItem(list->fontMetrics().elidedText(label, Qt::ElideMiddle, columnWidth - 16), list);
+            item->setData(Qt::UserRole, source);
+            item->setToolTip(label);
+            if (selectedSource_ && selectedSource_->compare(source, Qt::CaseInsensitive) == 0)
+                list->setCurrentItem(item);
         }
-        guard->setToolTipsVisible(true);
+        // 列表变高后使已打开的菜单重新计算 QWidgetAction 的尺寸。
+        QActionEvent changed(QEvent::ActionChanged, listAction);
+        QApplication::sendEvent(guard.data(), &changed);
+        guard->adjustSize();
     });
     const QString path = databasePath_;
     watcher->setFuture(QtConcurrent::run(&readPool_, [path, cancelled] {
@@ -2024,19 +2090,6 @@ bool MainWindow::nativeEventFilter(const QByteArray &, void *message, qintptr *r
 }
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
-    if (event->type() == QEvent::Wheel && filterScroll_
-        && (watched == filterScroll_->viewport() || watched->property("historyFilter").toBool())) {
-        auto *bar = filterScroll_->horizontalScrollBar();
-        if (bar->maximum() > 0) {
-            const auto *wheel = static_cast<QWheelEvent *>(event);
-            const QPoint pixels = wheel->pixelDelta();
-            const QPoint angle = wheel->angleDelta();
-            const int steps = angle.x() != 0 ? angle.x() : angle.y();
-            const int delta = pixels.isNull() ? qRound(42.0 * steps / 120) : (pixels.x() != 0 ? pixels.x() : pixels.y());
-            bar->setValue(bar->value() - delta);
-            return true;
-        }
-    }
     if (watched == searchBox_ && passiveBrowsing_ && event->type() == QEvent::MouseButtonPress)
         activatePanel(searchBox_);
     if (hoverPreview_ && event->type() == QEvent::MouseButtonPress
@@ -2221,6 +2274,10 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
 
 bool MainWindow::event(QEvent *event) {
     const bool handled = QWidget::event(event);
+    if (event->type() == QEvent::Move && hoverPreview_) {
+        const auto *move = static_cast<QMoveEvent *>(event);
+        hoverPreview_->move(hoverPreview_->pos() + move->pos() - move->oldPos());
+    }
     if (event->type() == QEvent::Show || event->type() == QEvent::Hide)
         clipboardPollTimer_.setInterval(isVisible() || !clipboardNotificationsAvailable_ ? 250 : 2000);
     // 托盘唤出的顶层窗口失去激活时不会触发 QWidget::focusOutEvent。
@@ -2485,6 +2542,7 @@ void MainWindow::openRowMenu(const QString &id) {
     auto *groupMenu = menu->addMenu(AppLocalization::get(QStringLiteral("AddToGroupMenu")));
     // 子菜单是独立弹窗，需要单独套用圆角和主题样式。
     stylePopupMenu(groupMenu, qApp->palette());
+    groupMenu->setStyleSheet(groupMenu->styleSheet() + QStringLiteral("QMenu::item{padding:6px 12px 6px 12px;} QMenu::icon{left:6px;}"));
     groupMenu->setToolTipsVisible(true);
     const int currentGroup = item->groupId;
     if (currentGroup > 0) {
@@ -2682,10 +2740,10 @@ void MainWindow::saveCapture(ClipboardCapture capture, QImage fallbackImage, qui
                 sequenceQueue_.append(entry);
                 showStatus(AppLocalization::format(QStringLiteral("SequenceRemaining"), {QString::number(sequenceQueue_.size())}));
             }
-            // 预览复制也会写入历史，延后刷新以保留选区和预览窗口。
+            // 预览复制也立即刷新历史，同时保留预览及选区。
             historyDirty_ = true;
             newHistoryAvailable_ = !isVisible();
-            if (isVisible() && !hoverPreview_) refreshHistory();
+            if (isVisible()) refreshHistory(hoverPreview_ != nullptr);
         }
         if (clipboardSequence() != lastClipboardSequence_) scheduleCapture();
     });

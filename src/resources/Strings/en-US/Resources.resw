@@ -106,6 +106,7 @@
   <data name="FileCount" xml:space="preserve"><value>{0} files</value></data>
   <data name="MissingFileCount" xml:space="preserve"><value>{0} · {1} unavailable</value></data>
   <data name="ImageContent" xml:space="preserve"><value>Image content</value></data>
+  <data name="TrayResumeMonitoring" xml:space="preserve"><value>Monitoring paused · Resume</value></data>
   <data name="TrayToolTip" xml:space="preserve"><value>PasteOrbit · Clipboard history</value></data>
   <data name="TrayIconCreateFailed" xml:space="preserve"><value>The PasteOrbit tray icon could not be created.</value></data>
   <data name="TrayOpenHistory" xml:space="preserve"><value>Open history</value></data>
@@ -364,7 +365,7 @@
   <data name="AllSources" xml:space="preserve"><value>All sources</value></data>
   <data name="LoadingSources" xml:space="preserve"><value>Loading sources…</value></data>
   <data name="NoSources" xml:space="preserve"><value>No source applications</value></data>
-  <data name="ActiveSourceFilter" xml:space="preserve"><value>Source: {0}  ×</value></data>
+  <data name="ActiveSourceFilter" xml:space="preserve"><value>Source: {0}</value></data>
   <data name="FilePathUnavailable" xml:space="preserve"><value>Path unavailable. The file may have been moved or deleted, or the drive may be inaccessible:
 {0}</value></data>
   <data name="PlainTextFormat" xml:space="preserve"><value>Plain text</value></data>

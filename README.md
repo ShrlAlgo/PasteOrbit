@@ -10,7 +10,9 @@ PasteOrbit is a Qt Widgets desktop clipboard history manager with a Windows rele
 
 - Stores text, rich text, images, and file records.
 - Displays clipboard history near the active input position.
-- Supports filtering by content type or source application and full-text search.
+- Filters history by content type, custom group, or source application and supports full-text search.
+- Type and group filters wrap onto additional rows, with the All filter at the start.
+- The source application menu lists apps in two columns.
 - Displays format labels for plain text, Markdown, HTML, and RTF records.
 - Opens detected web links in a browser and paths in the file manager.
 - Supports pasting as original content, plain text, or files.
@@ -21,7 +23,7 @@ PasteOrbit is a Qt Widgets desktop clipboard history manager with a Windows rele
 - Supports number-key quick paste for records in the current list.
 - Supports saving text and image records as files.
 - Supports excluding clipboard records from specified applications.
-- Supports system tray presence and monitoring pause.
+- The tray menu pauses clipboard monitoring for 10 minutes, shows the paused state, and lets users resume early.
 - Supports encrypted local backup and restore.
 - Supports checking for updates, downloading installers, and upgrading in place.
 - Supports Chinese and English interfaces, plus light and dark themes.
@@ -45,7 +47,7 @@ Custom shortcut settings are preserved; resolve occupied shortcuts on the shortc
 - Configure with `cmake --preset windows-msvc`; build with `cmake --build --preset windows-debug` or `windows-release`.
 - After configuration, `build\windows-msvc\PasteOrbitNative.slnx` can also be opened directly with Debug/Release and x64 selected.
 - The executable and Qt dependencies reside in `build\windows-msvc\bin\Debug` or `bin\Release`.
-- `Scripts\Publish.ps1` writes the unpacked release to `dist\PasteOrbit-win-x64` and the ZIP to `dist`.
+- `Scripts\Publish.ps1` deploys runtime dependencies to the Release output directory and writes the ZIP to `dist`.
 - Inno Setup 6 builds the installer from `Scripts\Installer.iss` and writes it to `dist`.
 - Local publishing reuses the Release build in `build/windows-msvc` with `C:\Qt` and VS tools; CI retains its MinGW build path.
 

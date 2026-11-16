@@ -11,7 +11,9 @@ PasteOrbit 是一款基于 Qt Widgets 的桌面剪切板历史工具，提供 Wi
 
 - 保存文本、富文本、图片和文件记录。
 - 在当前输入位置附近显示剪切板历史面板。
-- 支持按内容类型、来源应用筛选和全文搜索。
+- 支持按内容类型、自定义分组和来源应用筛选，并支持全文搜索。
+- 类型和分组按钮自动换行，“全部”显示在首项。
+- 来源应用菜单采用两列布局。
 - 显示纯文本、Markdown、HTML、RTF 等文本格式标签。
 - 支持识别网页链接和路径，分别通过浏览器或文件管理器打开。
 - 支持原始内容、纯文本和文件形式的粘贴。
@@ -22,7 +24,7 @@ PasteOrbit 是一款基于 Qt Widgets 的桌面剪切板历史工具，提供 Wi
 - 支持数字键快速粘贴当前列表中的记录。
 - 支持保存文本和图片记录为文件。
 - 支持排除指定应用的剪切板记录。
-- 支持系统托盘常驻和监听暂停。
+- 托盘菜单可暂停剪贴板监听 10 分钟，显示暂停状态，也可提前恢复监听。
 - 支持本地加密备份导出与恢复。
 - 支持检查更新、下载安装包并覆盖升级。
 - 支持中英文界面、浅色和深色主题。
@@ -46,7 +48,7 @@ PasteOrbit 是一款基于 Qt Widgets 的桌面剪切板历史工具，提供 Wi
 - 命令行使用 `cmake --preset windows-msvc` 配置，使用 `cmake --build --preset windows-debug` 或 `windows-release` 构建。
 - 配置后也可直接打开 `build\windows-msvc\PasteOrbitNative.slnx`，选择 Debug/Release、x64。
 - 可运行程序及 Qt 依赖位于 `build\windows-msvc\bin\Debug` 或 `bin\Release`。
-- `Scripts\Publish.ps1` 将发布文件写入 `dist\PasteOrbit-win-x64`，ZIP 输出到 `dist`。
+- `Scripts\Publish.ps1` 将运行依赖部署到 Release 输出目录，ZIP 输出到 `dist`。
 - 使用 Inno Setup 6 编译 `Scripts\Installer.iss`，安装程序输出到 `dist`。
 - 本机发布使用 `C:\Qt` 和 VS 工具，复用 `build/windows-msvc` 的 Release 构建；CI 保留 MinGW 构建路径。
 

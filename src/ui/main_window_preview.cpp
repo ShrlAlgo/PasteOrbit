@@ -262,8 +262,9 @@ void MainWindow::toggleHoverPreview(QString id) {
     auto *layout = new QVBoxLayout(page);
     layout->setContentsMargins(10, 10, 10, 10);
     // 来源应用、格式与容量统计放在浮层页头，不再占用卡片内容宽度。
-    const QString source = item->sourceApplication.isEmpty()
+    QString source = item->sourceApplication.isEmpty()
         ? AppLocalization::get(QStringLiteral("UnknownApplication")) : item->sourceApplication;
+    if (source.endsWith(QStringLiteral(".exe"), Qt::CaseInsensitive)) source.chop(4);
     const QString format = kind == 0 ? AppLocalization::get(QStringLiteral("FilterTextButtonTooltip")) : QString{};
     const QString statistics = kind == 0
         ? AppLocalization::format(QStringLiteral("CharacterCount"), {QString::number(item->searchTextLength)})

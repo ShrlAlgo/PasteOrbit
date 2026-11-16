@@ -106,6 +106,7 @@
   <data name="FileCount" xml:space="preserve"><value>{0} 个文件</value></data>
   <data name="MissingFileCount" xml:space="preserve"><value>{0} · {1} 项已失效</value></data>
   <data name="ImageContent" xml:space="preserve"><value>图片内容</value></data>
+  <data name="TrayResumeMonitoring" xml:space="preserve"><value>监听已暂停 · 恢复监听</value></data>
   <data name="TrayToolTip" xml:space="preserve"><value>贴环 · 剪切板历史</value></data>
   <data name="TrayIconCreateFailed" xml:space="preserve"><value>无法创建 贴环 托盘图标。</value></data>
   <data name="TrayOpenHistory" xml:space="preserve"><value>打开历史</value></data>
@@ -364,7 +365,7 @@
   <data name="AllSources" xml:space="preserve"><value>全部来源</value></data>
   <data name="LoadingSources" xml:space="preserve"><value>正在加载来源…</value></data>
   <data name="NoSources" xml:space="preserve"><value>暂无来源应用</value></data>
-  <data name="ActiveSourceFilter" xml:space="preserve"><value>来源：{0}  ×</value></data>
+  <data name="ActiveSourceFilter" xml:space="preserve"><value>来源：{0}</value></data>
   <data name="FilePathUnavailable" xml:space="preserve"><value>路径不可用，文件可能已移动、删除，或磁盘暂时不可访问：
 {0}</value></data>
   <data name="PlainTextFormat" xml:space="preserve"><value>纯文本</value></data>
@@ -401,8 +402,8 @@
   <data name="GroupIconLabel" xml:space="preserve"><value>图标</value></data>
   <data name="DeleteGroupTitle" xml:space="preserve"><value>删除分组？</value></data>
   <data name="DeleteGroupMessage" xml:space="preserve"><value>分组“{0}”中的记录会保留，只取消分组。</value></data>
-  <data name="AddToGroupMenu" xml:space="preserve"><value>收藏到分组</value></data>
-  <data name="RemoveFromGroupMenu" xml:space="preserve"><value>取消分组</value></data>
+  <data name="AddToGroupMenu" xml:space="preserve"><value>加入分组</value></data>
+  <data name="RemoveFromGroupMenu" xml:space="preserve"><value>移出分组</value></data>
   <data name="ExportTableHint" xml:space="preserve"><value>导出当前表格为 CSV 或 TSV 文件</value></data>
   <data name="FormatStructuredTextHint" xml:space="preserve"><value>格式化 JSON 或普通 XML 文本</value></data>
   <data name="GroupIconSearch" xml:space="preserve"><value>搜索</value></data>

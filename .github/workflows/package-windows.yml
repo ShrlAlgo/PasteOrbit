@@ -87,7 +87,7 @@ jobs:
             throw "未找到 Inno Setup 中文语言文件：$chineseLanguageFile"
           }
 
-          & $iscc "/DAppVersion=$env:PACKAGE_VERSION" '.\Scripts\Installer.iss'
+          & $iscc "/DReleaseDir=$PWD\build\publish-ucrt64\bin\Release" "/DAppVersion=$env:PACKAGE_VERSION" '.\Scripts\Installer.iss'
           if ($LASTEXITCODE -ne 0) {
             throw "Inno Setup 编译失败，退出代码：$LASTEXITCODE"
           }

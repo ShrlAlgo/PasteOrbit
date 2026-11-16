@@ -16,53 +16,44 @@ $cmakePath = Join-Path $toolchainDirectory 'cmake.exe'
 $deployToolPath = Join-Path $toolchainDirectory 'windeployqt.exe'
 $dependencyToolPath = Join-Path $toolchainDirectory 'objdump.exe'
 # 本机优先使用 VS/MSVC；保留现有 CI 的 MinGW 发布路径。
-$useMsvc = (-not $env:MSYS2_ROOT) -and (Test-Path -LiteralPath 'C:\Qt\bin\windeployqt.exe')
+$qtBin = if (Test-Path -LiteralPath 'C:\Qt\bin\windeployqt.exe') { 'C:\Qt\bin' } else { Join-Path $repositoryRoot 'build\windows-msvc\qt-sdk\bin' }
+$useMsvc = (-not $env:MSYS2_ROOT) -and (Test-Path -LiteralPath (Join-Path $qtBin 'windeployqt.exe'))
 if ($useMsvc) {
     $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
     $vsDirectory = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 Microsoft.VisualStudio.Component.VC.CMake.Project -property installationPath
     if (-not $vsDirectory) { throw '未找到 Visual Studio C++ 和 CMake 组件。' }
     Import-Module (Join-Path $vsDirectory 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
     Enter-VsDevShell -VsInstallPath $vsDirectory -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64' | Out-Null
-    $toolchainDirectory = 'C:\Qt\bin'
+    $toolchainDirectory = $qtBin
     $cmakePath = Join-Path $vsDirectory 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
     $deployToolPath = Join-Path $toolchainDirectory 'windeployqt.exe'
     $dependencyToolPath = Join-Path $env:VCToolsInstallDir 'bin\Hostx64\x64\dumpbin.exe'
 }
 $buildDirectory = Join-Path $repositoryRoot $(if ($useMsvc) { 'build\windows-msvc' } else { 'build\publish-ucrt64' })
 $artifactsDirectory = Join-Path $repositoryRoot 'dist'
-$publishDirectory = Join-Path $artifactsDirectory 'PasteOrbit-win-x64'
-$deploymentDirectory = $publishDirectory
-$executablePath = Join-Path $publishDirectory 'PasteOrbit.exe'
-$archiveName = if ([string]::IsNullOrWhiteSpace($Version)) {
-    'PasteOrbit-win-x64.zip'
+$deploymentDirectory = Join-Path $buildDirectory 'bin\Release'
+$pluginDirectories = @('iconengines', 'imageformats', 'networkinformation', 'platforms', 'sqldrivers', 'tls')
+if ([string]::IsNullOrWhiteSpace($Version)) {
+    $Version = '2.5.24'
 }
-else {
-    "PasteOrbit-$Version-win-x64.zip"
-}
+$archiveName = "PasteOrbit-$Version-win-x64.zip"
 $archivePath = Join-Path $artifactsDirectory $archiveName
-
-function Remove-PackagePath {
-    param([Parameter(Mandatory)][string]$Path)
-
-    if (-not (Test-Path -LiteralPath $Path)) {
-        return
-    }
-
-    $resolvedArtifacts = [System.IO.Path]::GetFullPath($artifactsDirectory)
-    $resolvedTarget = [System.IO.Path]::GetFullPath($Path)
-    if (-not $resolvedTarget.StartsWith($resolvedArtifacts + [System.IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
-        throw "拒绝清理 artifacts 目录之外的路径：$resolvedTarget"
-    }
-
-    Remove-Item -LiteralPath $resolvedTarget -Recurse -Force
-}
 
 function Copy-ToolchainRuntimeDependencies {
     param([Parameter(Mandatory)][string]$Directory)
 
     $bundledNames = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     $pendingBinaries = [System.Collections.Generic.Queue[string]]::new()
-    foreach ($binary in Get-ChildItem -LiteralPath $Directory -Recurse -File | Where-Object { $_.Extension -in '.exe', '.dll' }) {
+    $binaryPaths = @((Join-Path $Directory 'PasteOrbit.exe'))
+    $binaryPaths += @(Get-ChildItem -LiteralPath $Directory -File -Filter '*.dll' | Where-Object { $_.Name -notin @('dxcompiler.dll', 'dxil.dll') } | ForEach-Object { $_.FullName })
+    foreach ($name in $pluginDirectories) {
+        $pluginPath = Join-Path $Directory $name
+        if (Test-Path -LiteralPath $pluginPath) {
+            $binaryPaths += @(Get-ChildItem -LiteralPath $pluginPath -Recurse -File -Filter '*.dll' | ForEach-Object { $_.FullName })
+        }
+    }
+    foreach ($binaryPath in $binaryPaths) {
+        $binary = Get-Item -LiteralPath $binaryPath
         [void]$bundledNames.Add($binary.Name)
         $pendingBinaries.Enqueue($binary.FullName)
     }
@@ -114,9 +105,6 @@ if ((-not (Test-Path -LiteralPath $cmakePath -PathType Leaf)) -or (-not (Test-Pa
 }
 $env:PATH = "$toolchainDirectory;$env:PATH"
 
-if ([string]::IsNullOrWhiteSpace($Version)) {
-    $Version = '2.5.23'
-}
 if ($useMsvc) {
     # 本地发布复用日常 Release 构建及目标进程处理，不再维护第二份 MSVC 缓存。
     & (Join-Path $PSScriptRoot 'Build.ps1') -Configuration Release -Version $Version
@@ -138,12 +126,7 @@ $builtExecutable = Join-Path $buildDirectory 'bin\Release\PasteOrbit.exe'
 if (-not (Test-Path -LiteralPath $builtExecutable -PathType Leaf)) {
     throw "未找到 Qt 构建产物：$builtExecutable"
 }
-# 构建成功后才替换发布产物，配置或编译失败时保留上一份可用包。
-Remove-PackagePath -Path $publishDirectory
-if (-not $NoArchive) { Remove-PackagePath -Path $archivePath }
-New-Item -ItemType Directory -Path $publishDirectory -Force | Out-Null
-$stagedExecutable = Join-Path $deploymentDirectory 'PasteOrbit.exe'
-Copy-Item -LiteralPath $builtExecutable -Destination $stagedExecutable
+# 直接在 Release 输出目录补齐发布依赖，不再复制程序。
 Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE.txt') -Destination $deploymentDirectory
 # Widgets 使用光栅绘制，无需部署 Direct3D 着色器编译器。
 # 使用 Windows 原生网络后端；不部署 TUIO、GLib 和应用未使用的数据库驱动。
@@ -151,7 +134,7 @@ Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE.txt') -Destination $d
 & $deployToolPath --release --no-translations --no-compiler-runtime --no-system-dxc-compiler --no-system-d3d-compiler `
     --skip-plugin-types generic,styles `
     --exclude-plugins qglib,qsqlibase,qsqlmimer,qsqloci,qsqlmysql,qsqlodbc,qsqlpsql `
-    --dir $deploymentDirectory $stagedExecutable
+    --dir $deploymentDirectory $builtExecutable
 if ($LASTEXITCODE -ne 0) {
     throw "Qt 运行库部署失败，退出代码：$LASTEXITCODE"
 }
@@ -170,19 +153,28 @@ foreach ($runtimeName in $(if ($useMsvc) { @() } else { @('libgcc_s_seh-1.dll', 
     Copy-Item -LiteralPath $runtimePath -Destination (Join-Path $deploymentDirectory $runtimeName) -Force
 }
 # 应用只使用 SQLite，移除未用驱动及其额外依赖，缩小发布包并避免无关插件探测。
-foreach ($driverName in @('qsqlibase.dll', 'qsqlmysql.dll', 'qsqlodbc.dll', 'qsqlpsql.dll')) {
+foreach ($driverName in @('qsqlibase.dll', 'qsqlmimer.dll', 'qsqloci.dll', 'qsqlmysql.dll', 'qsqlodbc.dll', 'qsqlpsql.dll')) {
     Remove-Item -LiteralPath (Join-Path $deploymentDirectory "sqldrivers\$driverName") -Force -ErrorAction SilentlyContinue
 }
+Remove-Item -LiteralPath (Join-Path $deploymentDirectory 'networkinformation\qglib.dll') -Force -ErrorAction SilentlyContinue
 Copy-ToolchainRuntimeDependencies -Directory $deploymentDirectory
 New-Item -ItemType Directory -Path (Join-Path $deploymentDirectory 'Assets') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $repositoryRoot 'src\resources\icons\PasteOrbit.ico') `
     -Destination (Join-Path $deploymentDirectory 'Assets\PasteOrbit.ico') -Force
 
 if (-not $NoArchive) {
-    Compress-Archive -Path (Join-Path $publishDirectory '*') -DestinationPath $archivePath -CompressionLevel Optimal
+    New-Item -ItemType Directory -Path $artifactsDirectory -Force | Out-Null
+    $packagePaths = @($builtExecutable, (Join-Path $deploymentDirectory 'LICENSE.txt'), (Join-Path $deploymentDirectory 'Assets'))
+    $packagePaths += @(Get-ChildItem -LiteralPath $deploymentDirectory -File -Filter '*.dll' | Where-Object { $_.Name -notin @('dxcompiler.dll', 'dxil.dll') } | ForEach-Object { $_.FullName })
+    foreach ($name in $pluginDirectories) {
+        $path = Join-Path $deploymentDirectory $name
+        if (Test-Path -LiteralPath $path) { $packagePaths += $path }
+    }
+    # 仅打包运行文件，避免把构建目录中遗留的测试文件带入发布包。
+    Compress-Archive -LiteralPath $packagePaths -DestinationPath $archivePath -CompressionLevel Optimal -Force
 }
 
-Write-Host "发布目录：$publishDirectory"
+Write-Host "Release 目录：$deploymentDirectory"
 if (-not $NoArchive) {
     Write-Host "压缩包：$archivePath"
 }

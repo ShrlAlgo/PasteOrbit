@@ -37,7 +37,6 @@ class QLineEdit;
 class QListView;
 class QLabel;
 class QScrollArea;
-class QHBoxLayout;
 class QPushButton;
 class QToolButton;
 class QMenu;
@@ -97,7 +96,7 @@ private:
     std::optional<PanelBounds> capturePasteTarget(PanelTarget window);
     void positionPanel(bool preferCursor, std::optional<PanelBounds> resolvedBounds = std::nullopt,
                        std::optional<PanelBounds> controlBounds = std::nullopt);
-    void refreshHistory();
+    void refreshHistory(bool preservePreview = false);
     void loadMoreHistory(int selectRow = -1);
     void updateVisibleThumbnails();
     void updateDateIndicator();
@@ -155,8 +154,8 @@ private:
     QLineEdit *searchBox_ = nullptr;
     QToolButton *sourceButton_ = nullptr;
     QToolButton *sourceFilterChip_ = nullptr;
-    QScrollArea *filterScroll_ = nullptr;
-    QHBoxLayout *groupButtonsLayout_ = nullptr;
+    QWidget *filterStrip_ = nullptr;
+    QVector<QToolButton *> groupButtons_;
     QToolButton *newGroupButton_ = nullptr;
     QVector<HistoryGroup> groups_;
     std::optional<QString> selectedSource_;
@@ -196,6 +195,7 @@ private:
     int selectedKind_ = -1;
     QSharedPointer<QAtomicInteger<int>> historyGeneration_ = QSharedPointer<QAtomicInteger<int>>::create(0);
     bool historyDirty_ = false;
+    bool preservePreviewOnReset_ = false;
     bool newHistoryAvailable_ = false;
     bool loadingPage_ = false;
     bool loadingMore_ = false;

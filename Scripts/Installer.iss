@@ -1,9 +1,11 @@
 ; 安装包版本。发布新版本时应与 Publish.ps1 的 -Version 参数保持一致。
 #ifndef AppVersion
-#define AppVersion "2.5.23"
+#define AppVersion "2.5.24"
 #endif
-; 安装文件来源于 Publish.ps1 生成的完整 win-x64 发布目录。
-#define ReleaseDir "..\dist\PasteOrbit-win-x64"
+; 安装文件来源于 Publish.ps1 部署依赖后的 Release 构建目录。
+#ifndef ReleaseDir
+#define ReleaseDir "..\build\windows-msvc\bin\Release"
+#endif
 
 [Setup]
 ; AppId 必须在后续版本中保持不变，Inno Setup 才能识别升级安装。
@@ -75,8 +77,17 @@ Type: files; Name: "{app}\sqldrivers\qsqlodbc.dll"
 Type: files; Name: "{app}\sqldrivers\qsqlpsql.dll"
 
 [Files]
-; 保留发布目录中的 Assets、Themes、XBF、PRI 和所有运行依赖的相对路径。
-Source: "{#ReleaseDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; 只包含程序及运行依赖，排除构建目录中的测试产物。
+Source: "{#ReleaseDir}\PasteOrbit.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#ReleaseDir}\LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#ReleaseDir}\*.dll"; DestDir: "{app}"; Excludes: "dxcompiler.dll,dxil.dll"; Flags: ignoreversion
+Source: "{#ReleaseDir}\Assets\*"; DestDir: "{app}\Assets"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+Source: "{#ReleaseDir}\iconengines\*"; DestDir: "{app}\iconengines"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+Source: "{#ReleaseDir}\imageformats\*"; DestDir: "{app}\imageformats"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+Source: "{#ReleaseDir}\networkinformation\*"; DestDir: "{app}\networkinformation"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+Source: "{#ReleaseDir}\platforms\*"; DestDir: "{app}\platforms"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+Source: "{#ReleaseDir}\sqldrivers\*"; DestDir: "{app}\sqldrivers"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+Source: "{#ReleaseDir}\tls\*"; DestDir: "{app}\tls"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 
 [Icons]
 ; 开始菜单快捷方式始终创建，桌面快捷方式由 desktopicon 任务控制。
