@@ -59,6 +59,19 @@ bool execute(QSqlDatabase &database, const QString &sql, QString *error = nullpt
     return false;
 }
 
+constexpr int HistoryReclaimPages = 200;
+
+void reclaimUnusedHistoryPages(const HistoryStore &store, QSqlDatabase &database) {
+    // 累积空闲页后统一回收。删除已提交，压缩失败不能被当作保存或删除失败。
+    QSqlQuery freePages(database);
+    if (!freePages.exec(QStringLiteral("PRAGMA freelist_count")) || !freePages.next()) return;
+    const bool reclaim = freePages.value(0).toInt() >= HistoryReclaimPages;
+    freePages.finish();
+    if (!reclaim) return;
+    const QString error = store.compact();
+    if (!error.isEmpty()) qWarning("History space reclaim failed: %s", qPrintable(error));
+}
+
 bool hasRequiredColumns(QSqlDatabase &database, int schema = 0) {
     const QStringList required{
         QStringLiteral("storage_id"), QStringLiteral("id"), QStringLiteral("kind"),
@@ -640,6 +653,7 @@ QString HistoryStore::remove(const QString &id) const {
     item.bindValue(QStringLiteral(":storage"), storageId);
     if (!item.exec()) { database.rollback(); return item.lastError().text(); }
     if (!database.commit()) return connection.error();
+    reclaimUnusedHistoryPages(*this, database);
     return {};
 }
 
@@ -723,7 +737,29 @@ QString HistoryStore::cleanup(int retentionDays, int maxEntries) const {
         item.finish();
     }
     if (!database.commit()) return connection.error();
+    if (ids.isEmpty()) return {};
+
+    reclaimUnusedHistoryPages(*this, database);
     return {};
+}
+
+QString HistoryStore::compactIfNeeded() const {
+    {
+        Connection connection(path_);
+        if (!connection.isOpen()) return connection.error();
+        QSqlQuery stats(connection.database());
+        if (!stats.exec(QStringLiteral("SELECT freelist_count, page_count, page_size "
+                                       "FROM pragma_freelist_count(), pragma_page_count(), pragma_page_size()"))
+            || !stats.next()) return stats.lastError().text();
+
+        // 启动时仅对明显积压的空闲空间执行完整压缩，日常回收仍走增量路径。
+        constexpr qint64 minimumFreeBytes = 32LL * 1024 * 1024;
+        const qint64 freePages = stats.value(0).toLongLong();
+        const qint64 totalPages = stats.value(1).toLongLong();
+        const qint64 pageSize = stats.value(2).toLongLong();
+        if (freePages * pageSize < minimumFreeBytes || freePages * 10 < totalPages * 3) return {};
+    }
+    return compact(true);
 }
 
 QString HistoryStore::compact(bool full) const {
@@ -731,6 +767,17 @@ QString HistoryStore::compact(bool full) const {
     if (!connection.isOpen()) return connection.error();
     QString error;
     QSqlQuery checkpoint(connection.database());
+    auto &database = connection.database();
+    // 旧库没有增量回收能力，第一次回收时通过 VACUUM 转换。
+    if (!full) {
+        QSqlQuery mode(database);
+        if (!mode.exec(QStringLiteral("PRAGMA auto_vacuum")) || !mode.next()) return mode.lastError().text();
+        if (mode.value(0).toInt() == 0) {
+            mode.finish();
+            if (!mode.exec(QStringLiteral("PRAGMA freelist_count")) || !mode.next()) return mode.lastError().text();
+            full = mode.value(0).toInt() >= HistoryReclaimPages;
+        }
+    }
     // 日常维护不等待读事务结束；完整压缩才要求截断 WAL。
     if (!checkpoint.exec(full ? QStringLiteral("PRAGMA wal_checkpoint(TRUNCATE)")
                               : QStringLiteral("PRAGMA wal_checkpoint(PASSIVE)")) || !checkpoint.next())
@@ -739,9 +786,9 @@ QString HistoryStore::compact(bool full) const {
     if (full && checkpoint.value(0).toInt() != 0) return QStringLiteral("数据库正在使用中，请稍后重试");
     checkpoint.finish();
     if (full) {
-        if (!execute(connection.database(), QStringLiteral("VACUUM"), &error)) return error;
+        if (!execute(database, QStringLiteral("PRAGMA auto_vacuum=INCREMENTAL"), &error)
+            || !execute(database, QStringLiteral("VACUUM"), &error)) return error;
     } else {
-        auto &database = connection.database();
         if (!database.transaction()) return connection.error();
         QSqlQuery freePages(database);
         if (!freePages.exec(QStringLiteral("PRAGMA freelist_count")) || !freePages.next()) {
@@ -749,7 +796,7 @@ QString HistoryStore::compact(bool full) const {
             database.rollback();
             return message;
         }
-        const int pages = qMin(200, freePages.value(0).toInt());
+        const int pages = qMin(HistoryReclaimPages, freePages.value(0).toInt());
         freePages.finish();
         // Qt 驱动不会完整遍历该 PRAGMA 的无列结果，逐页执行并合并为一个限量事务。
         for (int i = 0; i < pages; ++i) {
@@ -760,5 +807,11 @@ QString HistoryStore::compact(bool full) const {
         }
         if (!database.commit()) return connection.error();
     }
-    return execute(connection.database(), QStringLiteral("PRAGMA optimize"), &error) ? QString{} : error;
+    if (!execute(database, QStringLiteral("PRAGMA optimize"), &error)) return error;
+    // 压缩在 WAL 模式下先写入日志，检查点完成后主库文件才会缩小。
+    if (!checkpoint.exec(full ? QStringLiteral("PRAGMA wal_checkpoint(TRUNCATE)")
+                              : QStringLiteral("PRAGMA wal_checkpoint(PASSIVE)")) || !checkpoint.next())
+        return checkpoint.lastError().isValid() ? checkpoint.lastError().text() : QStringLiteral("无法确认数据库检查点状态");
+    if (full && checkpoint.value(0).toInt() != 0) return QStringLiteral("数据库正在使用中，请稍后重试");
+    return {};
 }

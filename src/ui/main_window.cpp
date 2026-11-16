@@ -600,7 +600,8 @@ LRESULT CALLBACK MainWindow::panelKeyboardProc(int code, WPARAM message, LPARAM 
     bool handled = search || (modifiers == Qt::NoModifier
         && ((key >= Qt::Key_1 && key <= Qt::Key_9) || key == Qt::Key_Escape || key == Qt::Key_Menu
             || key == Qt::Key_Left || key == Qt::Key_Right || key == Qt::Key_Up || key == Qt::Key_Down
-            || key == Qt::Key_Home || key == Qt::Key_End || key == Qt::Key_PageUp || key == Qt::Key_PageDown));
+            || key == Qt::Key_Home || key == Qt::Key_End || key == Qt::Key_PageUp || key == Qt::Key_PageDown
+            || key == Qt::Key_Delete));
     if (popup && modifiers == Qt::NoModifier && (key == Qt::Key_Return || key == Qt::Key_Space)) handled = true;
     if (!handled && key) {
         QString pressed = QKeySequence(modifiers | key).toString(QKeySequence::PortableText);
@@ -845,7 +846,11 @@ MainWindow::MainWindow(QString dataDirectory, AppSettings settings)
         const int retention = settings_.retentionDays;
         const int maximum = settings_.maxHistoryEntries;
         writePool_.start([path, retention, maximum] {
-            HistoryStore(path).cleanup(retention, maximum);
+            const HistoryStore store(path);
+            const QString cleanupError = store.cleanup(retention, maximum);
+            if (!cleanupError.isEmpty()) qWarning("Startup history cleanup failed: %s", qPrintable(cleanupError));
+            const QString compactError = store.compactIfNeeded();
+            if (!compactError.isEmpty()) qWarning("Startup history compaction failed: %s", qPrintable(compactError));
         });
     }
     cleanupPasteFiles();
@@ -2238,6 +2243,11 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
         }
         if (watched == historyList_ && historyList_->currentIndex().isValid()) {
             const auto id = historyList_->currentIndex().data(HistoryModel::IdRole).toString();
+            if (key->key() == Qt::Key_Delete && key->modifiers() == Qt::NoModifier) {
+                // 一次按键只删除当前记录，避免长按删掉随后选中的记录。
+                if (!key->isAutoRepeat()) deleteRecord(id);
+                return true;
+            }
             QString pressed = QKeySequence(key->modifiers() | key->key()).toString(QKeySequence::PortableText);
             pressed.replace(QStringLiteral("Return"), QStringLiteral("Enter"), Qt::CaseInsensitive);
             const auto normalized = AppSettings::normalizedShortcut(pressed);
@@ -2424,7 +2434,7 @@ void MainWindow::clearCurrentList() {
         const auto result = watcher->result();
         watcher->deleteLater();
         if (!result.second.isEmpty()) showStatus(result.second);
-        // 删除提交后立即刷新，后台仅限量回收空闲页，避免全库重写阻塞后续保存。
+        // 删除提交后立即刷新，后台完整回收磁盘空间，界面无需等待压缩。
         refreshHistory();
         if (result.first <= 0 || !result.second.isEmpty()) return;
         showStatus(AppLocalization::format(QStringLiteral("CurrentListCleared"),
@@ -2436,7 +2446,7 @@ void MainWindow::clearCurrentList() {
             if (!error.isEmpty()) showStatus(error);
         });
         compactWatcher->setFuture(QtConcurrent::run(&writePool_, [path] {
-            return HistoryStore(path).compact();
+            return HistoryStore(path).compact(true);
         }));
     });
     watcher->setFuture(QtConcurrent::run(&writePool_, [path, query, kind, source] {

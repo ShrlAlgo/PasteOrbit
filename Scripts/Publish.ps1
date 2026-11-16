@@ -34,7 +34,7 @@ $artifactsDirectory = Join-Path $repositoryRoot 'dist'
 $deploymentDirectory = Join-Path $buildDirectory 'bin\Release'
 $pluginDirectories = @('iconengines', 'imageformats', 'networkinformation', 'platforms', 'sqldrivers', 'tls')
 if ([string]::IsNullOrWhiteSpace($Version)) {
-    $Version = '2.5.24'
+    $Version = '2.5.25'
 }
 $archiveName = "PasteOrbit-$Version-win-x64.zip"
 $archivePath = Join-Path $artifactsDirectory $archiveName

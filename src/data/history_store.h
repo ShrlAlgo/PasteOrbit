@@ -90,6 +90,7 @@ public:
     int count() const;
     QString cleanup(int retentionDays, int maxEntries) const;
     QString compact(bool full = false) const;
+    QString compactIfNeeded() const;
 
     const QString &path() const { return path_; }
 
