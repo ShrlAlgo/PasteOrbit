@@ -475,7 +475,7 @@ SettingsDialog::SettingsDialog(AppSettings settings, QString databasePath, QStri
     addCard(general, QStringLiteral("SettingsLanguageCardHeader"), {}, language_);
     addTab(general, QStringLiteral("SettingsGeneralNavigationContent"));
 
-    auto *hotkeys = createPage(QStringLiteral("SettingsHotKeySectionText"));
+    auto *hotkeys = createPage();
     interceptWinV_ = new oclero::qlementine::Switch(hotkeys);
 #ifdef Q_OS_WIN
     addCard(hotkeys, QStringLiteral("SettingsInterceptWinVCardHeader"), QStringLiteral("SettingsInterceptWinVCardDescription"), interceptWinV_);
@@ -528,7 +528,7 @@ SettingsDialog::SettingsDialog(AppSettings settings, QString databasePath, QStri
     }
     addTab(hotkeys, QStringLiteral("SettingsHotKeyNavigationContent"));
 
-    auto *history = createPage(QStringLiteral("SettingsHistorySectionText"));
+    auto *history = createPage();
     retention_ = new SettingsComboBox(history);
     for (const int days : {7, 30, 90, 365}) retention_->addItem(QString::number(days), days);
     maximumEntries_ = new SettingsComboBox(history);
@@ -542,7 +542,7 @@ SettingsDialog::SettingsDialog(AppSettings settings, QString databasePath, QStri
     pageLayout(history)->addWidget(cleanupHint);
     addTab(history, QStringLiteral("SettingsHistoryNavigationContent"));
 
-    auto *privacy = createPage(QStringLiteral("SettingsPrivacySectionText"));
+    auto *privacy = createPage();
     auto *excludedRow = new QWidget(privacy);
     auto *excludedLayout = new QVBoxLayout(excludedRow);
     excludedLayout->setContentsMargins(0, 0, 0, 0);
@@ -597,7 +597,7 @@ SettingsDialog::SettingsDialog(AppSettings settings, QString databasePath, QStri
     connect(restoreButton, &QPushButton::clicked, this, &SettingsDialog::restoreBackup);
     addTab(privacy, QStringLiteral("SettingsPrivacyNavigationContent"));
 
-    auto *about = createPage(QStringLiteral("SettingsAboutSectionText"));
+    auto *about = createPage();
     auto *aboutIcon = new QLabel(about);
     aboutIcon->setAlignment(Qt::AlignCenter);
     aboutIcon->setPixmap(QIcon(QStringLiteral(":/PasteOrbit.png")).pixmap(48, 48));
@@ -631,8 +631,12 @@ SettingsDialog::SettingsDialog(AppSettings settings, QString databasePath, QStri
         // 保留原生 ComboBox 键盘交互，弹层与选项各自只绘制一层 Fluent 风格表面。
         auto *view = combo->view();
         auto *popup = view->parentWidget();
+        popup->setObjectName(QStringLiteral("SettingsComboPopup"));
         popup->setStyle(comboPopupStyle());
         view->setStyle(comboPopupStyle());
+        // 下拉选项使用独立样式，滚动条仍与面板、预览及设置共用绘制。
+        view->verticalScrollBar()->setStyle(qApp->style());
+        view->horizontalScrollBar()->setStyle(qApp->style());
         popup->setWindowFlag(Qt::FramelessWindowHint);
         popup->setAttribute(Qt::WA_TranslucentBackground);
         popup->setAutoFillBackground(false);
@@ -673,7 +677,7 @@ void SettingsDialog::applyTheme() {
         auto *view = combo->view();
         auto *popup = view->parentWidget();
         popup->setPalette(palette);
-        popup->setStyleSheet(QStringLiteral("background:%1;border:1px solid %2;border-radius:8px;")
+        popup->setStyleSheet(QStringLiteral("QWidget#SettingsComboPopup{background:%1;border:1px solid %2;border-radius:8px;}")
             .arg(palette.color(QPalette::Base).name(), palette.color(QPalette::Mid).name()));
         // 弹层样式重应用会覆盖子列表调色板，必须在其后同步选项与视口颜色。
         view->setPalette(palette);
@@ -725,14 +729,15 @@ QWidget *SettingsDialog::createPage(const QString &headingKey) {
     content->setBackgroundRole(QPalette::Window);
     content->setAutoFillBackground(true);
     auto *layout = new QVBoxLayout(content);
-    // Qlementine 的滚动条叠加在视口内，右侧单独预留其宽度，避免覆盖卡片。
-    layout->setContentsMargins(4, 6, 14, 8);
+    layout->setContentsMargins(4, 6, 4, 8);
     layout->setSpacing(6);
     layout->setAlignment(Qt::AlignTop);
-    auto *heading = new QLabel(AppLocalization::get(headingKey), content);
-    heading->setObjectName(QStringLiteral("SectionHeading"));
-    heading->setProperty("LocalizationKey", headingKey);
-    layout->addWidget(heading);
+    if (!headingKey.isEmpty()) {
+        auto *heading = new QLabel(AppLocalization::get(headingKey), content);
+        heading->setObjectName(QStringLiteral("SectionHeading"));
+        heading->setProperty("LocalizationKey", headingKey);
+        layout->addWidget(heading);
+    }
     auto *scroll = new QScrollArea(this);
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);

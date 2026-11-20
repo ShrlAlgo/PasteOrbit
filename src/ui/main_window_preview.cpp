@@ -24,7 +24,6 @@
 #include <QPainter>
 #include <QPushButton>
 #include <QScrollArea>
-#include <QScrollBar>
 #include <QScreen>
 #include <QShortcut>
 #include <QStackedLayout>
@@ -375,8 +374,6 @@ void MainWindow::toggleHoverPreview(QString id) {
                 hoverImageSize_ = result.image.size();
                 auto *scroll = new QScrollArea(content);
                 scroll->setFrameShape(QFrame::NoFrame);
-                scroll->verticalScrollBar()->setFixedWidth(historyList_->verticalScrollBar()->width());
-                scroll->horizontalScrollBar()->setFixedHeight(historyList_->verticalScrollBar()->width());
                 scroll->setAlignment(Qt::AlignCenter);
                 scroll->setWidgetResizable(false);
                 scroll->viewport()->setAutoFillBackground(false);
@@ -410,9 +407,7 @@ void MainWindow::toggleHoverPreview(QString id) {
                 menu->popup(preview->viewport()->mapToGlobal(position));
             });
             preview->setLineWrapMode(QTextEdit::WidgetWidth);
-            preview->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
-            preview->verticalScrollBar()->setFixedWidth(historyList_->verticalScrollBar()->width());
-            preview->horizontalScrollBar()->setFixedHeight(historyList_->verticalScrollBar()->width());
+            preview->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
             const bool richText = !result.html.isEmpty() || result.markdown;
             preview->setStyleSheet(QStringLiteral("QTextEdit{background:transparent;border:0;color:%1;}")
                 .arg(previewText.name()));

@@ -106,7 +106,7 @@
   <data name="FileCount" xml:space="preserve"><value>{0} files</value></data>
   <data name="MissingFileCount" xml:space="preserve"><value>{0} · {1} unavailable</value></data>
   <data name="ImageContent" xml:space="preserve"><value>Image content</value></data>
-  <data name="TrayResumeMonitoring" xml:space="preserve"><value>Monitoring paused · Resume</value></data>
+  <data name="TrayPausedCountdown" xml:space="preserve"><value>Paused {0}</value></data>
   <data name="TrayToolTip" xml:space="preserve"><value>PasteOrbit · Clipboard history</value></data>
   <data name="TrayIconCreateFailed" xml:space="preserve"><value>The PasteOrbit tray icon could not be created.</value></data>
   <data name="TrayOpenHistory" xml:space="preserve"><value>Open history</value></data>
@@ -327,7 +327,7 @@
   <data name="FilterFilesButtonTooltip" xml:space="preserve"><value>Files</value></data>
   <data name="FilterFavoritesButtonTooltip" xml:space="preserve"><value>Favorites</value></data>
   <data name="ClearHistoryButtonAutomationName" xml:space="preserve"><value>Clear clipboard history</value></data>
-  <data name="ClearHistoryButtonTooltip" xml:space="preserve"><value>Clear clipboard history</value></data>
+  <data name="ClearHistoryButtonTooltip" xml:space="preserve"><value>Clear clipboard history matching the current filters</value></data>
   <data name="HistoryListAutomationName" xml:space="preserve"><value>Clipboard history</value></data>
   <data name="MainEmptyHistoryText" xml:space="preserve"><value>No clipboard history</value></data>
   <data name="RecordMoreButtonTooltip" xml:space="preserve"><value>More actions</value></data>
@@ -361,7 +361,7 @@
   <data name="TextFileEncodingUnsupported" xml:space="preserve"><value>Cannot read this file as UTF-8 or BOM-marked Unicode text.</value></data>
   <data name="FilePreviewUnsupported" xml:space="preserve"><value>Content preview is not available for this file type. Open it in an external application.</value></data>
   <data name="ApplicationDisplayName" xml:space="preserve"><value>PasteOrbit</value></data>
-  <data name="FilterSource" xml:space="preserve"><value>Filter by source application</value></data>
+  <data name="FilterSource" xml:space="preserve"><value>Filter by source application (right-click to reset)</value></data>
   <data name="AllSources" xml:space="preserve"><value>All sources</value></data>
   <data name="LoadingSources" xml:space="preserve"><value>Loading sources…</value></data>
   <data name="NoSources" xml:space="preserve"><value>No source applications</value></data>

@@ -31,7 +31,7 @@ protected:
 
 private:
     void applyTheme();
-    QWidget *createPage(const QString &heading);
+    QWidget *createPage(const QString &headingKey = {});
     void addCard(QWidget *page, const QString &titleKey, const QString &descriptionKey, QWidget *control);
     void loadControls(const AppSettings &settings);
     void saveControls();

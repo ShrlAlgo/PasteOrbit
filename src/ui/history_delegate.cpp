@@ -14,8 +14,8 @@
 
 namespace {
 QRect cardRect(const QRect &row) {
-    // Qlementine 的滚动条覆盖视口，卡片仅让出实际滚动条宽度。
-    constexpr int gutter = 10;
+    // 滚动条已在视口外单独占位，卡片右侧仅保留小间距。
+    constexpr int gutter = 4;
     return row.adjusted(0, 0, -gutter, -6);
 }
 

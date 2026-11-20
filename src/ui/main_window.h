@@ -153,7 +153,6 @@ private:
     QShortcut *moreShortcut_ = nullptr;
     QLineEdit *searchBox_ = nullptr;
     QToolButton *sourceButton_ = nullptr;
-    QToolButton *sourceFilterChip_ = nullptr;
     QWidget *filterStrip_ = nullptr;
     QVector<QToolButton *> groupButtons_;
     QToolButton *newGroupButton_ = nullptr;

@@ -53,8 +53,39 @@ public:
         painter->restore();
     }
 
+    // 各滚动区域共用透明滑槽，只绘制滑块，避免悬停时出现整条背景。
+    void drawComplexControl(ComplexControl control, const QStyleOptionComplex *option, QPainter *painter,
+                            const QWidget *widget = nullptr) const override {
+        if (control != CC_ScrollBar) {
+            QlementineStyle::drawComplexControl(control, option, painter, widget);
+            return;
+        }
+        const auto *slider = qstyleoption_cast<const QStyleOptionSlider *>(option);
+        if (!slider || slider->minimum == slider->maximum) return;
+        const QRect handle = subControlRect(CC_ScrollBar, slider, SC_ScrollBarSlider, widget);
+        const bool hovered = slider->state.testFlag(State_MouseOver)
+            && slider->activeSubControls.testFlag(SC_ScrollBarSlider);
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing);
+        painter->setPen(Qt::NoPen);
+        QColor handleColor = slider->palette.color(QPalette::Text);
+        handleColor.setAlphaF(hovered ? 0.42 : 0.20);
+        painter->setBrush(handleColor);
+        const qreal radius = qMin(handle.width(), handle.height()) / 2.0;
+        painter->drawRoundedRect(QRectF(handle), radius, radius);
+        painter->restore();
+    }
+
+    int pixelMetric(PixelMetric metric, const QStyleOption *option = nullptr,
+                    const QWidget *widget = nullptr) const override {
+        if (metric == PM_ScrollView_ScrollBarOverlap) return 0;
+        return QlementineStyle::pixelMetric(metric, option, widget);
+    }
+
     int styleHint(StyleHint hint, const QStyleOption *option = nullptr, const QWidget *widget = nullptr,
                   QStyleHintReturn *result = nullptr) const override {
+        // 不叠加在内容上，由 Qt 按实际滚动范围分配和回收空间。
+        if (hint == SH_ScrollBar_Transient) return false;
         if (hint == SH_ToolTip_Mask && option && result && result->type == QStyleHintReturn::SH_Mask) {
             QPainterPath path;
             path.addRoundedRect(option->rect, 6, 6);
