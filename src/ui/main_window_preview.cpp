@@ -11,6 +11,7 @@
 #include <QFileDialog>
 #include <QSaveFile>
 #include <QMimeDatabase>
+#include <QMimeData>
 #include <QStringDecoder>
 #include <QFrame>
 #include <QImageReader>
@@ -32,12 +33,14 @@
 #include <QTextBlock>
 #include <QTextCursor>
 #include <QTextDocument>
+#include <QTextDocumentFragment>
 #include <QToolTip>
 #include <QVBoxLayout>
 #include <QtConcurrent>
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <memory>
 
 using namespace ClipboardContent;
 
@@ -152,9 +155,26 @@ struct PreviewResult {
 class PreviewTextEdit final : public QTextEdit {
 public:
     using QTextEdit::QTextEdit;
+    enum class CopyFormat { PlainText, Html, Markdown };
+    void setCopyFormat(CopyFormat format) { copyFormat_ = format; }
     void setImages(QHash<QString, QImage> images) { images_ = std::move(images); }
 
 protected:
+    QMimeData *createMimeDataFromSelection() const override {
+        const std::unique_ptr<QMimeData> selection(QTextEdit::createMimeDataFromSelection());
+        auto result = std::make_unique<QMimeData>();
+        // 按原记录格式复制选区，展示时的自动格式识别不改变剪贴板格式。
+        if (copyFormat_ == CopyFormat::Markdown) {
+            const QString markdown = isReadOnly() ? textCursor().selection().toMarkdown() : selection->text();
+            result->setText(markdown);
+            result->setData(QStringLiteral("text/markdown"), markdown.toUtf8());
+        } else {
+            if (selection->hasText()) result->setText(selection->text());
+            if (copyFormat_ == CopyFormat::Html && selection->hasHtml()) result->setHtml(selection->html());
+        }
+        return result.release();
+    }
+
     QVariant loadResource(int type, const QUrl &url) override {
         // 只使用后台已解码的图片，预览不读取本地或远程资源。
         if (type == QTextDocument::ImageResource && images_.contains(url.toString()))
@@ -163,6 +183,7 @@ protected:
     }
 
 private:
+    CopyFormat copyFormat_ = CopyFormat::PlainText;
     QHash<QString, QImage> images_;
 };
 
@@ -392,6 +413,10 @@ void MainWindow::toggleHoverPreview(QString id) {
             }
         } else {
             auto *preview = new PreviewTextEdit(content);
+            if (result.sourceMarkdown || (result.kind != 0 && result.markdown))
+                preview->setCopyFormat(PreviewTextEdit::CopyFormat::Markdown);
+            else if (!result.html.isEmpty())
+                preview->setCopyFormat(PreviewTextEdit::CopyFormat::Html);
             preview->setImages(result.htmlImages);
             preview->setReadOnly(true);
             preview->setUndoRedoEnabled(false);
