@@ -1,6 +1,6 @@
 ; 安装包版本。发布新版本时应与 Publish.ps1 的 -Version 参数保持一致。
 #ifndef AppVersion
-#define AppVersion "2.5.27"
+#define AppVersion "2.5.28"
 #endif
 ; 安装文件来源于 Publish.ps1 部署依赖后的 Release 构建目录。
 #ifndef ReleaseDir

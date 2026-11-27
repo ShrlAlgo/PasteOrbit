@@ -459,6 +459,7 @@ Qt::KeyboardModifiers panelKeyModifiers() {
 
 int panelQtKey(DWORD key) {
     if (key >= '0' && key <= '9') return Qt::Key_0 + int(key - '0');
+    if (key >= VK_NUMPAD0 && key <= VK_NUMPAD9) return Qt::Key_0 + int(key - VK_NUMPAD0);
     if (key >= 'A' && key <= 'Z') return Qt::Key_A + int(key - 'A');
     if (key >= VK_F1 && key <= VK_F24) return Qt::Key_F1 + int(key - VK_F1);
     switch (key) {
@@ -2142,6 +2143,14 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
     }
     if (watched == hoverPreview_ && event->type() == QEvent::WindowDeactivate) scheduleAutoHide();
     if (historyList_ && watched == historyList_->viewport()) {
+        if (!loadingPage_ && event->type() == QEvent::MouseButtonPress) {
+            const auto *mouse = static_cast<QMouseEvent *>(event);
+            if (mouse->button() == Qt::LeftButton && !historyList_->indexAt(mouse->position().toPoint()).isValid()) {
+                // 空白处只恢复列表焦点，保留当前选中项。
+                historyList_->setFocus(Qt::MouseFocusReason);
+                return true;
+            }
+        }
         // 新分类加载完成前，拦截旧卡片的点击和预览提示。
         if (loadingPage_ && (event->type() == QEvent::MouseButtonPress
             || event->type() == QEvent::MouseButtonRelease || event->type() == QEvent::MouseButtonDblClick
@@ -2224,6 +2233,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
         if (event->type() == QEvent::MouseButtonPress) {
             auto *mouse = static_cast<QMouseEvent *>(event);
             if (mouse->button() == Qt::LeftButton) {
+                if (!settingsPage_) historyStack_->currentWidget()->setFocus(Qt::MouseFocusReason);
                 dragging_ = true;
                 dragStart_ = mouse->globalPosition().toPoint();
                 dragWindowStart_ = pos();
@@ -2270,7 +2280,8 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
             activatePanel(searchBox_);
             return true;
         }
-        if (watched == historyList_ && key->modifiers() == Qt::NoModifier
+        // Qt 会为小键盘数字附加 KeypadModifier，数字快速粘贴允许该标记。
+        if (watched == historyList_ && (key->modifiers() & ~Qt::KeypadModifier) == Qt::NoModifier
             && searchBox_->text().isEmpty() && key->key() >= Qt::Key_1 && key->key() <= Qt::Key_9) {
             const int row = model_->quickPasteRow(key->key() - Qt::Key_1 + 1);
             if (const auto *item = model_->itemAt(row)) { pasteRecord(item->id); return true; }
@@ -2346,6 +2357,16 @@ bool MainWindow::event(QEvent *event) {
         scheduleAutoHide();
     }
     return handled;
+}
+
+void MainWindow::mousePressEvent(QMouseEvent *event) {
+    // 子控件未消费的空白点击会传播到主面板，统一恢复历史列表或空状态的焦点。
+    if (!settingsPage_ && event->button() == Qt::LeftButton) {
+        historyStack_->currentWidget()->setFocus(Qt::MouseFocusReason);
+        event->accept();
+        return;
+    }
+    QWidget::mousePressEvent(event);
 }
 
 void MainWindow::paintEvent(QPaintEvent *) {
@@ -2989,11 +3010,18 @@ void MainWindow::pasteRecord(const QString &id, bool plainText, bool asFile, std
             }
             const QString path = databasePath_;
             auto *touchWatcher = new QFutureWatcher<QString>(this);
-            connect(touchWatcher, &QFutureWatcher<QString>::finished, this, [this, touchWatcher, keepPanel] {
+            connect(touchWatcher, &QFutureWatcher<QString>::finished, this, [this, touchWatcher] {
                 const auto error = touchWatcher->result();
                 touchWatcher->deleteLater();
-                if (!error.isEmpty()) showStatus(error);
-                if (keepPanel) refreshHistory();
+                if (!error.isEmpty()) { showStatus(error); return; }
+                // 粘贴更新时间后同步列表缓存，隐藏时在下次打开展示最新顺序。
+                historyDirty_ = true;
+                if (isVisible()) {
+                    historyList_->verticalScrollBar()->setValue(0);
+                    refreshHistory();
+                } else {
+                    newHistoryAvailable_ = true;
+                }
             });
             touchWatcher->setFuture(QtConcurrent::run(&writePool_, [path, id] { return HistoryStore(path).touch(id); }));
         });
