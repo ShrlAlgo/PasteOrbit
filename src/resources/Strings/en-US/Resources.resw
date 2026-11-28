@@ -412,4 +412,12 @@
   <data name="GroupIconLink" xml:space="preserve"><value>Link</value></data>
   <data name="GroupIconPlay" xml:space="preserve"><value>Play</value></data>
   <data name="GroupIconSave" xml:space="preserve"><value>Save</value></data>
+  <data name="AddNote" xml:space="preserve"><value>Add note</value></data>
+  <data name="EditNote" xml:space="preserve"><value>Edit note</value></data>
+  <data name="RemoveNote" xml:space="preserve"><value>Remove note</value></data>
+  <data name="NotePrompt" xml:space="preserve"><value>Note (leave empty to remove)</value></data>
+  <data name="FolderFormat" xml:space="preserve"><value>Folder</value></data>
+  <data name="FileFormat" xml:space="preserve"><value>File</value></data>
+  <data name="MixedFilesFormat" xml:space="preserve"><value>Mixed files</value></data>
+  <data name="ImageFormat" xml:space="preserve"><value>Image</value></data>
 </root>

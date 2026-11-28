@@ -216,6 +216,10 @@ QString textFormatLabel(const TextContent &content, bool markdown) {
 
 ContentMetadata contentMetadata(const QByteArray &content, int kind) {
     ContentMetadata result;
+    if (kind == 1) {
+        result.formatLabel = QStringLiteral("ImageFormat");
+        return result;
+    }
     QSet<QString> seen;
     const auto appendUrl = [&result, &seen](const QUrl &url) {
         // 不允许执行自定义协议；file 目标始终由文件管理器处理。
@@ -245,8 +249,15 @@ ContentMetadata contentMetadata(const QByteArray &content, int kind) {
         if (!seen.contains(encoded)) { seen.insert(encoded); result.openTargets.append(encoded); }
     };
     if (kind == 2) {
-        for (const auto &entry : QJsonDocument::fromJson(content).array())
-            if (entry.isString()) appendPath(entry.toString());
+        QSet<QString> types;
+        for (const auto &entry : QJsonDocument::fromJson(content).array()) {
+            if (!entry.isString()) continue;
+            const QFileInfo info(entry.toString());
+            types.insert(info.isDir() ? QStringLiteral("FolderFormat")
+                : info.suffix().isEmpty() ? QStringLiteral("FileFormat") : info.suffix().toUpper());
+            appendPath(entry.toString());
+        }
+        result.formatLabel = types.size() == 1 ? *types.cbegin() : QStringLiteral("MixedFilesFormat");
         return result;
     }
     if (kind != 0) return result;

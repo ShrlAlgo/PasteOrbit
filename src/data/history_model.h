@@ -22,7 +22,7 @@ class HistoryModel final : public QAbstractListModel {
 public:
     enum Role { IdRole = Qt::UserRole + 1, KindRole, PreviewRole, SourceRole, UpdatedRole,
                 PinnedRole, SizeRole, TextLengthRole, ThumbnailRole, QuickPasteRole, FormatRole,
-                GroupRole, UnavailableRole };
+                GroupRole, UnavailableRole, NoteRole };
 
     explicit HistoryModel(QString databasePath, QObject *parent = nullptr);
     ~HistoryModel() override;

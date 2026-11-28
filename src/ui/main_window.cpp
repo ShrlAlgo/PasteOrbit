@@ -191,10 +191,10 @@ protected:
             auto *menu = static_cast<QMenu *>(watched);
             const QRect anchor = menu->property("rowMenuAnchor").toRect();
             if (anchor.isValid() && menu->isVisible() && menu->screen()) {
-                // 异步追加项目改变菜单大小后，仍固定对齐同一个按钮；空间不足时向上展开。
+                // 默认从按钮左下方展开；追加项目后保持锚点，仅在屏幕空间不足时避让。
                 const auto *screen = QGuiApplication::screenAt(anchor.center());
                 const QRect available = (screen ? screen : menu->screen())->availableGeometry();
-                const int x = qBound(available.left(), anchor.right() - menu->width() + 1,
+                const int x = qBound(available.left(), anchor.left(),
                                      qMax(available.left(), available.right() - menu->width() + 1));
                 int y = anchor.bottom() + 3;
                 if (y + menu->height() > available.bottom() + 1) y = anchor.top() - menu->height() - 2;
@@ -2179,7 +2179,8 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event) {
                         ? QStringLiteral("UnpinItem") : QStringLiteral("PinItem"));
                 else if (action == HistoryDelegate::More)
                     label = AppLocalization::format(QStringLiteral("RecordMoreShortcutTooltip"), {AppSettings::shortcutDisplayText(settings_.moreShortcut)});
-                if (!label.isEmpty()) { QToolTip::showText(help->globalPos(), label, historyList_->viewport()); return true; }
+                if (label.isEmpty()) label = hovered.data(HistoryModel::NoteRole).toString();
+                if (!label.isEmpty()) { QToolTip::showText(help->globalPos(), QStringLiteral("<qt>%1</qt>").arg(label.toHtmlEscaped()), historyList_->viewport()); return true; }
             }
             QToolTip::hideText();
             return true;
@@ -2584,6 +2585,41 @@ void MainWindow::openRecord(const QString &id) {
     }));
 }
 
+// 备注独立于正文保存，所有写入仍串行进入历史写入队列。
+void MainWindow::editRecordNote(const QString &id, bool clear) {
+    const auto *item = model_->itemAt(model_->rowForId(id));
+    if (!item) return;
+    const QString previous = item->note;
+    QString note;
+    if (!clear) {
+        activatePanel();
+        QDialog dialog(this);
+        dialog.setWindowTitle(AppLocalization::get(QStringLiteral("EditNote")));
+        auto *layout = new QVBoxLayout(&dialog);
+        auto *input = new QLineEdit(previous, &dialog);
+        const QString prompt = AppLocalization::get(QStringLiteral("NotePrompt"));
+        input->setPlaceholderText(prompt);
+        input->setAccessibleName(prompt);
+        layout->addWidget(input);
+        connect(input, &QLineEdit::returnPressed, &dialog, &QDialog::accept);
+        dialog.resize(360, dialog.sizeHint().height());
+        input->setFocus();
+        input->selectAll();
+        if (dialog.exec() != QDialog::Accepted) return;
+        note = input->text().trimmed();
+    }
+    if (note == previous) return;
+    auto *watcher = new QFutureWatcher<QString>(this);
+    connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher] {
+        const QString error = watcher->result();
+        watcher->deleteLater();
+        if (!error.isEmpty()) { QMessageBox::warning(this, windowTitle(), error); return; }
+        refreshHistory();
+    });
+    const QString path = databasePath_;
+    watcher->setFuture(QtConcurrent::run(&writePool_, [path, id, note] { return HistoryStore(path).setNote(id, note); }));
+}
+
 void MainWindow::openRowMenu(const QString &id) {
     if (loadingPage_ || QApplication::activePopupWidget()) return;
     ++openGeneration_;
@@ -2609,6 +2645,14 @@ void MainWindow::openRowMenu(const QString &id) {
     stylePopupMenu(groupMenu, qApp->palette());
     groupMenu->setStyleSheet(groupMenu->styleSheet() + QStringLiteral("QMenu::item{padding:6px 12px 6px 12px;} QMenu::icon{left:6px;}"));
     groupMenu->setToolTipsVisible(true);
+    if (selectedKind_ == 3 || selectedKind_ >= HistoryStore::GroupKindBase || !item->note.isEmpty()) {
+        auto *note = menu->addAction(AppLocalization::get(item->note.isEmpty() ? QStringLiteral("AddNote") : QStringLiteral("EditNote")));
+        connect(note, &QAction::triggered, this, [this, id] { editRecordNote(id); });
+        if (!item->note.isEmpty()) {
+            auto *removeNote = menu->addAction(AppLocalization::get(QStringLiteral("RemoveNote")));
+            connect(removeNote, &QAction::triggered, this, [this, id] { editRecordNote(id, true); });
+        }
+    }
     const int currentGroup = item->groupId;
     if (currentGroup > 0) {
         auto *none = groupMenu->addAction(AppLocalization::get(QStringLiteral("RemoveFromGroupMenu")));

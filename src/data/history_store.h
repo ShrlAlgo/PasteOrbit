@@ -24,6 +24,7 @@ struct HistoryItem {
     int groupId = 0;
     qint64 contentSize = 0;
     QString formatLabel;
+    QString note;
     // 仅用于当前会话的卡片提示，不写入数据库。
     bool unavailable = false;
 };
@@ -82,6 +83,7 @@ public:
     QByteArray thumbnail(const QString &id) const;
     // 旧记录按需补算格式和打开目标；仅在内容未变化时回写。
     ClipboardContent::ContentMetadata contentMetadata(const QString &id) const;
+    QString setNote(const QString &id, const QString &note) const;
     QString setPinned(const QString &id, bool pinned) const;
     QString touch(const QString &id) const;
     QString remove(const QString &id) const;

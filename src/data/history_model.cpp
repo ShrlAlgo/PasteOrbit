@@ -88,6 +88,7 @@ QVariant HistoryModel::data(const QModelIndex &index, int role) const {
     case SizeRole: return item.contentSize;
     case TextLengthRole: return item.searchTextLength;
     case ThumbnailRole: return thumbnails_.value(item.id);
+    case NoteRole: return item.note;
     case FormatRole: return item.formatLabel;
     case GroupRole: return item.groupId;
     case UnavailableRole: return item.unavailable;
@@ -96,7 +97,7 @@ QVariant HistoryModel::data(const QModelIndex &index, int role) const {
         if (!quickPasteEnabled_ || index.row() >= 9) return {};
         return index.row() + 1;
     }
-    case Qt::SizeHintRole: return QSize(1, 94);
+    case Qt::SizeHintRole: return QSize(1, 76);
     default: return {};
     }
 }
@@ -208,6 +209,7 @@ void HistoryModel::setVisibleRows(int first, int last) {
         const auto cancelled = QSharedPointer<QAtomicInteger<bool>>::create(false);
         thumbnailLoads_.insert(id, cancelled);
         const int kind = items_.at(rowForId(id)).kind;
+        const QString format = item.formatLabel;
         auto *watcher = new QFutureWatcher<ThumbnailResult>(this);
         connect(watcher, &QFutureWatcher<ThumbnailResult>::finished, this, [this, watcher, cancelled] {
             const auto result = watcher->result();
@@ -224,10 +226,11 @@ void HistoryModel::setVisibleRows(int first, int last) {
             if (row >= 0) emit dataChanged(index(row), index(row), {ThumbnailRole, FormatRole, UnavailableRole});
         });
         const QString path = databasePath_;
-        watcher->setFuture(QtConcurrent::run([path, id, cancelled, kind] {
+        watcher->setFuture(QtConcurrent::run([path, id, cancelled, kind, format] {
+            const QString label = format.isEmpty() ? HistoryStore(path).contentMetadata(id).formatLabel : format;
             if (cancelled->loadRelaxed()) return ThumbnailResult{id, {}};
             if (kind == 0) {
-                return ThumbnailResult{id, {}, HistoryStore(path).contentMetadata(id).formatLabel};
+                return ThumbnailResult{id, {}, label};
             }
             if (kind == 2) {
                 const auto content = HistoryStore(path).content(id);
@@ -235,7 +238,7 @@ void HistoryModel::setVisibleRows(int first, int last) {
                 QStringList paths;
                 for (const auto &path : QJsonDocument::fromJson(content).array())
                     if (path.isString()) paths.append(path.toString());
-                return ThumbnailResult{id, fileTypeIcon(content), {},
+                return ThumbnailResult{id, fileTypeIcon(content), label,
                     !ClipboardContent::firstUnavailableFilePath(paths).isEmpty()};
             }
             const auto bytes = HistoryStore(path).thumbnail(id);
@@ -246,7 +249,7 @@ void HistoryModel::setVisibleRows(int first, int last) {
             if (!buffer.open(QIODevice::ReadOnly)) return ThumbnailResult{id, {}};
             QImageReader reader(&buffer);
             if (reader.size().isValid()) reader.setScaledSize(reader.size().scaled(300, 56, Qt::KeepAspectRatio));
-            return ThumbnailResult{id, reader.read()};
+            return ThumbnailResult{id, reader.read(), label};
         }));
     }
 }

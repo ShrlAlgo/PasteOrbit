@@ -107,6 +107,7 @@ private:
     void cleanupPasteFiles();
     void pasteRecord(const QString &id, bool plainText = false, bool asFile = false,
                      std::optional<QByteArray> editedContent = std::nullopt, bool queued = false);
+    void editRecordNote(const QString &id, bool clear = false);
     void openRowMenu(const QString &id);
     void openRecord(const QString &id);
     void addOpenTargets(QMenu *menu, const QStringList &targets);

@@ -20,7 +20,7 @@ namespace {
 using DataProtection::protect;
 using DataProtection::unprotect;
 
-constexpr int CurrentSchemaVersion = 7;
+constexpr int CurrentSchemaVersion = 8;
 
 std::optional<QByteArray> protectTargets(const ClipboardContent::ContentMetadata &metadata) {
     return protect(QJsonDocument(QJsonArray::fromStringList(metadata.openTargets)).toJson(QJsonDocument::Compact));
@@ -89,7 +89,8 @@ bool hasRequiredColumns(QSqlDatabase &database, int schema = 0) {
     }
     return (schema < 5 || found.contains(QStringLiteral("format_label")))
         && (schema < 6 || found.contains(QStringLiteral("open_targets")))
-        && (schema < 7 || found.contains(QStringLiteral("group_id")));
+        && (schema < 7 || found.contains(QStringLiteral("group_id")))
+        && (schema < 8 || found.contains(QStringLiteral("note")));
 }
 
 QString escapeLike(QString value) {
@@ -115,6 +116,7 @@ QString searchClause(const QString &text, int kind, const std::optional<HistoryC
             sql += QStringLiteral(" AND clipboard_items_fts MATCH :match");
         } else {
             sql += QStringLiteral(" AND (fts.search_text LIKE :term ESCAPE '\\' COLLATE NOCASE"
+                                  " OR fts.note LIKE :term ESCAPE '\\' COLLATE NOCASE"
                                   " OR fts.source_application LIKE :term ESCAPE '\\' COLLATE NOCASE)");
         }
     }
@@ -135,7 +137,7 @@ void bindSearch(QSqlQuery &query, const QString &text, int kind,
         if (term.size() >= 3) {
             QString phrase = term;
             phrase.replace(QLatin1Char('"'), QStringLiteral("\"\""));
-            query.bindValue(QStringLiteral(":match"), QStringLiteral("{search_text source_application} : \"")
+            query.bindValue(QStringLiteral(":match"), QStringLiteral("{search_text source_application note} : \"")
                             + phrase + QStringLiteral("\""));
         } else {
             query.bindValue(QStringLiteral(":term"), QStringLiteral("%") + escapeLike(term) + QStringLiteral("%"));
@@ -198,7 +200,7 @@ QString HistoryStore::initialize() const {
     for (const auto &statement : statements) {
         if (!execute(connection.database(), statement, &error)) return error;
     }
-    // 只添加可空元数据列，不在启动时读取旧记录正文；版本与结构一起提交。
+    // 添加可空元数据并迁移搜索索引，不解密旧记录正文；版本与结构一起提交。
     auto &database = connection.database();
     if (!database.transaction()) return connection.error();
     if ((!hasRequiredColumns(database, 5)
@@ -207,7 +209,13 @@ QString HistoryStore::initialize() const {
             && !execute(database, QStringLiteral("ALTER TABLE clipboard_items ADD COLUMN open_targets BLOB NULL"), &error))
         || (!hasRequiredColumns(database, 7)
             && !execute(database, QStringLiteral("ALTER TABLE clipboard_items ADD COLUMN group_id INTEGER NULL"), &error))
-        || !execute(database, QStringLiteral("PRAGMA user_version=7"), &error)) {
+        || (!hasRequiredColumns(database, 8)
+            && !execute(database, QStringLiteral("ALTER TABLE clipboard_items ADD COLUMN note BLOB NULL"), &error))
+        || (version < 8 && (!execute(database, QStringLiteral("CREATE VIRTUAL TABLE clipboard_items_fts_new USING fts5(search_text,source_application,note,tokenize='trigram')"), &error)
+            || !execute(database, QStringLiteral("INSERT INTO clipboard_items_fts_new(rowid,search_text,source_application) SELECT rowid,search_text,source_application FROM clipboard_items_fts"), &error)
+            || !execute(database, QStringLiteral("DROP TABLE clipboard_items_fts"), &error)
+            || !execute(database, QStringLiteral("ALTER TABLE clipboard_items_fts_new RENAME TO clipboard_items_fts"), &error)))
+        || !execute(database, QStringLiteral("PRAGMA user_version=8"), &error)) {
         database.rollback();
         return error;
     }
@@ -257,7 +265,7 @@ HistoryPage HistoryStore::search(const QString &text, int kind, const std::optio
 
     QSqlQuery query(connection.database());
     const QString sql = QStringLiteral("SELECT item.storage_id,item.id,item.kind,item.preview_text,"
-        "item.search_text_length,item.source_application,item.created_at,item.updated_at,item.is_pinned,item.content_size,item.format_label,item.group_id")
+        "item.search_text_length,item.source_application,item.created_at,item.updated_at,item.is_pinned,item.content_size,item.format_label,item.group_id,item.note")
         + from + searchClause(text, kind, cursor, false, source)
         + QStringLiteral(" ORDER BY item.updated_at DESC,item.storage_id DESC LIMIT :limit");
     query.prepare(sql);
@@ -283,6 +291,11 @@ HistoryPage HistoryStore::search(const QString &text, int kind, const std::optio
         item.contentSize = query.value(9).toLongLong();
         item.formatLabel = query.value(10).toString();
         item.groupId = query.value(11).toInt();
+        if (!query.value(12).isNull()) {
+            const auto note = unprotect(query.value(12).toByteArray());
+            if (!note) { page.error = QStringLiteral("无法解密备注"); page.items.clear(); return page; }
+            item.note = QString::fromUtf8(*note);
+        }
         page.items.push_back(std::move(item));
     }
     if (page.items.size() > pageSize) {
@@ -461,12 +474,10 @@ QString HistoryStore::save(const ClipboardCapture &capture, HistoryItem *saved) 
         image.bindValue(QStringLiteral(":content"), *protectedImagePreview);
         if (!image.exec()) { database.rollback(); return image.lastError().text(); }
     }
-    QSqlQuery removeIndex(database);
-    removeIndex.prepare(QStringLiteral("DELETE FROM clipboard_items_fts WHERE rowid=:id"));
-    removeIndex.bindValue(QStringLiteral(":id"), savedStorageId);
-    if (!removeIndex.exec()) { database.rollback(); return removeIndex.lastError().text(); }
     QSqlQuery index(database);
-    index.prepare(QStringLiteral("INSERT INTO clipboard_items_fts(rowid,search_text,source_application) VALUES(:id,:text,:source)"));
+    // 重复复制只更新正文索引，保留原记录备注。
+    index.prepare(QStringLiteral("INSERT OR REPLACE INTO clipboard_items_fts(rowid,search_text,source_application,note) "
+        "VALUES(:id,:text,:source,(SELECT note FROM clipboard_items_fts WHERE rowid=:id))"));
     index.bindValue(QStringLiteral(":id"), savedStorageId);
     index.bindValue(QStringLiteral(":text"), capture.searchText);
     index.bindValue(QStringLiteral(":source"), capture.sourceApplication);
@@ -552,10 +563,10 @@ ClipboardContent::ContentMetadata HistoryStore::contentMetadata(const QString &i
     auto &database = connection.database();
     QSqlQuery query(database);
     query.prepare(QStringLiteral("SELECT format_label,open_targets,kind,content_hash,"
-                                 "CASE WHEN open_targets IS NULL THEN content END FROM clipboard_items WHERE id=:id"));
+                                 "CASE WHEN open_targets IS NULL OR format_label IS NULL OR format_label='' THEN content END FROM clipboard_items WHERE id=:id"));
     query.bindValue(QStringLiteral(":id"), id);
     if (!query.exec() || !query.next()) return {};
-    if (!query.value(1).isNull()) {
+    if (!query.value(1).isNull() && !query.value(0).toString().isEmpty()) {
         const auto targets = unprotect(query.value(1).toByteArray());
         if (!targets) return {};
         const auto document = QJsonDocument::fromJson(*targets);
@@ -577,7 +588,7 @@ ClipboardContent::ContentMetadata HistoryStore::contentMetadata(const QString &i
     // 与编辑竞争时不覆盖新版标签，避免把旧正文的识别结果写回新内容。
     QSqlQuery write(database);
     write.prepare(QStringLiteral("UPDATE clipboard_items SET format_label=:format,open_targets=:targets "
-                                 "WHERE id=:id AND content_hash=:hash AND open_targets IS NULL"));
+                                 "WHERE id=:id AND content_hash=:hash AND (open_targets IS NULL OR format_label IS NULL OR format_label='')"));
     write.bindValue(QStringLiteral(":format"), metadata.formatLabel);
     write.bindValue(QStringLiteral(":targets"), *targets);
     write.bindValue(QStringLiteral(":id"), id);
@@ -609,6 +620,29 @@ QByteArray HistoryStore::thumbnail(const QString &id) const {
     if (!query.exec() || !query.next() || query.value(0).isNull()) return {};
     const auto value = unprotect(query.value(0).toByteArray());
     return value ? *value : QByteArray{};
+}
+
+// 备注及搜索索引同事务写入，不改变剪贴板原文、时间和排序。
+QString HistoryStore::setNote(const QString &id, const QString &note) const {
+    Connection connection(path_);
+    if (!connection.isOpen()) return connection.error();
+    const auto encrypted = protect(note.toUtf8());
+    if (!encrypted) return QStringLiteral("无法加密备注");
+    auto &database = connection.database();
+    if (!database.transaction()) return connection.error();
+    QSqlQuery write(database);
+    write.prepare(QStringLiteral("UPDATE clipboard_items SET note=:note WHERE id=:id"));
+    write.bindValue(QStringLiteral(":note"), *encrypted);
+    write.bindValue(QStringLiteral(":id"), id);
+    if (!write.exec()) { database.rollback(); return write.lastError().text(); }
+    if (write.numRowsAffected() != 1) { database.rollback(); return QStringLiteral("记录已不存在"); }
+    QSqlQuery index(database);
+    index.prepare(QStringLiteral("UPDATE clipboard_items_fts SET note=:note WHERE rowid=(SELECT storage_id FROM clipboard_items WHERE id=:id)"));
+    index.bindValue(QStringLiteral(":note"), note);
+    index.bindValue(QStringLiteral(":id"), id);
+    if (!index.exec()) { database.rollback(); return index.lastError().text(); }
+    if (!database.commit()) return connection.error();
+    return {};
 }
 
 QString HistoryStore::setPinned(const QString &id, bool pinned) const {
