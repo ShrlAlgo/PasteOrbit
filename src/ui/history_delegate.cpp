@@ -6,14 +6,26 @@
 #include <QAbstractItemView>
 #include <QApplication>
 #include <QCursor>
+#include <QFontInfo>
 #include <QDateTime>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QStyle>
 #include <QTextLayout>
+#include <QAbstractTextDocumentLayout>
+#include <QTextCursor>
+#include <QTextBlock>
+#include <QTextFrame>
+#include <QTextTable>
 
 namespace {
+// 卡片只渲染文字，不访问富文本引用的文件、网络或内嵌图片。
+class CardTextDocument final : public QTextDocument {
+protected:
+    QVariant loadResource(int, const QUrl &) override { return {}; }
+};
+
 QRect cardRect(const QRect &row) {
     // 滚动条已在视口外单独占位，卡片右侧仅保留小间距。
     constexpr int gutter = 4;
@@ -122,9 +134,10 @@ void HistoryDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
     const int rightX = qMin(actionRect(card, Preview).left(),
                            card.right() - 9 - formatWidth - timeWidth + 1);
     const QString note = index.data(HistoryModel::NoteRole).toString();
-    // 正文统一缩进，贴顶备注单独避开左上角角标。
-    constexpr int contentInset = 24;
-    constexpr int noteInset = 32;
+    // 仅带角标的卡片避让左上角，其余卡片沿用原来的左边距。
+    const bool hasCorner = pinned || quickPasteNumber > 0;
+    const int contentInset = hasCorner ? 24 : 10;
+    const int noteInset = hasCorner ? 32 : 10;
     if (!note.isEmpty()) {
         QFont noteFont = option.font;
         noteFont.setPixelSize(12);
@@ -181,7 +194,74 @@ void HistoryDelegate::paint(QPainter *painter, const QStyleOptionViewItem &optio
     } else if (kind == 0) {
         painter->setFont(option.font);
         painter->setPen(palette.color(QPalette::Text));
-        drawPreviewText(painter, left, index.data(HistoryModel::PreviewRole).toString());
+        const QString source = index.data(HistoryModel::CardTextRole).toString();
+        if (source.isEmpty()) {
+            drawPreviewText(painter, left, index.data(HistoryModel::PreviewRole).toString());
+        } else {
+            const bool markdown = index.data(HistoryModel::CardMarkdownRole).toBool();
+            const QColor textColor = palette.color(QPalette::Text);
+            // 包含内容、宽度、字体和主题的有界缓存，编辑及缩放不会复用旧布局。
+            const QString key = index.data(HistoryModel::IdRole).toString() + QLatin1Char('|')
+                + QString::number(left.width()) + QLatin1Char('|') + option.font.toString()
+                + textColor.name(QColor::HexArgb) + (markdown ? QLatin1Char('M') : QLatin1Char('H')) + source;
+            auto *document = textDocuments_.object(key);
+            if (!document) {
+                document = new CardTextDocument;
+                document->setUndoRedoEnabled(false);
+                document->setDocumentMargin(0);
+                document->setDefaultFont(option.font);
+                if (markdown) document->setMarkdown(source);
+                else document->setHtml(source);
+                // 保留强调、列表和代码字体，统一字号及颜色以适配卡片和深浅主题。
+                QTextCursor cursor(document);
+                cursor.select(QTextCursor::Document);
+                QTextCharFormat textFormat;
+                textFormat.setForeground(textColor);
+                textFormat.setBackground(Qt::transparent);
+                textFormat.setFontPointSize(QFontInfo(option.font).pointSizeF());
+                cursor.mergeCharFormat(textFormat);
+                for (auto block = document->begin(); block.isValid(); block = block.next()) {
+                    QTextCursor blockCursor(block);
+                    auto format = block.blockFormat();
+                    format.setTopMargin(0);
+                    format.setBottomMargin(0);
+                    format.clearBackground();
+                    blockCursor.setBlockFormat(format);
+                }
+                // HTML 的背景也可能来自外层框架或表格，统一透出卡片底色。
+                QList<QTextFrame *> frames{document->rootFrame()};
+                while (!frames.isEmpty()) {
+                    auto *frame = frames.takeLast();
+                    frames.append(frame->childFrames());
+                    auto format = frame->frameFormat();
+                    format.clearBackground();
+                    frame->setFrameFormat(format);
+                    if (auto *table = qobject_cast<QTextTable *>(frame)) {
+                        for (int row = 0; row < table->rows(); ++row) {
+                            for (int column = 0; column < table->columns(); ++column) {
+                                auto cell = table->cellAt(row, column);
+                                auto cellFormat = cell.format();
+                                cellFormat.clearBackground();
+                                cell.setFormat(cellFormat);
+                            }
+                        }
+                    }
+                }
+                cursor = QTextCursor(document);
+                while (!(cursor = document->find(QString(QChar::ObjectReplacementCharacter), cursor)).isNull())
+                    cursor.removeSelectedText();
+                document->setTextWidth(left.width());
+                textDocuments_.insert(key, document);
+            }
+            painter->save();
+            painter->setClipRect(left, Qt::IntersectClip);
+            painter->translate(left.topLeft());
+            QAbstractTextDocumentLayout::PaintContext context;
+            context.palette = palette;
+            context.clip = QRectF(0, 0, left.width(), left.height());
+            document->documentLayout()->draw(painter, context);
+            painter->restore();
+        }
     }
 
     const int metaY = card.top() + 42;

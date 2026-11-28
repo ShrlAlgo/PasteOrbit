@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md)
 
-<img width="360" height="500" alt="PixPin_2026-10-07_09-00-09" src="https://github.com/user-attachments/assets/a42bc60b-c55e-460a-a24e-49d2e35cdcd0" />
+<img width="358" alt="PasteOrbit clipboard history" src=".github/screenshots/history-en.png" />
 
 PasteOrbit is a Qt Widgets desktop clipboard history manager with a Windows release and initial macOS support.
 

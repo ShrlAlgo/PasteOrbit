@@ -3,6 +3,8 @@
 #include "history_model.h"
 
 #include <QStyledItemDelegate>
+#include <QCache>
+#include <QTextDocument>
 
 class HistoryDelegate final : public QStyledItemDelegate {
     Q_OBJECT
@@ -22,4 +24,5 @@ signals:
 
 private:
     QString activePreviewId_;
+    mutable QCache<QString, QTextDocument> textDocuments_{16};
 };

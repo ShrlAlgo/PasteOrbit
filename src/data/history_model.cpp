@@ -88,6 +88,8 @@ QVariant HistoryModel::data(const QModelIndex &index, int role) const {
     case SizeRole: return item.contentSize;
     case TextLengthRole: return item.searchTextLength;
     case ThumbnailRole: return thumbnails_.value(item.id);
+    case CardTextRole: return cardTexts_.value(item.id);
+    case CardMarkdownRole: return markdownCards_.contains(item.id);
     case NoteRole: return item.note;
     case FormatRole: return item.formatLabel;
     case GroupRole: return item.groupId;
@@ -107,6 +109,8 @@ void HistoryModel::setFirstPage(const HistoryPage &page) {
     beginResetModel();
     items_ = page.items;
     thumbnails_.clear();
+    cardTexts_.clear();
+    markdownCards_.clear();
     visibleIds_.clear();
     endResetModel();
 }
@@ -170,8 +174,21 @@ void HistoryModel::setText(const QString &id, const QString &text, qint64 conten
     item.contentSize = contentSize;
     if (const auto cancelled = thumbnailLoads_.take(id)) cancelled->storeRelaxed(true);
     item.formatLabel = format;
+    thumbnails_.remove(id);
+    cardTexts_.remove(id);
+    markdownCards_.remove(id);
     // 只更新当前卡片，不重置列表或改变用户的选择、滚动位置。
-    emit dataChanged(index(row), index(row), {Qt::DisplayRole, PreviewRole, TextLengthRole, SizeRole, FormatRole});
+    emit dataChanged(index(row), index(row), {Qt::DisplayRole, PreviewRole, TextLengthRole, SizeRole, FormatRole, CardTextRole, CardMarkdownRole});
+    if (visibleIds_.contains(id)) {
+        int first = row;
+        int last = row;
+        for (const auto &visible : std::as_const(visibleIds_)) {
+            const int visibleRow = rowForId(visible);
+            first = qMin(first, visibleRow);
+            last = qMax(last, visibleRow);
+        }
+        setVisibleRows(first, last);
+    }
 }
 
 void HistoryModel::remove(const QString &id) {
@@ -179,6 +196,8 @@ void HistoryModel::remove(const QString &id) {
     if (row < 0) return;
     beginRemoveRows({}, row, row);
     thumbnails_.remove(id);
+    cardTexts_.remove(id);
+    markdownCards_.remove(id);
     visibleIds_.remove(id);
     if (const auto cancelled = thumbnailLoads_.take(id)) cancelled->storeRelaxed(true);
     items_.removeAt(row);
@@ -195,21 +214,23 @@ void HistoryModel::setVisibleRows(int first, int last) {
     for (const auto &id : std::as_const(visibleIds_)) {
         if (!nowVisible.contains(id)) {
             thumbnails_.remove(id);
+            cardTexts_.remove(id);
+            markdownCards_.remove(id);
             if (const auto cancelled = thumbnailLoads_.take(id)) cancelled->storeRelaxed(true);
             const int row = rowForId(id);
-            if (row >= 0) emit dataChanged(index(row), index(row), {ThumbnailRole, FormatRole});
+            if (row >= 0) emit dataChanged(index(row), index(row), {ThumbnailRole, FormatRole, CardTextRole, CardMarkdownRole});
         }
     }
     visibleIds_ = std::move(nowVisible);
     // 只取消移出视口的请求，仍可见卡片继续复用正在读取的任务。
     for (const auto &id : std::as_const(visibleIds_)) {
         const auto &item = items_.at(rowForId(id));
-        if ((item.kind == 0 && !item.formatLabel.isEmpty())
-            || thumbnails_.contains(id) || thumbnailLoads_.contains(id)) continue;
+        if (thumbnails_.contains(id) || thumbnailLoads_.contains(id)) continue;
         const auto cancelled = QSharedPointer<QAtomicInteger<bool>>::create(false);
         thumbnailLoads_.insert(id, cancelled);
         const int kind = items_.at(rowForId(id)).kind;
         const QString format = item.formatLabel;
+        const qint64 contentSize = item.contentSize;
         auto *watcher = new QFutureWatcher<ThumbnailResult>(this);
         connect(watcher, &QFutureWatcher<ThumbnailResult>::finished, this, [this, watcher, cancelled] {
             const auto result = watcher->result();
@@ -220,17 +241,28 @@ void HistoryModel::setVisibleRows(int first, int last) {
             // 空图像也记为已尝试，避免可见范围内反复读取和解码失败记录。
             // 离开可见范围或重新打开面板后会清除，允许下次重试。
             thumbnails_.insert(result.id, result.image);
+            if (!result.cardText.isEmpty()) cardTexts_.insert(result.id, result.cardText);
+            if (result.markdown) markdownCards_.insert(result.id);
             const int row = rowForId(result.id);
             if (row >= 0 && !result.format.isEmpty()) items_[row].formatLabel = result.format;
             if (row >= 0 && items_[row].kind == 2) items_[row].unavailable = result.unavailable;
-            if (row >= 0) emit dataChanged(index(row), index(row), {ThumbnailRole, FormatRole, UnavailableRole});
+            if (row >= 0) emit dataChanged(index(row), index(row), {ThumbnailRole, FormatRole, UnavailableRole, CardTextRole, CardMarkdownRole});
         });
         const QString path = databasePath_;
-        watcher->setFuture(QtConcurrent::run([path, id, cancelled, kind, format] {
+        watcher->setFuture(QtConcurrent::run([path, id, cancelled, kind, format, contentSize] {
+            if (cancelled->loadRelaxed()) return ThumbnailResult{id, {}};
             const QString label = format.isEmpty() ? HistoryStore(path).contentMetadata(id).formatLabel : format;
             if (cancelled->loadRelaxed()) return ThumbnailResult{id, {}};
             if (kind == 0) {
-                return ThumbnailResult{id, {}, label};
+                ThumbnailResult result{id, {}, label};
+                // 大记录仍用轻量摘要；只为可见且大小受限的文本读取、解密正文。
+                if (contentSize > 512 * 1024 || cancelled->loadRelaxed()) return result;
+                const auto text = ClipboardContent::decodeTextContent(HistoryStore(path).content(id));
+                if (cancelled->loadRelaxed()) return result;
+                result.markdown = ClipboardContent::isMarkdownContent(text);
+                const QString source = result.markdown ? text.text : text.html;
+                if (source.size() <= 32 * 1024) result.cardText = source;
+                return result;
             }
             if (kind == 2) {
                 const auto content = HistoryStore(path).content(id);
@@ -260,5 +292,7 @@ void HistoryModel::releaseThumbnails() {
     visibleIds_.clear();
     if (thumbnails_.isEmpty()) return;
     thumbnails_.clear();
-    if (!items_.isEmpty()) emit dataChanged(index(0), index(items_.size() - 1), {ThumbnailRole, FormatRole});
+    cardTexts_.clear();
+    markdownCards_.clear();
+    if (!items_.isEmpty()) emit dataChanged(index(0), index(items_.size() - 1), {ThumbnailRole, FormatRole, CardTextRole, CardMarkdownRole});
 }

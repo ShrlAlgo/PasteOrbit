@@ -674,6 +674,8 @@ void SettingsDialog::applyTheme() {
     // 弹层是独立窗口；仅其表面颜色随主题重绘，选项颜色由调色板直接提供。
     for (auto *combo : {theme_, language_, retention_, maximumEntries_}) {
         combo->setPalette(palette);
+        // 显式调色板可能已相同，主题切换仍需启动控件本身的颜色重绘。
+        combo->update();
         auto *view = combo->view();
         auto *popup = view->parentWidget();
         popup->setPalette(palette);

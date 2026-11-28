@@ -57,6 +57,7 @@
 #include <QPixmap>
 #include <QPointer>
 #include <QPropertyAnimation>
+#include <QGraphicsOpacityEffect>
 #include <QPushButton>
 #include <QFontDatabase>
 #include <QSettings>
@@ -1240,14 +1241,44 @@ void MainWindow::applyTheme() {
     const QColor text(dark ? QStringLiteral("#F5F5F5") : QStringLiteral("#1A1A1A"));
     const QColor muted(dark ? QStringLiteral("#B8B8B8") : QStringLiteral("#6D6D6D"));
     const QColor hover(dark ? QStringLiteral("#3B3B3B") : QStringLiteral("#EAEAEA"));
+    auto *style = qobject_cast<oclero::qlementine::QlementineStyle *>(QApplication::style());
+#ifdef Q_OS_WIN
+    BOOL enabled = TRUE;
+    SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &enabled, 0);
+#else
+    const bool enabled = MacIntegration::animationsEnabled();
+#endif
+    const bool animate = enabled && style && isVisible() && pageColor_.isValid() && pageColor_ != page;
+    // 连续切换时从当前混合画面接续，旧快照及动画立即释放。
+    const QPixmap previousFrame = animate ? grab() : QPixmap{};
+    if (themeAnimation_) {
+        themeAnimation_->stop();
+        themeAnimation_->deleteLater();
+        themeAnimation_.clear();
+    }
+    delete themeSnapshot_;
+    themeSnapshot_.clear();
+    if (animate) {
+        themeSnapshot_ = new QLabel(this);
+        themeSnapshot_->setObjectName(QStringLiteral("ThemeSnapshot"));
+        themeSnapshot_->setPixmap(previousFrame);
+        themeSnapshot_->setGeometry(rect());
+        themeSnapshot_->setAttribute(Qt::WA_TransparentForMouseEvents);
+        themeSnapshot_->setFocusPolicy(Qt::NoFocus);
+        themeSnapshot_->show();
+        themeSnapshot_->raise();
+    }
+    int animationDuration = 0;
     // 应用级主题会同步所有顶层页面与弹窗的调色板。
-    if (auto *style = qobject_cast<oclero::qlementine::QlementineStyle *>(QApplication::style())) {
+    if (style) {
         auto theme = dark ? oclero::qlementine::Theme::makeDark()
                            : oclero::qlementine::Theme::makeLight();
         theme.primaryColor = QColor("#0078D4");
         // 关闭控件外圈泛光及其动画，保留普通边框和键盘焦点。
         theme.focusBorderWidth = 0;
         theme.focusAnimationDuration = 0;
+        animationDuration = theme.animationDuration;
+        if (animate || !enabled) theme.animationDuration = 0;
         theme.backgroundColorMain1 = surface;
         theme.backgroundColorMain2 = page;
         theme.backgroundColorMain3 = hover;
@@ -1329,6 +1360,40 @@ void MainWindow::applyTheme() {
     ).arg(text.name(), surface.name(), hover.name(), muted.name(), hoverStrong.name()));
     historyList_->viewport()->update();
     update();
+    if (themeSnapshot_) {
+        const QPointer<QLabel> snapshot = themeSnapshot_;
+        // 等设置页同步调色板后再绘制新界面；此时所有控件都直接落到新颜色。
+        QTimer::singleShot(0, this, [this, snapshot, style, animationDuration] {
+            if (!snapshot || themeSnapshot_ != snapshot) return;
+            snapshot->hide();
+            (void)grab();
+            snapshot->show();
+            snapshot->raise();
+            // 新颜色已进入控件缓存，恢复平时的悬停动画不会再次播放主题过渡。
+            auto theme = style->theme();
+            theme.animationDuration = animationDuration;
+            style->setTheme(theme);
+            auto *opacity = new QGraphicsOpacityEffect(snapshot);
+            opacity->setOpacity(1);
+            snapshot->setGraphicsEffect(opacity);
+            auto *animation = new QPropertyAnimation(opacity, "opacity", this);
+            themeAnimation_ = animation;
+            animation->setDuration(160);
+            animation->setStartValue(1.0);
+            animation->setEndValue(0.0);
+            animation->setEasingCurve(QEasingCurve::InOutCubic);
+            connect(animation, &QPropertyAnimation::valueChanged, this, [this] { update(); });
+            connect(animation, &QPropertyAnimation::finished, this, [this, animation, snapshot] {
+                if (themeAnimation_ != animation) return;
+                themeAnimation_.clear();
+                themeSnapshot_.clear();
+                delete snapshot;
+                animation->deleteLater();
+                update();
+            });
+            animation->start();
+        });
+    }
 }
 
 void MainWindow::applySettings(const AppSettings &settings) {

@@ -170,6 +170,8 @@ private:
     QWidget *drawerHost_ = nullptr;
     QPointer<QWidget> historyFocus_;
     QPointer<QPropertyAnimation> pageAnimation_;
+    QPointer<QLabel> themeSnapshot_;
+    QPointer<QPropertyAnimation> themeAnimation_;
     QWidget *hoverPreview_ = nullptr;
     QLabel *hoverImageLabel_ = nullptr;
     QScrollArea *hoverImageScroll_ = nullptr;

@@ -15,6 +15,8 @@ struct ThumbnailResult {
     QImage image;
     QString format;
     bool unavailable = false;
+    QString cardText;
+    bool markdown = false;
 };
 
 class HistoryModel final : public QAbstractListModel {
@@ -22,7 +24,7 @@ class HistoryModel final : public QAbstractListModel {
 public:
     enum Role { IdRole = Qt::UserRole + 1, KindRole, PreviewRole, SourceRole, UpdatedRole,
                 PinnedRole, SizeRole, TextLengthRole, ThumbnailRole, QuickPasteRole, FormatRole,
-                GroupRole, UnavailableRole, NoteRole };
+                GroupRole, UnavailableRole, NoteRole, CardTextRole, CardMarkdownRole };
 
     explicit HistoryModel(QString databasePath, QObject *parent = nullptr);
     ~HistoryModel() override;
@@ -46,6 +48,8 @@ private:
     QString databasePath_;
     QVector<HistoryItem> items_;
     QHash<QString, QImage> thumbnails_;
+    QHash<QString, QString> cardTexts_;
+    QSet<QString> markdownCards_;
     QSet<QString> visibleIds_;
     QHash<QString, QSharedPointer<QAtomicInteger<bool>>> thumbnailLoads_;
     bool quickPasteEnabled_ = true;

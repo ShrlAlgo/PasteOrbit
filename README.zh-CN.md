@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-<img width="360" height="500" alt="PixPin_2026-10-07_08-59-08" src="https://github.com/user-attachments/assets/3226f4bc-8f9b-4bf3-857e-80d07348963c" />
+<img width="358" alt="贴环剪切板历史" src=".github/screenshots/history-zh-CN.png" />
 
 
 PasteOrbit 是一款基于 Qt Widgets 的桌面剪切板历史工具，提供 Windows 版本及初步的 macOS 适配。
